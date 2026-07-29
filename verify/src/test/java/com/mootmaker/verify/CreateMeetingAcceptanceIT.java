@@ -36,7 +36,7 @@ class CreateMeetingAcceptanceIT {
     @Test
     void createdMeetingIsReturnedByMeetingsQuery() {
         LOG.info("Resetting the database before the test");
-        client.execute("mutation { reset }");
+        DatabaseReset.reset();
 
         final String roomName = faker.address().city() + " Room";
         LOG.info("Creating room '{}'", roomName);

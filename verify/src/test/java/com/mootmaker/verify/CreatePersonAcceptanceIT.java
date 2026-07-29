@@ -30,7 +30,7 @@ class CreatePersonAcceptanceIT {
     @Test
     void createdPersonIsReturnedByPeopleQuery() {
         LOG.info("Resetting the database before the test");
-        client.execute("mutation { reset }");
+        DatabaseReset.reset();
 
         final String personName = faker.name().fullName();
         LOG.info("Creating person '{}'", personName);

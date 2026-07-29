@@ -53,7 +53,8 @@ Authorization: {{accessToken}}
   "query": "query { meetings { id room { id name capacity } organiser { id name } attendees { id name } subject startTime endTime } }"
 }
 
-### Create a room
+### Create a room (admin only - the acceptance-test client carries the admin-equivalent OAuth
+### scope, see the README's "M2M tooling" section; a real signed-in user needs custom:class=admin)
 ### On failure, "errors" is a non-empty list of the broken rules and "room" is null.
 POST {{graphqlUrl}}
 Content-Type: application/json
@@ -66,7 +67,20 @@ Authorization: {{accessToken}}
   }
 }
 
-### Create a person
+### Update a room (admin only). Replace id with a real id from the "List rooms" request above.
+POST {{graphqlUrl}}
+Content-Type: application/json
+Authorization: {{accessToken}}
+
+{
+  "query": "mutation UpdateRoom($id: ID!, $room: RoomInput!) { updateRoom(id: $id, room: $room) { room { id name capacity } errors } }",
+  "variables": {
+    "id": "9fa8b122-9476-439f-ae5c-e97256444891",
+    "room": { "name": "Conference A (renamed)", "capacity": 10 }
+  }
+}
+
+### Create a person (admin only - see the "Create a room" note above)
 POST {{graphqlUrl}}
 Content-Type: application/json
 Authorization: {{accessToken}}
@@ -75,6 +89,22 @@ Authorization: {{accessToken}}
   "query": "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { id name } }",
   "variables": {
     "person": { "name": "Geoff Weatherall" }
+  }
+}
+
+### Update a person's name. Allowed for the caller's own linked person (self-rename) or, for
+### anyone, if the caller is admin. Replace id with a real id from the "List people" request above.
+### If the target person has a linked Cognito account, this also updates their Cognito name
+### attribute to match, so it doesn't go stale relative to this record.
+POST {{graphqlUrl}}
+Content-Type: application/json
+Authorization: {{accessToken}}
+
+{
+  "query": "mutation UpdatePerson($id: ID!, $person: PersonInput!) { updatePerson(id: $id, person: $person) { person { id name } errors } }",
+  "variables": {
+    "id": "4d4c933e-28c9-45ca-bf7c-a96f26cfa355",
+    "person": { "name": "Geoff Weatherall (renamed)" }
   }
 }
 
@@ -100,14 +130,10 @@ Authorization: {{accessToken}}
   }
 }
 
-### Reset (deletes ALL stored rooms, people and meetings)
-POST {{graphqlUrl}}
-Content-Type: application/json
-Authorization: {{accessToken}}
-
-{
-  "query": "mutation { reset }"
-}
+### Resetting data (deletes ALL stored rooms, meetings, and unlinked people) is no longer part of
+### this API - it moved to mootmaker-tools/database-reset, an IAM-authenticated Lambda invoked
+### directly rather than a GraphQL mutation any signed-in user could call. See that project's
+### README, or run mootmaker-tools/database-reset/run.sh <environment>.
 
 ### Unauthenticated request - expect HTTP 401 UnauthorizedException (no Authorization header)
 POST {{graphqlUrl}}

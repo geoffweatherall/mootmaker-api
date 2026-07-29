@@ -2,7 +2,7 @@
 
 A project that is part of my [Claude Code exploration](https://github.com/geoffweatherall/mootmaker).
 
-A GraphQL API for scheduling meetings in meeting rooms. Clients can create rooms, people, and meetings, list each of them, and reset all stored data. The API is serverless: AWS AppSync fronts a set of Java Lambda functions backed by DynamoDB, and every component scales to zero so an idle deployment costs (almost) nothing.
+A GraphQL API for scheduling meetings in meeting rooms. Clients can create and list rooms, people, and meetings; every account is one of two classes, `standard` or `admin` (see [User classes and authorization](#user-classes-and-authorization)) — admins can also edit rooms and people, standard users can only rename themselves. The API is serverless: AWS AppSync fronts a set of Java Lambda functions backed by DynamoDB, and every component scales to zero so an idle deployment costs (almost) nothing.
 
 ## Data model
 
@@ -57,10 +57,13 @@ The meetings table remains the source of truth; meeting-participants is a **deri
 | `rooms`, `people` | Query | List all items of each type |
 | `meetings(filter: MeetingsFilter)` | Query | Lists meetings, optionally narrowed by a `fromStartTime`/`toEndTime` window and/or `personId` (organiser or attendee) — see [Querying meetings by date range and/or person](#querying-meetings-by-date-range-andor-person-without-scanning) |
 | `myPerson` | Query | Returns the `Person` linked to the caller's own Cognito account (via `identity.sub`), or `null` if none exists |
-| `createRoom(room)` | Mutation | Returns `CreateRoomResult` (room or validation errors) |
-| `createPerson(person)` | Mutation | Returns the created `Person`; no validation |
+| `createRoom(room)` | Mutation | **Admin only.** Returns `CreateRoomResult` (room or validation errors) |
+| `updateRoom(id, room)` | Mutation | **Admin only.** Replaces a room's name/capacity. Returns `UpdateRoomResult` (room or errors, including `RoomNotFound`) |
+| `createPerson(person)` | Mutation | **Admin only.** Returns the created `Person`; no validation beyond a required `name` |
+| `updatePerson(id, person)` | Mutation | **Self, or admin.** Renames a person and propagates the change to Cognito if they're a linked account (see [Denormalised data: Cognito's `name` attribute](#denormalised-data-cognitos-name-attribute)). Returns `UpdatePersonResult` (person or errors, including `PersonNotFound`) |
 | `createMeeting(meeting)` | Mutation | Returns `CreateMeetingResult` (meeting or validation errors) |
-| `reset` | Mutation | Deletes all rooms and meetings, and every person except those linked to a Cognito account (see [Reset and real user accounts](#reset-and-real-user-accounts)) |
+
+Wiping stored data is no longer an API operation - see [Reset and real user accounts](#reset-and-real-user-accounts).
 
 Sample requests for every operation are in [api/requests.http](api/requests.http). To use them: deploy, run `source authenticate.sh <environment>`, open the file in VS Code (REST Client extension), and run the **"Get an access token"** request first — the other requests reference the returned token via `{{cognitoToken.response.body.$.access_token}}` and send it in the `Authorization` header. Tokens last 1 hour; re-run the token request when one expires.
 
@@ -72,7 +75,7 @@ Client ──HTTP/GraphQL──▶ AWS AppSync ──direct Lambda resolver─�
 
 - **AWS AppSync** hosts the GraphQL endpoint and validates requests against the schema. Authentication is a **Cognito user pool** — every request must carry a valid JWT (see [Authentication](#authentication)). Every query and mutation field has its own resolver.
 - Each resolver is a **direct Lambda resolver**: the request template forwards the whole AppSync context (`$ctx`) as the Lambda payload, and the response template returns the Lambda result as-is. There is no VTL mapping logic — all behaviour lives in Java.
-- **One Lambda function per GraphQL field** (8 in total: list-rooms, list-people, list-meetings, create-room, create-person, my-person, create-meeting, reset), plus one more that isn't a GraphQL resolver at all: `post-confirmation-create-person`, a Cognito trigger (see below). All are built from a single shaded jar (`impl/target/mootmaker-api.jar`), differing only in the handler class, e.g. `com.mootmaker.handler.CreateMeetingHandler`. Runtime is Java 25, 512 MB, 15 s timeout.
+- **One Lambda function per GraphQL field** (9 in total: list-rooms, list-people, list-meetings, create-room, update-room, create-person, update-person, my-person, create-meeting), plus one more that isn't a GraphQL resolver at all: `post-confirmation-create-person`, a Cognito trigger (see below). All are built from a single shaded jar (`impl/target/mootmaker-api.jar`), differing only in the handler class, e.g. `com.mootmaker.handler.CreateMeetingHandler`. Runtime is Java 25, 512 MB, 15 s timeout.
 - Handlers read the table names from environment variables (`ROOMS_TABLE_NAME`, `PEOPLE_TABLE_NAME`, `MEETINGS_TABLE_NAME`, `MEETING_PARTICIPANTS_TABLE_NAME`) set by Terraform, and use the AWS SDK v2 DynamoDB client via [DynamoDbClientProvider](impl/src/main/java/com/mootmaker/dynamo/DynamoDbClientProvider.java), a lazily-built singleton reused across warm invocations.
 - **The shaded jar is kept as small as reasonably possible**, since jar size is part of what a Java Lambda has to load at cold start: [impl/pom.xml](impl/pom.xml) explicitly excludes `apache5-client` and `netty-nio-client`, two alternative HTTP client implementations the `dynamodb` SDK artifact pulls in transitively that this project never uses (only the synchronous `url-connection-client`, which the SDK would otherwise not even reliably pick — with `apache5-client` also on the classpath, the SDK's default resolution silently prefers it over the one actually configured), and uses `slf4j-simple` rather than `logback-classic` as the SLF4J binding (see [simplelogger.properties](impl/src/main/resources/simplelogger.properties)), since Lambda captures stdout/stderr into CloudWatch Logs directly and has no use for logback's file rotation, async appenders, or layout engine. Together these cut the shaded jar from ~14.8 MB to ~7.2 MB.
 - **DynamoDB** stores the data in four on-demand (`PAY_PER_REQUEST`) tables (see [Storage](#storage)).
@@ -88,7 +91,9 @@ Note: the Terraform-managed e2e test user and demo user ([cognito.tf](deploy/ter
 
 ### Reset and real user accounts
 
-`Mutation.reset` ([ResetHandler](impl/src/main/java/com/mootmaker/handler/ResetHandler.java)) always deletes every room and meeting, but only deletes a person if its `cognitoSub` is unset. A real signed-up user's Person record is their only link back to their Cognito account (nothing recreates it after the fact — see above), so unconditionally wiping it on every reset would silently break their account the next time someone reset a shared, non-production environment. Guests added directly (no `cognitoSub`) have no such link and are always cleared, keeping `reset` useful for acceptance tests and tools like [mootmaker-tools](https://github.com/geoffweatherall/mootmaker-tools)' sample data generator without ever touching a real account — including the e2e test user (which has no Person at all, per the note above) and the demo user (which has a Person, but with `cognitoSub` set like any real account, so it's preserved by the same rule).
+Wiping stored data (every room and meeting, and every person **except** those linked to a Cognito account) is no longer part of this API - it used to be `Mutation.reset`, callable by any signed-in user, which the [mootmaker business functionality doc](https://github.com/geoffweatherall/mootmaker/blob/main/functionality/business-functionality.md) called out as a known gap ("not currently restricted to administrators"). It's now [mootmaker-tools/database-reset](https://github.com/geoffweatherall/mootmaker-tools/tree/main/database-reset), a separate, IAM-authenticated Lambda - closing that gap, since invoking it needs an explicit AWS permission grant rather than just being signed in to the product.
+
+It still relies on the same invariant `Mutation.reset` did: a real signed-up user's Person record is their only link back to their Cognito account (nothing recreates it after the fact — see above), so unconditionally deleting it would silently break their account the next time someone reset a shared, non-production environment. A person is only deleted if its `cognitoSub` is unset - guests added directly have no such link and are always cleared. That's what keeps it safe to run against a shared, non-production environment, and even against `production` (itself a demo, not a real user-facing system) without ever touching a real account — including the e2e test user (which has no Person at all, per the note above) and the demo user (which has a Person, but with `cognitoSub` set like any real account, so it's preserved by the same rule). [mootmaker-tools](https://github.com/geoffweatherall/mootmaker-tools)' sample data generator, and this project's own acceptance tests (see [Build, test, deploy](#build-test-deploy)), both invoke it as a first step before creating fresh data.
 
 ### Displaying the signed-in user's name
 
@@ -112,6 +117,8 @@ The user pool has two app clients (plus a hosted domain used only for the OAuth2
 | `mootmaker-webapp` | Public (no secret), SRP auth flow | The [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) browser SPA: users sign up / sign in and their id token is sent with each GraphQL call |
 | `mootmaker-acceptance-tests` | Confidential (client secret), OAuth2 `client_credentials` flow | The [verify/](verify/) acceptance tests and [api/requests.http](api/requests.http) |
 
+The resource server (`mootmaker-api`) defines two OAuth2 scopes: `execute` (general API access) and `admin` (see [User classes and authorization](#user-classes-and-authorization)). `mootmaker-acceptance-tests` requests both — `authenticate.sh`'s `COGNITO_TEST_SCOPE` output is the space-separated pair — so M2M-authenticated tooling (acceptance tests, `sample-data-generator`) can call the admin-gated mutations without needing a real Cognito user.
+
 ### Demo user
 
 This is a demo system rather than a real business, so every deployment — including a "production" one — includes a pre-confirmed, publicly-known demo user (`demo@mootmaker.com`, Terraform outputs `demo_user_email` / `demo_user_password`, resources `aws_cognito_user.demo` / `random_password.demo_user` in [cognito.tf](deploy/terraform/cognito.tf)) that anyone can sign in as without creating their own account. Its password is randomly generated at deploy time (like the e2e test user's), but restricted to lowercase letters and digits only, so it's easy to read and type by hand when the webapp shows it on the home page. It is not a secret and its output is not marked `sensitive` — the whole point is that it's shown in the clear. (An earlier version used a fixed password, `demo1234`, which turned out to be on Google's list of known-compromised passwords; it's random now to avoid that.)
@@ -127,6 +134,24 @@ Both projects' end-to-end tests run non-interactively (a dev shell or CI), so ne
 
 [AuthenticationAcceptanceIT](verify/src/test/java/com/mootmaker/verify/AuthenticationAcceptanceIT.java) proves the API is closed: requests with no token, a malformed token, or a forged JWT all get HTTP 401 and no data, while a client_credentials token succeeds.
 
+Most acceptance tests reset the database to a known state immediately before they act, so they can't be thrown off by data left behind by another test or a previous run. Since `Mutation.reset` no longer exists (see [Reset and real user accounts](#reset-and-real-user-accounts)), they do this by invoking the [mootmaker-tools/database-reset](https://github.com/geoffweatherall/mootmaker-tools/tree/main/database-reset) Lambda directly via the AWS SDK ([DatabaseReset](verify/src/test/java/com/mootmaker/verify/DatabaseReset.java)) rather than through GraphQL - a different auth mechanism (AWS IAM, via whatever credentials are running the tests) from the M2M JWT used for the GraphQL calls above. This means **that Lambda must already be deployed for the target environment** before `verify.sh` will pass - see its README.
+
+## User classes and authorization
+
+Every Cognito user has a `custom:class` attribute, `standard` or `admin`, included in the ID token as the `custom:class` claim. `PostConfirmationCreatePersonHandler` (see [Sign-up creates a linked Person](#sign-up-creates-a-linked-person) above) sets it to `standard` for every new sign-up via `AdminUpdateUserAttributes`, right after creating the linked Person — the client is never trusted to set its own class, and the webapp's `mootmaker-webapp` app client is deliberately not granted write access to `custom:class` (see its `write_attributes` in [cognito.tf](deploy/terraform/cognito.tf)), so a signed-in user can't self-promote by calling Cognito's own attribute-update API directly. The Terraform-managed demo user is `admin` and the e2e test user is `standard` (`aws_cognito_user.demo` / `aws_cognito_user.e2e` in [cognito.tf](deploy/terraform/cognito.tf)).
+
+[Identity.requireAdmin](impl/src/main/java/com/mootmaker/handler/Identity.java) is the enforcement point, checked before any logic runs in an admin-only handler (`CreateRoomHandler`, `UpdateRoomHandler`, `CreatePersonHandler`) — same shape as `Identity.requireAuthenticated`, but also accepting a caller whose `scope` claim contains the `mootmaker-api/admin` OAuth scope, so the M2M `mootmaker-acceptance-tests` client (and tools built on it, e.g. `sample-data-generator`) keeps working without a real Cognito user or `custom:class` claim behind it. `UpdatePersonHandler` uses the softer `Identity.isAdmin` instead: a caller may update a person if they're admin *or* if the target person's `cognitoSub` matches their own `identity.sub` (a self-rename).
+
+This is enforced **server-side only** — the webapp's `isAdmin` flag (read from the same JWT claim) only decides what the UI shows; a standard user calling `updateRoom` directly still gets rejected by the Lambda regardless of what the client thinks.
+
+Accounts confirmed before this feature shipped have no `custom:class` attribute at all; every check above only ever tests for `== "admin"`, so a missing claim behaves exactly like `standard` — fail-safe, no backfill needed.
+
+### Denormalised data: Cognito's `name` attribute
+
+Meetings aren't denormalised by room/person name at all — see [Storage](#storage) above — so a rename via `updateRoom`/`updatePerson` is reflected everywhere automatically with no extra propagation. The one real exception is Cognito's own `name` user attribute, a separate copy of a linked person's name set once at sign-up. `UpdatePersonHandler` keeps it in sync: whenever the target person has a `cognitoSub`, it calls `AdminUpdateUserAttributes` to set Cognito's `name` to match, after the DynamoDB write succeeds — for both a self-rename and an admin renaming someone else's linked account. This call is best-effort (logged and swallowed on failure, like the PostConfirmation trigger) so a transient Cognito problem never fails the rename itself; the DynamoDB `Person.name` remains the source of truth read by `myPerson`, so a swallowed sync failure only means the *next* sign-in's JWT `name` claim is briefly stale, not that the rename was lost.
+
+**Known trade-off, accepted as-is:** the demo person ("Demo Strater") is declared by an `aws_dynamodb_table_item` Terraform resource (see [Sign-up creates a linked Person](#sign-up-creates-a-linked-person) above). If an admin renames it via the webapp, a future unrelated `terraform apply` for that environment will silently revert the name back to "Demo Strater" the next time that resource is applied. This is a known, deliberately-unfixed gap (no `lifecycle { ignore_changes }` guard) — harmless for a demo system, just worth knowing if it's ever confusing during a demo.
+
 ## Directory structure
 
 | Path | Contents |
@@ -134,7 +159,7 @@ Both projects' end-to-end tests run non-interactively (a dev shell or CI), so ne
 | [api/](api/) | GraphQL schema ([mootmaker.graphql](api/mootmaker.graphql)) and sample requests ([requests.http](api/requests.http)) |
 | [impl/](impl/) | Maven project with the Java Lambda handlers (`com.mootmaker.handler.*`), model records (`com.mootmaker.model.*`), and unit tests. Builds the shaded jar deployed to Lambda. |
 | [deploy/terraform/](deploy/terraform/) | Terraform for all AWS resources: AppSync API, resolvers and data sources ([appsync.tf](deploy/terraform/appsync.tf)), Cognito user pool, app clients, the e2e test user, and the public demo user ([cognito.tf](deploy/terraform/cognito.tf)), Lambda functions ([lambda.tf](deploy/terraform/lambda.tf)), DynamoDB tables ([dynamodb.tf](deploy/terraform/dynamodb.tf)), IAM roles ([iam.tf](deploy/terraform/iam.tf)), outputs (API URL, Cognito ids, test and demo user credentials). All resource names are prefixed with `<environment>-<project_name>` ([locals.tf](deploy/terraform/locals.tf)) so multiple environments can coexist in one AWS account. State is stored remotely in S3, one state file per environment ([backend.hcl](deploy/terraform/backend.hcl) — see the [mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform) README for how that bucket is set up, and the [mootmaker project README](https://github.com/geoffweatherall/mootmaker#multi-environment-deployments) for the multi-environment design). |
-| [verify/](verify/) | Maven project with JUnit acceptance tests (`*IT.java`, run by failsafe) that exercise the **deployed** API over HTTP. |
+| [verify/](verify/) | Maven project with JUnit acceptance tests (`*IT.java`, run by failsafe) that exercise the **deployed** API over HTTP, resetting data via [mootmaker-tools/database-reset](https://github.com/geoffweatherall/mootmaker-tools/tree/main/database-reset) rather than a GraphQL mutation (see [Authentication in end-to-end tests](#authentication-in-end-to-end-tests)). |
 
 ### Bash scripts
 
@@ -145,11 +170,11 @@ All scripts live in the project root and are run from there:
 | [deploy.sh](deploy.sh) | Builds the Lambda jar (`mvn clean package` in `impl/`), then `terraform init` + `terraform apply -auto-approve` to create/update all AWS resources **for the given environment**. Creates real AWS resources — run deliberately. | `./deploy.sh <environment>` |
 | [undeploy.sh](undeploy.sh) | `terraform destroy` — deletes the AppSync API, Lambdas, and DynamoDB tables **including all stored data**, for the given environment. Prompts for confirmation. | `./undeploy.sh <environment>` |
 | [authenticate.sh](authenticate.sh) | Reads the given environment's Terraform outputs and exports `GRAPHQL_API_URL`, the `COGNITO_*` variables (user pool id, webapp client id, token URL, test client id/secret/scope) and the `E2E_USER_*` test-user credentials into the current shell. Must be **sourced**, not executed. | `source authenticate.sh <environment>` |
-| [verify.sh](verify.sh) | Sources `authenticate.sh <environment>`, then runs the acceptance tests (`mvn clean verify` in `verify/`) against that environment's deployed API. | `./verify.sh <environment>` |
+| [verify.sh](verify.sh) | Sources `authenticate.sh <environment>`, then runs the acceptance tests (`mvn clean verify` in `verify/`) against that environment's deployed API. Requires [mootmaker-tools/database-reset](https://github.com/geoffweatherall/mootmaker-tools/tree/main/database-reset) to already be deployed for that environment (see [Authentication in end-to-end tests](#authentication-in-end-to-end-tests)). | `./verify.sh <environment>` |
 
 ## Build, test, deploy
 
-Prerequisites: Java 25, Maven, Terraform ≥ 1.10, and AWS credentials configured for the target account.
+Prerequisites: Java 25, Maven, Terraform ≥ 1.10, and AWS credentials configured for the target account. Running `verify.sh` additionally needs [mootmaker-tools/database-reset](https://github.com/geoffweatherall/mootmaker-tools/tree/main/database-reset) already deployed for that environment, and AWS credentials with `lambda:InvokeFunction` on it.
 
 Every deploy/undeploy/authenticate/verify script takes an **environment** name
 (e.g. `test`, `production`, or your own name for a personal sandbox) so
@@ -202,7 +227,7 @@ Every component is configured to scale to zero, so a deployed-but-idle API costs
 
 There are no fixed-price resources (no provisioned DynamoDB capacity, no EC2/containers, no NAT gateways, no provisioned Lambda concurrency). Costs scale linearly with API call volume: each GraphQL call is one AppSync request, one Lambda invocation, and one or more DynamoDB operations.
 
-One scaling caveat: `reset` and an unfiltered `meetings` query still **scan** whole tables rather than using an index, so their DynamoDB read cost grows with total stored data, not just with call volume. That's an intentional trade-off for `reset` (it needs to enumerate literally everything to delete it) and for an unfiltered `meetings` call (it's asking for literally everything), but not for `createMeeting`'s overlap check or a filtered `meetings` query — both of those go through the `bucket-startTime-index`/`roomId-startTime-index` GSIs or the meeting-participants table instead (see [Storage](#storage)), so their cost is bounded by the size of the matching result, not total stored data.
+One scaling caveat: an unfiltered `meetings` query still **scans** the whole table rather than using an index, so its DynamoDB read cost grows with total stored data, not just with call volume. That's an intentional trade-off - it's asking for literally everything - but not for `createMeeting`'s overlap check or a filtered `meetings` query — both of those go through the `bucket-startTime-index`/`roomId-startTime-index` GSIs or the meeting-participants table instead (see [Storage](#storage)), so their cost is bounded by the size of the matching result, not total stored data. [mootmaker-tools/database-reset](https://github.com/geoffweatherall/mootmaker-tools/tree/main/database-reset) (formerly `Mutation.reset` here - see [Reset and real user accounts](#reset-and-real-user-accounts)) has the same full-table-scan trade-off for the same reason, but its Lambda/DynamoDB cost is now attributed to that separate deployment rather than this API.
 
 `createMeeting` writes cost slightly more than one write request unit now: it writes the meeting plus one meeting-participants row per organiser/attendee in a single `TransactWriteItems` call, which DynamoDB bills at 2× the normal per-item write cost. For a typical small meeting (a couple of attendees) that's still a handful of write request units — a fraction of a cent even at thousands of meetings/month, negligible next to Lambda/AppSync costs.
 
@@ -212,19 +237,30 @@ One scaling caveat: `reset` and an unfiltered `meetings` query still **scan** wh
 
 Validation is implemented entirely in the Java Lambda handlers (not in AppSync/VTL, apart from the type/nullability checks the GraphQL schema itself enforces). The create mutations for rooms and meetings never throw GraphQL errors for rule violations; instead they return a **structured result object**:
 
-- `CreateRoomResult { room, errors: [RoomError!]! }`
+- `CreateRoomResult { room, errors: [RoomError!]! }` / `UpdateRoomResult { room, errors: [RoomError!]! }`
+- `UpdatePersonResult { person, errors: [PersonError!]! }`
 - `CreateMeetingResult { meeting, errors: [MeetingError!]! }`
 
 On success the entity field is populated and `errors` is empty. On failure the entity field is `null` and `errors` contains **one enum entry per rule broken** — the handlers collect all violations rather than stopping at the first, so a client gets the complete list in one round trip. Nothing is written to DynamoDB unless validation passes.
 
 ### Rules
 
-`createRoom` ([CreateRoomHandler](impl/src/main/java/com/mootmaker/handler/CreateRoomHandler.java)):
+`createRoom` ([CreateRoomHandler](impl/src/main/java/com/mootmaker/handler/CreateRoomHandler.java)) and `updateRoom` ([UpdateRoomHandler](impl/src/main/java/com/mootmaker/handler/UpdateRoomHandler.java)):
 
 | Error | Rule |
 |---|---|
 | `NameRequired` | `name` must not be null or blank |
 | `CapacityTooLow` | `capacity` must be ≥ 2 |
+| `RoomNotFound` | `updateRoom` only: `id` must refer to an existing room |
+
+`updatePerson` ([UpdatePersonHandler](impl/src/main/java/com/mootmaker/handler/UpdatePersonHandler.java)):
+
+| Error | Rule |
+|---|---|
+| `NameRequired` | `name` must not be null or blank |
+| `PersonNotFound` | `id` must refer to an existing person |
+
+A room's capacity can be reduced below the size of a meeting already booked into it — nothing retroactively re-validates past decisions, matching how nothing else in this API does either.
 
 `createMeeting` ([CreateMeetingHandler](impl/src/main/java/com/mootmaker/handler/CreateMeetingHandler.java)):
 
@@ -241,7 +277,7 @@ On success the entity field is populated and `errors` is empty. On failure the e
 | `InsufficientCapacity` | Room capacity must be ≥ 1 + number of attendees (the organiser counts) |
 | `TimeRangeUnavailable` | The room must have no existing meeting overlapping the requested `[startTime, endTime)` range (touching end-to-start is allowed) |
 
-`createPerson` performs no validation beyond the schema's non-null `name`. The acceptance tests in [verify/](verify/) cover these rules end-to-end against the deployed API.
+`createPerson` performs no validation beyond the schema's non-null `name`. The acceptance tests in [verify/](verify/) cover these rules, and the admin-only/self-or-admin authorization checks, end-to-end against the deployed API.
 
 ## Implementation choices
 

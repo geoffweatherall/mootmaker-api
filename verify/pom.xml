@@ -12,10 +12,18 @@
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <awssdk.version>2.46.7</awssdk.version>
   </properties>
 
   <dependencyManagement>
     <dependencies>
+      <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>bom</artifactId>
+        <version>${awssdk.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
       <dependency>
         <groupId>org.junit</groupId>
         <artifactId>junit-bom</artifactId>
@@ -27,6 +35,33 @@
   </dependencyManagement>
 
   <dependencies>
+    <!-- Invokes the mootmaker-tools/database-reset Lambda directly (AWS IAM auth), rather than
+         through GraphQL - see DatabaseReset.java. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>lambda</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>url-connection-client</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- The default credentials chain's ProfileCredentialsProvider needs both of these on the
+         classpath to resolve AWS SSO profile credentials (the same kind `aws sts
+         get-caller-identity` already resolves via the CLI) - without them, DatabaseReset's
+         LambdaClient fails with "the 'sso'/'ssooidc' service module must be on the class path"
+         for anyone running these tests via an SSO-based profile rather than static access keys. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>sso</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>ssooidc</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>

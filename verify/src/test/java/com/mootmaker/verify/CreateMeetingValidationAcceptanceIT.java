@@ -51,7 +51,7 @@ class CreateMeetingValidationAcceptanceIT {
 
     @BeforeEach
     void resetDatabaseAndCreateFixtures() {
-        client.execute("mutation { reset }");
+        DatabaseReset.reset();
         roomName = faker.address().city() + " Room";
         roomId = createRoom(roomName, ROOM_CAPACITY);
         organiserId = createPerson(faker.name().fullName());

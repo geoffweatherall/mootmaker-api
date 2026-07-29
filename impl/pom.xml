@@ -62,6 +62,22 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <!-- UpdatePersonHandler and PostConfirmationCreatePersonHandler call AdminUpdateUserAttributes
+         directly (see Identity/cognito.tf) - same exclusion reasoning as dynamodb above. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>cognitoidentityprovider</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>apache5-client</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>url-connection-client</artifactId>

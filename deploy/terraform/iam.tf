@@ -24,12 +24,14 @@ data "aws_iam_policy_document" "lambda_dynamodb_access" {
       "dynamodb:GetItem",
       "dynamodb:BatchGetItem",
       "dynamodb:PutItem",
-      "dynamodb:DeleteItem",
       "dynamodb:Scan",
       "dynamodb:Query",
       # CreateMeetingHandler writes a meeting and its meeting-participants rows atomically so the
       # two can never drift under normal operation.
       "dynamodb:TransactWriteItems",
+      # No dynamodb:DeleteItem: that was only ever needed by ResetHandler, which moved out to
+      # mootmaker-tools/database-reset (its own Lambda, with its own narrowly-scoped role) - see
+      # the README's "Reset and real user accounts" section.
     ]
     resources = [
       aws_dynamodb_table.rooms.arn,
@@ -51,6 +53,21 @@ resource "aws_iam_role_policy" "lambda_dynamodb_access" {
   name   = "${local.resource_prefix}-lambda-dynamodb-access"
   role   = aws_iam_role.lambda_exec.id
   policy = data.aws_iam_policy_document.lambda_dynamodb_access.json
+}
+
+# PostConfirmationCreatePersonHandler (sets a new sign-up's default class) and UpdatePersonHandler
+# (propagates a Person rename to Cognito's own name attribute) both call AdminUpdateUserAttributes.
+data "aws_iam_policy_document" "lambda_cognito_access" {
+  statement {
+    actions   = ["cognito-idp:AdminUpdateUserAttributes"]
+    resources = [aws_cognito_user_pool.this.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_cognito_access" {
+  name   = "${local.resource_prefix}-lambda-cognito-access"
+  role   = aws_iam_role.lambda_exec.id
+  policy = data.aws_iam_policy_document.lambda_cognito_access.json
 }
 
 data "aws_iam_policy_document" "appsync_assume_role" {
@@ -75,11 +92,12 @@ data "aws_iam_policy_document" "appsync_invoke_lambda" {
       aws_lambda_function.list_rooms.arn,
       aws_lambda_function.list_people.arn,
       aws_lambda_function.create_room.arn,
+      aws_lambda_function.update_room.arn,
       aws_lambda_function.create_person.arn,
+      aws_lambda_function.update_person.arn,
       aws_lambda_function.my_person.arn,
       aws_lambda_function.list_meetings.arn,
       aws_lambda_function.create_meeting.arn,
-      aws_lambda_function.reset.arn,
     ]
   }
 }

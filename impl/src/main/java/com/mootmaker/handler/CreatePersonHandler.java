@@ -9,7 +9,7 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 import module java.base;
 
-/** AppSync direct-Lambda resolver for {@code Mutation.createPerson}. */
+/** AppSync direct-Lambda resolver for {@code Mutation.createPerson}. Admin only - see {@link Identity#requireAdmin}. */
 public class CreatePersonHandler implements RequestHandler<Map<String, Object>, Object> {
 
     private final DynamoDbClient dynamoDbClient;
@@ -26,7 +26,7 @@ public class CreatePersonHandler implements RequestHandler<Map<String, Object>, 
 
     @Override
     public Object handleRequest(final Map<String, Object> event, final Context context) {
-        Identity.requireAuthenticated(event);
+        Identity.requireAdmin(event);
 
         final Map<String, Object> arguments = castToMap(event.get("arguments"));
         final Map<String, Object> personInput = castToMap(arguments.get("person"));

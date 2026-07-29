@@ -39,9 +39,22 @@ class FakeDynamoDbClient implements DynamoDbClient {
     public void close() {
     }
 
+    /**
+     * Replaces any existing item with the same "id" (matching real DynamoDB PutItem semantics for
+     * every table here, which are all keyed by "id" - meeting-participants is the one exception,
+     * but nothing under test writes to it via a bare putItem rather than transactWriteItems).
+     * Previously this just appended unconditionally, which was fine when only create* handlers
+     * existed (never a pre-existing item to collide with) but silently left a stale duplicate
+     * behind once update* handlers started overwriting an existing item.
+     */
     @Override
     public PutItemResponse putItem(final PutItemRequest request) {
-        tables.computeIfAbsent(request.tableName(), _ -> new ArrayList<>()).add(request.item());
+        final List<Map<String, AttributeValue>> items = tables.computeIfAbsent(request.tableName(), _ -> new ArrayList<>());
+        final AttributeValue id = request.item().get("id");
+        if (id != null) {
+            items.removeIf(item -> id.equals(item.get("id")));
+        }
+        items.add(request.item());
         return PutItemResponse.builder().build();
     }
 

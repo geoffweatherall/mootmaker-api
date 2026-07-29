@@ -21,11 +21,15 @@ input MeetingsFilter {
 }
 
 type Mutation {
+ "Admin only."
  createRoom(room: RoomInput!): CreateRoomResult!
+ "Admin only."
+ updateRoom(id: ID!, room: RoomInput!): UpdateRoomResult!
+ "Admin only."
  createPerson(person: PersonInput!): Person!
+ "Allowed for the caller's own linked Person (self-rename), or for anyone if the caller is admin."
+ updatePerson(id: ID!, person: PersonInput!): UpdatePersonResult!
  createMeeting(meeting: MeetingInput!): CreateMeetingResult!
- "Deletes all stored rooms and meetings, and every person except those linked to a Cognito account."
- reset: Boolean!
 }
 
 type Room {
@@ -47,9 +51,18 @@ type CreateRoomResult {
     errors: [RoomError!]!
 }
 
+type UpdateRoomResult {
+    "Populated when the room passed all validation rules and was updated."
+    room: Room
+    "Non-empty when the update was rejected; one entry per validation rule broken."
+    errors: [RoomError!]!
+}
+
 enum RoomError {
     NameRequired
     CapacityTooLow
+    "updateRoom only: id did not match any existing room."
+    RoomNotFound
 }
 
 
@@ -60,6 +73,19 @@ type Person {
 
 input PersonInput {
     name: String!
+}
+
+type UpdatePersonResult {
+    "Populated when the update passed all validation rules and was applied."
+    person: Person
+    "Non-empty when the update was rejected; one entry per validation rule broken."
+    errors: [PersonError!]!
+}
+
+enum PersonError {
+    NameRequired
+    "id did not match any existing person."
+    PersonNotFound
 }
 
 type Meeting {

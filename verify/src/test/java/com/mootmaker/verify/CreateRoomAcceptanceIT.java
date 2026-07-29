@@ -33,7 +33,7 @@ class CreateRoomAcceptanceIT {
     @Test
     void createdRoomIsReturnedByRoomsQuery() {
         LOG.info("Resetting the database before the test");
-        client.execute("mutation { reset }");
+        DatabaseReset.reset();
 
         final String roomName = faker.address().city() + " Room";
         final int capacity = faker.number().numberBetween(2, 20);
@@ -75,7 +75,7 @@ class CreateRoomAcceptanceIT {
     @Test
     void missingRoomNameIsRejectedWithoutPersistingARoom() {
         LOG.info("Resetting the database before the test");
-        client.execute("mutation { reset }");
+        DatabaseReset.reset();
 
         LOG.info("Checking a blank room name does not create a room");
         client.execute(CREATE_ROOM_MUTATION, Map.of("room", Map.of("name", "   ", "capacity", 5)));

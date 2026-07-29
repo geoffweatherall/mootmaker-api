@@ -29,6 +29,23 @@ resource "aws_cognito_user_pool" "this" {
     }
   }
 
+  # Backs the standard/admin user class: read into the ID token as the custom:class claim (see
+  # webapp client's read_attributes below), set to "standard" server-side for every new sign-up by
+  # PostConfirmationCreatePersonHandler, and never client-writable (see write_attributes below) so
+  # a user can never self-promote to admin. Adding a new custom attribute to an existing user pool
+  # is a supported in-place AddCustomAttributes operation, not a replacement.
+  schema {
+    name                = "class"
+    attribute_data_type = "String"
+    mutable             = true
+    required            = false
+
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 20
+    }
+  }
+
   # Creates the Person record for a user once their email is confirmed - see
   # PostConfirmationCreatePersonHandler for why this runs post-confirmation rather than
   # pre-sign-up (email isn't verified yet at that point).
@@ -58,6 +75,16 @@ resource "aws_cognito_user_pool_client" "webapp" {
   ]
 
   prevent_user_existence_errors = "ENABLED"
+
+  # custom:class only appears in a user's ID token if the client reading it has explicit read
+  # permission - unlike standard attributes, which are readable by default. This list isn't
+  # additive over Cognito's default, so it has to restate email/name too (already relied on by
+  # AuthProvider's currentUserEmail()/currentUserName()) alongside the new custom:class.
+  read_attributes = ["email", "email_verified", "name", "custom:class"]
+  # Deliberately excludes custom:class: a user must never be able to set their own class by
+  # calling Cognito's UpdateUserAttributes from the browser SDK - only
+  # PostConfirmationCreatePersonHandler/UpdatePersonHandler may set it, via the Admin API.
+  write_attributes = ["name"]
 }
 
 # Hosted domain for the user pool - only needed for the OAuth2 token endpoint
@@ -68,7 +95,7 @@ resource "aws_cognito_user_pool_domain" "this" {
   user_pool_id = aws_cognito_user_pool.this.id
 }
 
-# Resource server defining the custom scope granted to client_credentials tokens.
+# Resource server defining the custom scopes granted to client_credentials tokens.
 resource "aws_cognito_resource_server" "api" {
   identifier   = "${local.resource_prefix}-api"
   name         = "${local.resource_prefix}-api"
@@ -77,6 +104,16 @@ resource "aws_cognito_resource_server" "api" {
   scope {
     scope_name        = "execute"
     scope_description = "Full access to the mootmaker GraphQL API"
+  }
+
+  # M2M tooling (sample-data-generator, the acceptance tests below) has no Cognito user behind it
+  # at all, so it can never carry a custom:class claim the way a real signed-in user's ID token
+  # does - this scope is Identity.requireAdmin's equivalent for that caller. See
+  # mootmaker-tools/sample-data-generator and this project's README for why that tool still needs
+  # to create rooms/people now that those mutations are admin-only.
+  scope {
+    scope_name        = "admin"
+    scope_description = "Admin-equivalent access (room/person maintenance) for M2M tooling"
   }
 }
 
@@ -90,8 +127,11 @@ resource "aws_cognito_user_pool_client" "acceptance_tests" {
 
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_flows                  = ["client_credentials"]
-  allowed_oauth_scopes                 = ["${aws_cognito_resource_server.api.identifier}/execute"]
-  supported_identity_providers         = ["COGNITO"]
+  allowed_oauth_scopes = [
+    "${aws_cognito_resource_server.api.identifier}/execute",
+    "${aws_cognito_resource_server.api.identifier}/admin",
+  ]
+  supported_identity_providers = ["COGNITO"]
 }
 
 # Pre-confirmed user for the webapp's Playwright end-to-end tests, which sign
@@ -114,6 +154,10 @@ resource "aws_cognito_user" "e2e" {
   attributes = {
     email          = "e2e-tests@example.com"
     email_verified = "true"
+    # Created directly rather than through sign-up, so it skips PostConfirmationCreatePersonHandler
+    # (the same reason it has no Person - see below) and would otherwise have no class at all; set
+    # explicitly here for parity with a real signed-up user, who always gets one.
+    "custom:class" = "standard"
   }
 }
 
@@ -145,15 +189,18 @@ resource "aws_cognito_user" "demo" {
   attributes = {
     email          = "demo@mootmaker.com"
     email_verified = "true"
+    # The demo user is the one always-present admin, so there's something to sign in as and
+    # exercise room/person maintenance without needing a real sign-up first.
+    "custom:class" = "admin"
   }
 }
 
 # The demo user above is created directly by Terraform rather than through the sign-up/confirm
 # API calls, so it never fires PostConfirmationCreatePersonHandler (see "Sign-up creates a linked
 # Person" in the README) and would otherwise have no Person - showing up nameless in the webapp
-# and being wiped by every Mutation.reset, since reset only preserves people with a cognitoSub.
-# This writes one directly, in the same shape as Person.toItem(), linked via cognitoSub to
-# aws_cognito_user.demo's sub.
+# and being wiped by every mootmaker-tools/database-reset run, since it only preserves people with
+# a cognitoSub. This writes one directly, in the same shape as Person.toItem(), linked via
+# cognitoSub to aws_cognito_user.demo's sub.
 resource "random_uuid" "demo_person_id" {}
 
 resource "aws_dynamodb_table_item" "demo_person" {

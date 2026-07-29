@@ -22,7 +22,7 @@ class CreateRoomHandlerTest {
         arguments.put("room", roomInput);
         final Map<String, Object> event = new HashMap<>();
         event.put("arguments", arguments);
-        event.put("identity", Map.of("sub", "test-user"));
+        event.put("identity", Map.of("sub", "test-user", "claims", Map.of("custom:class", "admin")));
         return event;
     }
 
@@ -144,6 +144,18 @@ class CreateRoomHandlerTest {
 
         final Map<String, Object> event = roomArguments("Conference A", 8);
         event.remove("identity");
+
+        assertThrows(IllegalStateException.class, () -> handler.handleRequest(event, null));
+        assertTrue(fakeClient.tables.getOrDefault("Rooms", List.of()).isEmpty());
+    }
+
+    @Test
+    void rejectsARequestFromANonAdminUser() {
+        final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+        final CreateRoomHandler handler = new CreateRoomHandler(fakeClient, "Rooms");
+
+        final Map<String, Object> event = roomArguments("Conference A", 8);
+        event.put("identity", Map.of("sub", "test-user", "claims", Map.of("custom:class", "standard")));
 
         assertThrows(IllegalStateException.class, () -> handler.handleRequest(event, null));
         assertTrue(fakeClient.tables.getOrDefault("Rooms", List.of()).isEmpty());

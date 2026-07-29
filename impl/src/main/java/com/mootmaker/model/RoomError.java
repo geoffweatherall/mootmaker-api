@@ -6,5 +6,7 @@ package com.mootmaker.model;
  */
 public enum RoomError {
     NameRequired,
-    CapacityTooLow
+    CapacityTooLow,
+    /** updateRoom only: id did not match any existing room. */
+    RoomNotFound
 }

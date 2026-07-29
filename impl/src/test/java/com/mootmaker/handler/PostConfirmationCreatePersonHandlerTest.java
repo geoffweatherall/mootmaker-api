@@ -12,6 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PostConfirmationCreatePersonHandlerTest {
 
+    private static final String USER_POOL_ID = "pool-1";
+
     private static Map<String, Object> confirmSignUpEvent(final String sub, final String name) {
         final Map<String, Object> userAttributes = new HashMap<>();
         userAttributes.put("sub", sub);
@@ -21,6 +23,7 @@ class PostConfirmationCreatePersonHandlerTest {
         request.put("userAttributes", userAttributes);
         final Map<String, Object> event = new HashMap<>();
         event.put("triggerSource", "PostConfirmation_ConfirmSignUp");
+        event.put("userPoolId", USER_POOL_ID);
         event.put("request", request);
         return event;
     }
@@ -28,7 +31,8 @@ class PostConfirmationCreatePersonHandlerTest {
     @Test
     void createsPersonLinkedToTheConfirmedUser() {
         final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
-        final PostConfirmationCreatePersonHandler handler = new PostConfirmationCreatePersonHandler(fakeClient, "People");
+        final PostConfirmationCreatePersonHandler handler =
+                new PostConfirmationCreatePersonHandler(fakeClient, new FakeCognitoIdentityProviderClient(), "People");
 
         final Map<String, Object> event = confirmSignUpEvent("sub-1", "Ada Lovelace");
         final Map<String, Object> result = handler.handleRequest(event, null);
@@ -42,9 +46,28 @@ class PostConfirmationCreatePersonHandlerTest {
     }
 
     @Test
+    void setsTheDefaultClassToStandardForTheConfirmedUser() {
+        final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+        final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
+        final PostConfirmationCreatePersonHandler handler =
+                new PostConfirmationCreatePersonHandler(fakeClient, cognitoClient, "People");
+
+        handler.handleRequest(confirmSignUpEvent("sub-1", "Ada Lovelace"), null);
+
+        assertEquals(1, cognitoClient.updateRequests.size());
+        final var updateRequest = cognitoClient.updateRequests.getFirst();
+        assertEquals(USER_POOL_ID, updateRequest.userPoolId());
+        assertEquals("sub-1", updateRequest.username());
+        assertEquals("custom:class", updateRequest.userAttributes().getFirst().name());
+        assertEquals("standard", updateRequest.userAttributes().getFirst().value());
+    }
+
+    @Test
     void ignoresTriggersOtherThanConfirmSignUp() {
         final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
-        final PostConfirmationCreatePersonHandler handler = new PostConfirmationCreatePersonHandler(fakeClient, "People");
+        final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
+        final PostConfirmationCreatePersonHandler handler =
+                new PostConfirmationCreatePersonHandler(fakeClient, cognitoClient, "People");
 
         final Map<String, Object> event = confirmSignUpEvent("sub-1", "Ada Lovelace");
         event.put("triggerSource", "PostConfirmation_ConfirmForgotPassword");
@@ -52,13 +75,15 @@ class PostConfirmationCreatePersonHandlerTest {
         handler.handleRequest(event, null);
 
         assertTrue(fakeClient.tables.getOrDefault("People", List.of()).isEmpty());
+        assertTrue(cognitoClient.updateRequests.isEmpty());
     }
 
     @Test
     void isIdempotentWhenAPersonAlreadyExistsForThatSub() {
         final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
         fakeClient.tables.put("People", new ArrayList<>(List.of(new Person("person-1", "Ada Lovelace", "sub-1").toItem())));
-        final PostConfirmationCreatePersonHandler handler = new PostConfirmationCreatePersonHandler(fakeClient, "People");
+        final PostConfirmationCreatePersonHandler handler =
+                new PostConfirmationCreatePersonHandler(fakeClient, new FakeCognitoIdentityProviderClient(), "People");
 
         handler.handleRequest(confirmSignUpEvent("sub-1", "Ada Lovelace"), null);
 
@@ -74,11 +99,27 @@ class PostConfirmationCreatePersonHandlerTest {
                 throw new RuntimeException("DynamoDB unavailable");
             }
         };
-        final PostConfirmationCreatePersonHandler handler = new PostConfirmationCreatePersonHandler(failingClient, "People");
+        final PostConfirmationCreatePersonHandler handler =
+                new PostConfirmationCreatePersonHandler(failingClient, new FakeCognitoIdentityProviderClient(), "People");
 
         final Map<String, Object> event = confirmSignUpEvent("sub-1", "Ada Lovelace");
         final Map<String, Object> result = handler.handleRequest(event, null);
 
         assertSame(event, result, "must still return the event even when Person creation fails");
+    }
+
+    @Test
+    void swallowsAClassUpdateFailureInsteadOfThrowing() {
+        final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+        final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
+        cognitoClient.failNextUpdateWith(new RuntimeException("Cognito unavailable"));
+        final PostConfirmationCreatePersonHandler handler =
+                new PostConfirmationCreatePersonHandler(fakeClient, cognitoClient, "People");
+
+        final Map<String, Object> event = confirmSignUpEvent("sub-1", "Ada Lovelace");
+        final Map<String, Object> result = handler.handleRequest(event, null);
+
+        assertSame(event, result, "must still return the event even when the class update fails");
+        assertEquals(1, fakeClient.tables.get("People").size(), "Person creation must still have succeeded");
     }
 }
