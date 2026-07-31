@@ -42,7 +42,11 @@ Both of the range-bounded queries (date-only, against `bucket-startTime-index`; 
 
 This still costs read capacity for the (small, date-bounded) candidates either check discards, but neither ever scans the whole table.
 
-`CreateMeetingHandler`'s overlap check (`roomHasOverlappingMeeting`) uses `roomId-startTime-index` with `begins_with(startTime, datePrefix)` instead: since two meetings for the same room can only possibly overlap if they share a date, this returns exactly that room's meetings for that one day, which are then checked for a real time overlap in Java.
+`CreateMeetingHandler`'s overlap check uses `roomId-startTime-index` with `begins_with(startTime, datePrefix)` instead: since two meetings for the same room can only possibly overlap if they share a date, this returns exactly that room's meetings for that one day, which are then checked for a real time overlap in Java. This is now shared logic - [RoomAvailability.hasOverlappingMeeting](impl/src/main/java/com/mootmaker/dynamo/RoomAvailability.java) - since `SuggestRoomHandler` below needs the exact same per-room check.
+
+#### Suggesting a room
+
+`Query.suggestRoom(startTime, endTime, requiredCapacity)` finds every room with enough capacity that's free over the given time range, ranked smallest surplus capacity first (rooms with equal capacity break ties by name, so the order is stable and predictable) - the "suggest a room" button in the webapp's meeting form calls this once, the first time it's pressed for a given time/attendee count, and the webapp caches the whole ranked list client-side so repeat presses just step to the next entry instead of re-querying (see the [webapp README](https://github.com/geoffweatherall/mootmaker-webapp#readme) for that caching). `SuggestRoomHandler` composes two existing pieces rather than needing anything new: it `Scan`s the rooms table (the same full-table `Scan` `ListRoomsHandler` already does - fine at this project's scale, since there's no capacity GSI and none is needed yet), filters and sorts the candidates by capacity ascending then name, then checks each in turn with `RoomAvailability.hasOverlappingMeeting` (the same per-room GSI query `createMeeting`'s own validation uses), keeping the ones that come back free. Unlike `createMeeting`, this doesn't return a structured error list - it's a best-effort suggestion, not authoritative validation, so invalid or missing input (an unparseable time, a non-positive `requiredCapacity`, `startTime` not before `endTime`) just yields an empty list, same as "no room qualifies." The authoritative rules are still enforced by `createMeeting` when the meeting is actually saved.
 
 #### The meeting-participants table
 
@@ -57,6 +61,7 @@ The meetings table remains the source of truth; meeting-participants is a **deri
 | `rooms`, `people` | Query | List all items of each type |
 | `meetings(filter: MeetingsFilter)` | Query | Lists meetings, optionally narrowed by a `fromStartTime`/`toEndTime` window and/or `personId` (organiser or attendee) — see [Querying meetings by date range and/or person](#querying-meetings-by-date-range-andor-person-without-scanning) |
 | `myPerson` | Query | Returns the `Person` linked to the caller's own Cognito account (via `identity.sub`), or `null` if none exists |
+| `suggestRoom(startTime, endTime, requiredCapacity)` | Query | Returns every `Room` with sufficient capacity that's free over that time range, ranked smallest surplus first (empty list if none qualify) - see [Suggesting a room](#suggesting-a-room) |
 | `createRoom(room)` | Mutation | **Admin only.** Returns `CreateRoomResult` (room or validation errors) |
 | `updateRoom(id, room)` | Mutation | **Admin only.** Replaces a room's name/capacity. Returns `UpdateRoomResult` (room or errors, including `RoomNotFound`) |
 | `createPerson(person)` | Mutation | **Admin only.** Returns the created `Person`; no validation beyond a required `name` |

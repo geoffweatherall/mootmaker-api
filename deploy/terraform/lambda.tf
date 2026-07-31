@@ -53,6 +53,21 @@ resource "aws_lambda_function" "list_people" {
   }
 }
 
+resource "aws_lambda_function" "suggest_room" {
+  function_name    = "${local.resource_prefix}-suggest-room"
+  role             = aws_iam_role.lambda_exec.arn
+  handler          = "com.mootmaker.handler.SuggestRoomHandler::handleRequest"
+  runtime          = "java25"
+  filename         = local.lambda_jar_path
+  source_code_hash = local.lambda_jar_hash
+  memory_size      = 512
+  timeout          = 15
+
+  environment {
+    variables = local.lambda_env_vars
+  }
+}
+
 resource "aws_lambda_function" "create_room" {
   function_name    = "${local.resource_prefix}-create-room"
   role             = aws_iam_role.lambda_exec.arn

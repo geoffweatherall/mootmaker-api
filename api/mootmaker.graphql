@@ -9,6 +9,8 @@ type Query {
  meetings(filter: MeetingsFilter): [Meeting!]!
  "The Person linked to the signed-in caller's own Cognito account, or null if none exists (e.g. the account predates automatic Person creation on sign-up, or was created without going through the confirm-sign-up flow)."
  myPerson: Person
+ "Finds every room with capacity >= requiredCapacity that has no meeting overlapping [startTime, endTime), ranked smallest surplus capacity first (rooms of equal capacity break ties by name, so the order is predictable). requiredCapacity is the full headcount (organiser + attendees) - the caller computes it, this does not look up organiser/attendee ids. Best-effort: invalid or missing startTime, endTime, or requiredCapacity just returns an empty list rather than a structured error list, since this only feeds a suggestion button, not the authoritative createMeeting validation."
+ suggestRoom(startTime: String!, endTime: String!, requiredCapacity: Int!): [Room!]!
 }
 
 "Filters for Query.meetings. All fields are optional and combine with AND; omitting the input (or all fields) returns every meeting, unchanged from the default behaviour."

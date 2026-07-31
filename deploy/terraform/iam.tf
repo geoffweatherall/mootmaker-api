@@ -98,6 +98,7 @@ data "aws_iam_policy_document" "appsync_invoke_lambda" {
       aws_lambda_function.my_person.arn,
       aws_lambda_function.list_meetings.arn,
       aws_lambda_function.create_meeting.arn,
+      aws_lambda_function.suggest_room.arn,
     ]
   }
 }

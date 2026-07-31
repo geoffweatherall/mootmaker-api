@@ -109,6 +109,17 @@ resource "aws_appsync_datasource" "create_meeting" {
   }
 }
 
+resource "aws_appsync_datasource" "suggest_room" {
+  api_id           = aws_appsync_graphql_api.this.id
+  name             = "SuggestRoomDataSource"
+  type             = "AWS_LAMBDA"
+  service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
+
+  lambda_config {
+    function_arn = aws_lambda_function.suggest_room.arn
+  }
+}
+
 locals {
   direct_lambda_request_template  = "{\"version\":\"2018-05-29\",\"operation\":\"Invoke\",\"payload\":$util.toJson($ctx)}"
   direct_lambda_response_template = "$util.toJson($ctx.result)"
@@ -191,6 +202,15 @@ resource "aws_appsync_resolver" "create_meeting" {
   type              = "Mutation"
   field             = "createMeeting"
   data_source       = aws_appsync_datasource.create_meeting.name
+  request_template  = local.direct_lambda_request_template
+  response_template = local.direct_lambda_response_template
+}
+
+resource "aws_appsync_resolver" "suggest_room" {
+  api_id            = aws_appsync_graphql_api.this.id
+  type              = "Query"
+  field             = "suggestRoom"
+  data_source       = aws_appsync_datasource.suggest_room.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
 }

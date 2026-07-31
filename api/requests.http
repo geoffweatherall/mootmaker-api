@@ -130,6 +130,23 @@ Authorization: {{accessToken}}
   }
 }
 
+### Suggest rooms: every room with capacity >= requiredCapacity that's free over
+### [startTime, endTime), ranked smallest surplus capacity first (ties broken by name).
+### requiredCapacity is the full headcount (organiser + attendees) - the caller computes it.
+### Returns an empty list (not an error) if nothing qualifies.
+POST {{graphqlUrl}}
+Content-Type: application/json
+Authorization: {{accessToken}}
+
+{
+  "query": "query SuggestRoom($startTime: String!, $endTime: String!, $requiredCapacity: Int!) { suggestRoom(startTime: $startTime, endTime: $endTime, requiredCapacity: $requiredCapacity) { id name capacity } }",
+  "variables": {
+    "startTime": "2026-07-01T15:05:00",
+    "endTime": "2026-07-01T15:10:00",
+    "requiredCapacity": 3
+  }
+}
+
 ### Resetting data (deletes ALL stored rooms, meetings, and unlinked people) is no longer part of
 ### this API - it moved to mootmaker-tools/database-reset, an IAM-authenticated Lambda invoked
 ### directly rather than a GraphQL mutation any signed-in user could call. See that project's
