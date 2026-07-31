@@ -3,6 +3,7 @@ package com.mootmaker.handler;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
+import com.mootmaker.dynamo.RoomAvailability;
 import com.mootmaker.model.Meeting;
 import com.mootmaker.model.MeetingError;
 import com.mootmaker.model.MeetingParticipant;
@@ -14,8 +15,6 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.Put;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
-import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
 
@@ -26,8 +25,6 @@ import module java.base;
  * Validates the request and either persists the meeting or returns the list of broken rules.
  */
 public class CreateMeetingHandler implements RequestHandler<Map<String, Object>, Object> {
-
-    private static final String ROOM_START_TIME_INDEX = "roomId-startTime-index";
 
     private final DynamoDbClient dynamoDbClient;
     private final String roomsTableName;
@@ -117,7 +114,8 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
             }
         }
 
-        if (room != null && startTime != null && endTime != null && roomHasOverlappingMeeting(roomId, startTime, endTime)) {
+        if (room != null && startTime != null && endTime != null
+                && RoomAvailability.hasOverlappingMeeting(dynamoDbClient, meetingsTableName, roomId, startTime, endTime)) {
             errors.add(MeetingError.TimeRangeUnavailable.name());
         }
 
@@ -203,32 +201,6 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
 
     private static boolean isBlank(final String value) {
         return value == null || value.isBlank();
-    }
-
-    /**
-     * Queries the roomId-startTime-index GSI for this room's meetings on the requested date -
-     * begins_with is exact rather than approximate because every meeting is confined to a single
-     * calendar day (see the SpansMultipleDays rule above), so two meetings for the same room can
-     * only possibly overlap if they share a date - then checks the (small) result set for an
-     * actual time overlap. Replaces a full table scan.
-     */
-    private boolean roomHasOverlappingMeeting(final String roomId, final LocalDateTime startTime, final LocalDateTime endTime) {
-        final String datePrefix = startTime.toLocalDate().toString();
-        final QueryResponse response = dynamoDbClient.query(QueryRequest.builder()
-                .tableName(meetingsTableName)
-                .indexName(ROOM_START_TIME_INDEX)
-                .keyConditionExpression("roomId = :roomId AND begins_with(startTime, :datePrefix)")
-                .expressionAttributeValues(Map.of(
-                        ":roomId", AttributeValue.builder().s(roomId).build(),
-                        ":datePrefix", AttributeValue.builder().s(datePrefix).build()))
-                .build());
-        return response.items().stream()
-                .map(MeetingRecord::fromItem)
-                .anyMatch(existing -> {
-                    final LocalDateTime existingStart = LocalDateTime.parse(existing.startTime());
-                    final LocalDateTime existingEnd = LocalDateTime.parse(existing.endTime());
-                    return startTime.isBefore(existingEnd) && endTime.isAfter(existingStart);
-                });
     }
 
     @SuppressWarnings("unchecked")
