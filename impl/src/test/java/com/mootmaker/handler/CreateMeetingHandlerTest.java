@@ -230,6 +230,35 @@ class CreateMeetingHandlerTest {
     }
 
     @Test
+    void rejectsWhenOrganiserIsAlsoAnAttendee() {
+        // room-1 has capacity 2, and organiser-1 + attendee-1 = 2 distinct people, i.e. exactly enough
+        // capacity - the duplicated organiserId must not also trigger a spurious InsufficientCapacity.
+        final Map<String, Object> event = meetingArguments("room-1", "organiser-1",
+                List.of("organiser-1", "attendee-1"), "2026-07-01T14:30:00", "2026-07-01T15:00:00");
+
+        final Map<String, Object> result = invoke(event);
+
+        @SuppressWarnings("unchecked")
+        final List<String> errors = (List<String>) result.get("errors");
+        assertTrue(errors.contains(MeetingError.OrganiserIsAttendee.name()));
+        assertFalse(errors.contains(MeetingError.InsufficientCapacity.name()));
+        assertNull(result.get("meeting"));
+        assertTrue(fakeClient.tables.getOrDefault("Meetings", List.of()).isEmpty());
+    }
+
+    @Test
+    void doesNotFlagOrganiserIsAttendeeWhenOrganiserAndAttendeesAreDisjoint() {
+        final Map<String, Object> event = meetingArguments("room-1", "organiser-1", List.of("attendee-1"),
+                "2026-07-01T14:30:00", "2026-07-01T15:00:00");
+
+        final Map<String, Object> result = invoke(event);
+
+        @SuppressWarnings("unchecked")
+        final List<String> errors = (List<String>) result.get("errors");
+        assertFalse(errors.contains(MeetingError.OrganiserIsAttendee.name()));
+    }
+
+    @Test
     void rejectsWhenRoomCapacityInsufficient() {
         final Map<String, Object> event = meetingArguments("room-1", "organiser-1",
                 List.of("attendee-1", "attendee-2"), "2026-07-01T14:30:00", "2026-07-01T15:00:00");

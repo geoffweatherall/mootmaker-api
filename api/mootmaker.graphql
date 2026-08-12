@@ -134,6 +134,8 @@ enum MeetingError {
     OrganiserNotFound
     AttendeeNotFound
     SubjectRequired
+    "organiserId also appears in attendeeIds - the organiser is already counted as one of the meeting's people and cannot additionally be listed as an attendee."
+    OrganiserIsAttendee
 }
 
 

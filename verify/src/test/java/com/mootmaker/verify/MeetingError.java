@@ -14,5 +14,6 @@ enum MeetingError {
     OrganiserRequired,
     OrganiserNotFound,
     AttendeeNotFound,
-    SubjectRequired
+    SubjectRequired,
+    OrganiserIsAttendee
 }

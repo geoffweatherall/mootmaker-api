@@ -107,9 +107,19 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
             }
         }
 
+        if (!isBlank(organiserId) && attendeeIds.contains(organiserId)) {
+            errors.add(MeetingError.OrganiserIsAttendee.name());
+        }
+
         if (room != null) {
-            final int requiredCapacity = 1 + attendeeIds.size();
-            if (room.capacity() < requiredCapacity) {
+            // A Set, not "1 + attendeeIds.size()", so a duplicated organiserId (already separately rejected
+            // above via OrganiserIsAttendee) can't also inflate this count and raise a spurious, misleading
+            // InsufficientCapacity alongside it.
+            final Set<String> distinctParticipantIds = new HashSet<>(attendeeIds);
+            if (!isBlank(organiserId)) {
+                distinctParticipantIds.add(organiserId);
+            }
+            if (room.capacity() < distinctParticipantIds.size()) {
                 errors.add(MeetingError.InsufficientCapacity.name());
             }
         }

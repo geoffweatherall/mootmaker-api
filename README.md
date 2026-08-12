@@ -52,6 +52,8 @@ This still costs read capacity for the (small, date-bounded) candidates either c
 
 `attendeeIds` is a list on the meeting item, and DynamoDB keys must be scalars, so "which meetings is this person organiser of or an attendee on" can't be answered with a GSI on the meetings table itself. `mootmaker-meeting-participants` (hash key `personId`, range key `sortKey` = `startTime` + `"#"` + `meetingId`) exists purely to answer that: one row per (meeting, participant) pair — the organiser plus every attendee — written by [MeetingParticipant](impl/src/main/java/com/mootmaker/model/MeetingParticipant.java). `CreateMeetingHandler` writes a meeting and all of its participant rows in a single `TransactWriteItems` call, so the two can never drift under normal operation.
 
+This is why `organiserId` is not allowed to also appear in `attendeeIds` (see `OrganiserIsAttendee` below): `MeetingParticipant.allFor` emits one row keyed on `personId` per organiser/attendee, so a duplicated id would produce two `Put`s at the identical primary key within the same `TransactWriteItems` call - DynamoDB rejects that outright (`ValidationException: Transaction request cannot include multiple operations on one item`), which without this check would surface to the caller as an unhandled server error rather than a normal validation result. `InsufficientCapacity`'s count (organiser + attendees, deduplicated by id - see the rules table below) is a separate, independent fix for the same underlying mistake: even though a duplicated id is always rejected via `OrganiserIsAttendee` before a meeting can be saved, deduplicating means that rejection isn't also accompanied by a spurious `InsufficientCapacity` for a room that was actually big enough.
+
 The meetings table remains the source of truth; meeting-participants is a **derived index**. [mootmaker-tools/database-repair](https://github.com/geoffweatherall/mootmaker-tools/tree/main/database-repair)'s `RebuildMeetingParticipantsRepair` regenerates it from the meetings table — needed once when this table is introduced against an environment that already has meetings (existing meetings have no participant rows until then), and as a safety net against drift.
 
 ### API operations
@@ -279,7 +281,8 @@ A room's capacity can be reduced below the size of a meeting already booked into
 | `OrganiserNotFound` | `organiserId` must refer to an existing person |
 | `AttendeeNotFound` | Every id in `attendeeIds` must refer to an existing person (one error per missing attendee) |
 | `SubjectRequired` | `subject` must not be null or blank |
-| `InsufficientCapacity` | Room capacity must be ≥ 1 + number of attendees (the organiser counts) |
+| `OrganiserIsAttendee` | `organiserId` must not also appear in `attendeeIds` - the organiser is already counted as one of the meeting's people (see `InsufficientCapacity` below) and cannot additionally be listed as an attendee |
+| `InsufficientCapacity` | Room capacity must be ≥ the number of distinct people (organiser + attendees, deduplicated by id) |
 | `TimeRangeUnavailable` | The room must have no existing meeting overlapping the requested `[startTime, endTime)` range (touching end-to-start is allowed) |
 
 `createPerson` performs no validation beyond the schema's non-null `name`. The acceptance tests in [verify/](verify/) cover these rules, and the admin-only/self-or-admin authorization checks, end-to-end against the deployed API.

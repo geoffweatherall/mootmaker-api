@@ -122,6 +122,36 @@ class CreateMeetingValidationAcceptanceIT {
     }
 
     @Test
+    void organiserAlsoListedAsAttendeeIsRejected() {
+        LOG.info("Checking an organiserId that also appears in attendeeIds is rejected");
+        final JsonNode payload = createMeetingPayload(roomId, organiserId, List.of(organiserId, attendeeId),
+                "2026-09-01T10:00:00", "2026-09-01T10:30:00");
+
+        assertThat(meetingOf(payload).isNull(), is(true));
+        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.OrganiserIsAttendee.name())));
+    }
+
+    @Test
+    void organiserAlsoListedAsAttendeeDoesNotDoubleCountTowardsCapacity() {
+        LOG.info("Checking the organiser-is-attendee case is rejected on its own merits, not reported as "
+                + "InsufficientCapacity even though the naive '1 + attendeeIds.size()' count would exceed the room");
+        // ROOM_CAPACITY people total (organiser + the other (ROOM_CAPACITY - 1) attendees), but organiserId is
+        // also duplicated into attendeeIds, so a naive count would see ROOM_CAPACITY + 1 and wrongly also raise
+        // InsufficientCapacity for a meeting that is actually exactly the room's size.
+        final List<String> attendeeIds = new ArrayList<>();
+        attendeeIds.add(organiserId);
+        for (int i = 0; i < ROOM_CAPACITY - 1; i++) {
+            attendeeIds.add(createPerson(faker.name().fullName()));
+        }
+        final JsonNode payload = createMeetingPayload(roomId, organiserId, attendeeIds,
+                "2026-09-01T10:00:00", "2026-09-01T10:30:00");
+
+        assertThat(meetingOf(payload).isNull(), is(true));
+        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.OrganiserIsAttendee.name())));
+        assertThat(errorsOf(payload), not(hasItem(equalTo(MeetingError.InsufficientCapacity.name()))));
+    }
+
+    @Test
     void insufficientRoomCapacityIsRejected() {
         LOG.info("Checking a meeting exceeding room capacity is rejected");
         final List<String> attendeeIds = new ArrayList<>();
