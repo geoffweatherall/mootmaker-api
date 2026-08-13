@@ -17,7 +17,7 @@ resource "aws_appsync_datasource" "list_rooms" {
   service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
 
   lambda_config {
-    function_arn = aws_lambda_function.list_rooms.arn
+    function_arn = aws_lambda_alias.list_rooms_live.arn
   }
 }
 
@@ -28,7 +28,7 @@ resource "aws_appsync_datasource" "list_people" {
   service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
 
   lambda_config {
-    function_arn = aws_lambda_function.list_people.arn
+    function_arn = aws_lambda_alias.list_people_live.arn
   }
 }
 
@@ -39,7 +39,7 @@ resource "aws_appsync_datasource" "create_room" {
   service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
 
   lambda_config {
-    function_arn = aws_lambda_function.create_room.arn
+    function_arn = aws_lambda_alias.create_room_live.arn
   }
 }
 
@@ -50,7 +50,7 @@ resource "aws_appsync_datasource" "update_room" {
   service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
 
   lambda_config {
-    function_arn = aws_lambda_function.update_room.arn
+    function_arn = aws_lambda_alias.update_room_live.arn
   }
 }
 
@@ -61,7 +61,7 @@ resource "aws_appsync_datasource" "create_person" {
   service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
 
   lambda_config {
-    function_arn = aws_lambda_function.create_person.arn
+    function_arn = aws_lambda_alias.create_person_live.arn
   }
 }
 
@@ -72,7 +72,7 @@ resource "aws_appsync_datasource" "update_person" {
   service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
 
   lambda_config {
-    function_arn = aws_lambda_function.update_person.arn
+    function_arn = aws_lambda_alias.update_person_live.arn
   }
 }
 
@@ -83,7 +83,7 @@ resource "aws_appsync_datasource" "my_person" {
   service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
 
   lambda_config {
-    function_arn = aws_lambda_function.my_person.arn
+    function_arn = aws_lambda_alias.my_person_live.arn
   }
 }
 
@@ -94,7 +94,7 @@ resource "aws_appsync_datasource" "list_meetings" {
   service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
 
   lambda_config {
-    function_arn = aws_lambda_function.list_meetings.arn
+    function_arn = aws_lambda_alias.list_meetings_live.arn
   }
 }
 
@@ -105,7 +105,7 @@ resource "aws_appsync_datasource" "create_meeting" {
   service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
 
   lambda_config {
-    function_arn = aws_lambda_function.create_meeting.arn
+    function_arn = aws_lambda_alias.create_meeting_live.arn
   }
 }
 
@@ -116,7 +116,7 @@ resource "aws_appsync_datasource" "suggest_room" {
   service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
 
   lambda_config {
-    function_arn = aws_lambda_function.suggest_room.arn
+    function_arn = aws_lambda_alias.suggest_room_live.arn
   }
 }
 

@@ -32,6 +32,15 @@ resource "aws_lambda_function" "list_rooms" {
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
   timeout          = 15
+  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
+  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
+  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
+  # published version rather than the mutable $LATEST.
+  publish = true
+
+  snap_start {
+    apply_on = "PublishedVersions"
+  }
 
   environment {
     variables = local.lambda_env_vars
@@ -47,6 +56,15 @@ resource "aws_lambda_function" "list_people" {
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
   timeout          = 15
+  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
+  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
+  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
+  # published version rather than the mutable $LATEST.
+  publish = true
+
+  snap_start {
+    apply_on = "PublishedVersions"
+  }
 
   environment {
     variables = local.lambda_env_vars
@@ -62,6 +80,15 @@ resource "aws_lambda_function" "suggest_room" {
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
   timeout          = 15
+  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
+  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
+  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
+  # published version rather than the mutable $LATEST.
+  publish = true
+
+  snap_start {
+    apply_on = "PublishedVersions"
+  }
 
   environment {
     variables = local.lambda_env_vars
@@ -77,6 +104,15 @@ resource "aws_lambda_function" "create_room" {
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
   timeout          = 15
+  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
+  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
+  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
+  # published version rather than the mutable $LATEST.
+  publish = true
+
+  snap_start {
+    apply_on = "PublishedVersions"
+  }
 
   environment {
     variables = local.admin_gated_env_vars
@@ -92,6 +128,15 @@ resource "aws_lambda_function" "update_room" {
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
   timeout          = 15
+  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
+  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
+  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
+  # published version rather than the mutable $LATEST.
+  publish = true
+
+  snap_start {
+    apply_on = "PublishedVersions"
+  }
 
   environment {
     variables = local.admin_gated_env_vars
@@ -107,6 +152,15 @@ resource "aws_lambda_function" "create_person" {
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
   timeout          = 15
+  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
+  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
+  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
+  # published version rather than the mutable $LATEST.
+  publish = true
+
+  snap_start {
+    apply_on = "PublishedVersions"
+  }
 
   environment {
     variables = local.admin_gated_env_vars
@@ -144,6 +198,15 @@ resource "aws_lambda_function" "post_confirmation_create_person" {
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
   timeout          = 15
+  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
+  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
+  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
+  # published version rather than the mutable $LATEST.
+  publish = true
+
+  snap_start {
+    apply_on = "PublishedVersions"
+  }
 
   environment {
     variables = local.lambda_env_vars
@@ -159,6 +222,15 @@ resource "aws_lambda_function" "my_person" {
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
   timeout          = 15
+  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
+  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
+  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
+  # published version rather than the mutable $LATEST.
+  publish = true
+
+  snap_start {
+    apply_on = "PublishedVersions"
+  }
 
   environment {
     variables = local.lambda_env_vars
@@ -174,6 +246,15 @@ resource "aws_lambda_function" "list_meetings" {
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
   timeout          = 15
+  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
+  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
+  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
+  # published version rather than the mutable $LATEST.
+  publish = true
+
+  snap_start {
+    apply_on = "PublishedVersions"
+  }
 
   environment {
     variables = local.lambda_env_vars
@@ -189,8 +270,88 @@ resource "aws_lambda_function" "create_meeting" {
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
   timeout          = 15
+  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
+  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
+  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
+  # published version rather than the mutable $LATEST.
+  publish = true
+
+  snap_start {
+    apply_on = "PublishedVersions"
+  }
 
   environment {
     variables = local.lambda_env_vars
   }
+}
+
+# "live" aliases: SnapStart only ever applies to a published version, never to $LATEST, so
+# AppSync's data sources and Cognito's trigger config (below/in cognito.tf) point at these
+# aliases rather than the functions themselves. Each deploy re-points the alias at the version
+# `publish = true` just created, once Terraform finishes applying - so traffic only ever reaches
+# a fully-deployed version, never a half-applied one.
+resource "aws_lambda_alias" "list_rooms_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.list_rooms.function_name
+  function_version = aws_lambda_function.list_rooms.version
+}
+
+resource "aws_lambda_alias" "list_people_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.list_people.function_name
+  function_version = aws_lambda_function.list_people.version
+}
+
+resource "aws_lambda_alias" "suggest_room_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.suggest_room.function_name
+  function_version = aws_lambda_function.suggest_room.version
+}
+
+resource "aws_lambda_alias" "create_room_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.create_room.function_name
+  function_version = aws_lambda_function.create_room.version
+}
+
+resource "aws_lambda_alias" "update_room_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.update_room.function_name
+  function_version = aws_lambda_function.update_room.version
+}
+
+resource "aws_lambda_alias" "create_person_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.create_person.function_name
+  function_version = aws_lambda_function.create_person.version
+}
+
+resource "aws_lambda_alias" "update_person_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.update_person.function_name
+  function_version = aws_lambda_function.update_person.version
+}
+
+resource "aws_lambda_alias" "post_confirmation_create_person_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.post_confirmation_create_person.function_name
+  function_version = aws_lambda_function.post_confirmation_create_person.version
+}
+
+resource "aws_lambda_alias" "my_person_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.my_person.function_name
+  function_version = aws_lambda_function.my_person.version
+}
+
+resource "aws_lambda_alias" "list_meetings_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.list_meetings.function_name
+  function_version = aws_lambda_function.list_meetings.version
+}
+
+resource "aws_lambda_alias" "create_meeting_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.create_meeting.function_name
+  function_version = aws_lambda_function.create_meeting.version
 }

@@ -49,17 +49,21 @@ resource "aws_cognito_user_pool" "this" {
   # Creates the Person record for a user once their email is confirmed - see
   # PostConfirmationCreatePersonHandler for why this runs post-confirmation rather than
   # pre-sign-up (email isn't verified yet at that point).
+  # Points at the "live" alias (see lambda.tf) rather than the function directly, since SnapStart
+  # only ever applies to a published version, never $LATEST.
   lambda_config {
-    post_confirmation = aws_lambda_function.post_confirmation_create_person.arn
+    post_confirmation = aws_lambda_alias.post_confirmation_create_person_live.arn
   }
 }
 
 # Cognito invokes triggers directly via a resource-based Lambda permission (unlike AppSync's
-# datasources, which assume an IAM role), scoped to just this user pool.
+# datasources, which assume an IAM role), scoped to just this user pool. The qualifier scopes the
+# grant to the "live" alias specifically, matching lambda_config above.
 resource "aws_lambda_permission" "cognito_invoke_post_confirmation" {
   statement_id  = "AllowCognitoInvokePostConfirmation"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.post_confirmation_create_person.function_name
+  qualifier     = aws_lambda_alias.post_confirmation_create_person_live.name
   principal     = "cognito-idp.amazonaws.com"
   source_arn    = aws_cognito_user_pool.this.arn
 }

@@ -29,6 +29,10 @@ data "aws_iam_policy_document" "lambda_dynamodb_access" {
       # CreateMeetingHandler writes a meeting and its meeting-participants rows atomically so the
       # two can never drift under normal operation.
       "dynamodb:TransactWriteItems",
+      # Metadata-only, no items read/written - used by DynamoDbClientProvider's SnapStart
+      # afterRestore hook purely to re-establish the DynamoDB connection/credentials before the
+      # first real request reaches the handler.
+      "dynamodb:DescribeTable",
       # No dynamodb:DeleteItem: that was only ever needed by ResetHandler, which moved out to
       # mootmaker-tools/database-reset (its own Lambda, with its own narrowly-scoped role) - see
       # the README's "Reset and real user accounts" section.
@@ -88,17 +92,20 @@ resource "aws_iam_role" "appsync_lambda_invoke" {
 data "aws_iam_policy_document" "appsync_invoke_lambda" {
   statement {
     actions = ["lambda:InvokeFunction"]
+    # The "live" alias ARNs, not the function ARNs - AppSync's data sources invoke through the
+    # alias (see appsync.tf), and IAM requires an exact resource match, so a grant on the
+    # function ARN alone wouldn't cover invoking the alias.
     resources = [
-      aws_lambda_function.list_rooms.arn,
-      aws_lambda_function.list_people.arn,
-      aws_lambda_function.create_room.arn,
-      aws_lambda_function.update_room.arn,
-      aws_lambda_function.create_person.arn,
-      aws_lambda_function.update_person.arn,
-      aws_lambda_function.my_person.arn,
-      aws_lambda_function.list_meetings.arn,
-      aws_lambda_function.create_meeting.arn,
-      aws_lambda_function.suggest_room.arn,
+      aws_lambda_alias.list_rooms_live.arn,
+      aws_lambda_alias.list_people_live.arn,
+      aws_lambda_alias.create_room_live.arn,
+      aws_lambda_alias.update_room_live.arn,
+      aws_lambda_alias.create_person_live.arn,
+      aws_lambda_alias.update_person_live.arn,
+      aws_lambda_alias.my_person_live.arn,
+      aws_lambda_alias.list_meetings_live.arn,
+      aws_lambda_alias.create_meeting_live.arn,
+      aws_lambda_alias.suggest_room_live.arn,
     ]
   }
 }

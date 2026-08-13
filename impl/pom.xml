@@ -82,6 +82,13 @@
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>url-connection-client</artifactId>
     </dependency>
+    <!-- Runtime hooks (beforeCheckpoint/afterRestore) for Lambda SnapStart - see
+         DynamoDbClientProvider's afterRestore priming call. -->
+    <dependency>
+      <groupId>org.crac</groupId>
+      <artifactId>crac</artifactId>
+      <version>1.5.0</version>
+    </dependency>
     <!--
       The AWS SDK pulls in slf4j-api transitively (via sdk-core) with no binding on the classpath,
       which prints "Failed to load class StaticLoggerBinder" at cold start. Declaring slf4j-api
