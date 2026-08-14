@@ -53,6 +53,21 @@ resource "aws_cognito_user_pool" "this" {
   # only ever applies to a published version, never $LATEST.
   lambda_config {
     post_confirmation = aws_lambda_alias.post_confirmation_create_person_live.arn
+
+    # SCP-BLOCKED as of 2026-08-15 (see kms.tf) - only ever present for an is_ephemeral
+    # environment. Configuring custom_email_sender at all replaces Cognito's own default email
+    # sending for this whole user pool, which is exactly why it must never be wired in for `test`
+    # or `production` - see CustomEmailSenderBypassHandler's javadoc and testing-strategy.md's
+    # "Email verification code bypass" section for the full design.
+    dynamic "custom_email_sender" {
+      for_each = local.is_ephemeral ? [1] : []
+      content {
+        lambda_arn     = aws_lambda_alias.test_email_bypass_live[0].arn
+        lambda_version = "V1_0"
+      }
+    }
+
+    kms_key_id = local.is_ephemeral ? aws_kms_key.test_email_bypass[0].arn : null
   }
 }
 
@@ -64,6 +79,18 @@ resource "aws_lambda_permission" "cognito_invoke_post_confirmation" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.post_confirmation_create_person.function_name
   qualifier     = aws_lambda_alias.post_confirmation_create_person_live.name
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = aws_cognito_user_pool.this.arn
+}
+
+# SCP-BLOCKED as of 2026-08-15 (see kms.tf) - only ever present for an is_ephemeral environment.
+resource "aws_lambda_permission" "cognito_invoke_test_email_bypass" {
+  count = local.is_ephemeral ? 1 : 0
+
+  statement_id  = "AllowCognitoInvokeTestEmailBypass"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.test_email_bypass[0].function_name
+  qualifier     = aws_lambda_alias.test_email_bypass_live[0].name
   principal     = "cognito-idp.amazonaws.com"
   source_arn    = aws_cognito_user_pool.this.arn
 }

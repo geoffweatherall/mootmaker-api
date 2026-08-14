@@ -122,3 +122,29 @@ resource "aws_dynamodb_table" "meeting_participants" {
     type = "S"
   }
 }
+
+# SCP-BLOCKED as of 2026-08-15, same reason as kms.tf - this table only exists once
+# CustomEmailSenderBypassHandler can actually be deployed. count rather than an always-on table
+# with unused rows: matches the design goal that the bypass "doesn't exist at all in an
+# environment a real person might use" (see testing-strategy.md) - the table itself is absent in
+# test/production, not just empty.
+resource "aws_dynamodb_table" "test_email_codes" {
+  count = local.is_ephemeral ? 1 : 0
+
+  name         = "${local.resource_prefix}-test-email-codes"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "email"
+
+  attribute {
+    name = "email"
+    type = "S"
+  }
+
+  # A later code for the same email replaces the earlier one (CustomEmailSenderBypassHandler's
+  # plain putItem overwrites by hash key) - tests only ever care about the most recent code for a
+  # given address, e.g. a retried "resend code" during a flaky test run.
+  ttl {
+    attribute_name = "expiresAt"
+    enabled        = true
+  }
+}

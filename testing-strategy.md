@@ -27,22 +27,41 @@ This document covers what's specific to this repo.
   (`claude-<timestamp>-<rand>` or `e2e-<timestamp>-<rand>` — see the [naming
   convention](https://github.com/geoffweatherall/mootmaker/blob/main/testing-strategy.md#environments)
   in the overall doc), then tears it down.
-- **Email verification code bypass (Option 1, planned)**: a
-  `CustomMessage_SignUp`/`CustomMessage_ForgotPassword` Lambda trigger will write Cognito's
-  generated code (`event.request.codeParameter`) to a DynamoDB table for addresses matching a
-  test-only naming convention, instead of the acceptance/e2e suites needing to read real email.
-  Gated behind a Terraform variable so it's only active where explicitly enabled — **on for
-  ephemeral environments, off for `test` and `production`** — so this never touches how a real
-  user's confirmation email behaves, and doesn't exist at all in an environment a real person might
-  use. That variable's value is decided by `deploy.sh` from the **environment name's naming
-  pattern alone**, not passed in by whatever's calling it: a `claude-*`/`e2e-*` name self-enables
-  the bypass, anything else (`test`, `production`, a developer's own personal-sandbox name) leaves
-  it off. No caller — including `mootmaker-e2e/create-ephemeral-env.sh` (see
-  [mootmaker-e2e/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-e2e/blob/main/testing-strategy.md#ephemeral-environment-scripts))
-  — needs to know this variable exists or pass a flag for it. Not yet implemented; see
+- **Email verification code bypass (Option 1, implemented, unapplied pending SCP)**: a
+  `CustomEmailSender` Lambda trigger (not `CustomMessage` — see
   [mootmaker/testing-strategy.md's
   section](https://github.com/geoffweatherall/mootmaker/blob/main/testing-strategy.md#reading-cognitos-emails-in-tests)
-  for the full reasoning, including Option 2 (real email, used only in mootmaker-e2e).
+  for why `CustomMessage` can't do this) decrypts Cognito's generated code (KMS-encrypted in
+  transit) and writes it to a DynamoDB table, instead of the acceptance/e2e suites needing to read
+  real email. Taking over this trigger hands it Cognito's default sending entirely for that user
+  pool, so when enabled it deliberately sends no email at all rather than reimplementing sending —
+  nothing in an ephemeral environment needs to receive it (that's Option 2's job). Gated so it's
+  only active where explicitly enabled — **on for ephemeral environments, off for `test` and
+  `production`** — so this never touches how a real user's confirmation email behaves, and doesn't
+  exist at all in an environment a real person might use. Applies to every sign-up/reset in an
+  enabled environment rather than needing a further test-only address convention on top — there's
+  no real user to protect from it once the environment itself is ephemeral. That gate is decided by
+  `deploy.sh` from the **environment name's naming pattern alone**, not passed in by whatever's
+  calling it: a `claude-*`/`e2e-*` name self-enables the bypass, anything else (`test`, `production`,
+  a developer's own personal-sandbox name) leaves it off. No caller — including
+  `mootmaker-e2e/create-ephemeral-env.sh` (see
+  [mootmaker-e2e/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-e2e/blob/main/testing-strategy.md#ephemeral-environment-scripts))
+  — needs to know this variable exists or pass a flag for it.
+
+  **Blocked on the same account-wide SCP as Option 2**, for a different reason: `CustomEmailSender`
+  needs a customer-managed KMS key Cognito can encrypt with, and `kms` isn't on the allow-list
+  either. The Java handler, DynamoDB table, and Terraform are written and unit-tested (the decrypt
+  logic is genuinely exercised locally, against a plain JCE key standing in for the real
+  `KmsMasterKeyProvider` — only the specific real-KMS integration remains unverified), but
+  deliberately left unapplied until that allow-list is updated (Claude doesn't modify SCPs).
+
+  **Worth knowing before deciding to pursue this further**: the AWS Encryption SDK dependency this
+  needs is genuinely heavy (Bouncy Castle, a formally-verified crypto runtime pulled in
+  transitively) — even after excluding the same unused HTTP clients this project already excludes
+  elsewhere, it takes the shaded jar from ~7.2 MB to ~24 MB. Every Lambda function in this project
+  shares one jar (see `lambda.tf`'s "one shaded jar" comment), so this is a cold-start cost paid by
+  every function, not just this one — worth weighing against just relying on Option 2 instead once
+  the SCP unblocks either.
 - The GraphQL schema ([api/mootmaker.graphql](api/mootmaker.graphql)) is the contract
   mootmaker-webapp's hand-maintained types currently mirror by hand. Codegen to remove that drift
   risk is tracked as a to-do in [mootmaker's
@@ -54,7 +73,7 @@ This document covers what's specific to this repo.
 ## Full-stack e2e
 
 Deployed-webapp-against-deployed-API end-to-end testing (including real email delivery via
-SES→SQS) lives in [mootmaker-e2e](https://github.com/geoffweatherall/mootmaker-e2e), not here —
+SES→SNS→SQS) lives in [mootmaker-e2e](https://github.com/geoffweatherall/mootmaker-e2e), not here —
 this repo's own acceptance tests stay API-only, machine-to-machine, and never touch a browser or
 real email. See
 [mootmaker-e2e/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-e2e/blob/main/testing-strategy.md).
