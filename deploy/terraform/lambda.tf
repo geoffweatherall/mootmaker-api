@@ -16,26 +16,40 @@ locals {
   # map above: aws_cognito_resource_server.api itself depends on aws_cognito_user_pool.this, and
   # post_confirmation_create_person's Lambda (which uses lambda_env_vars) is in turn referenced by
   # that same user pool's own lambda_config - so anything in the shared map that touches the
-  # resource server would be a circular dependency for that one function. Only the four
-  # admin-gated handlers below get this extra variable, via their own merge().
+  # resource server would be a circular dependency for that one function.
   admin_gated_env_vars = merge(local.lambda_env_vars, {
     COGNITO_ADMIN_SCOPE = "${aws_cognito_resource_server.api.identifier}/admin"
   })
+
+  # ResolverDispatchHandler (see impl/src/main/java/com/mootmaker/handler/ResolverDispatchHandler.java)
+  # is the single entry point for every AppSync direct-Lambda resolver, so it needs the union of
+  # every env var any individual resolver handler used to need - including COGNITO_USER_POOL_ID
+  # (previously only update_person's own function got this). Unlike post_confirmation_create_person,
+  # this function is never itself referenced by aws_cognito_user_pool.this's lambda_config, so the
+  # circular-dependency concern above doesn't apply here.
+  resolver_lambda_env_vars = merge(local.admin_gated_env_vars, {
+    COGNITO_USER_POOL_ID = aws_cognito_user_pool.this.id
+  })
 }
 
-resource "aws_lambda_function" "list_rooms" {
-  function_name    = "${local.resource_prefix}-list-rooms"
+# One Lambda function behind every AppSync direct-Lambda resolver (see appsync.tf): AppSync's
+# $context.info (fieldName/parentTypeName) - already forwarded today via the shared pass-through
+# request template - tells ResolverDispatchHandler which of the 10 GraphQL fields to run, so a
+# user's burst of calls across several fields can land on the same already-restored SnapStart
+# execution environment instead of each field independently paying its own restore.
+resource "aws_lambda_function" "resolvers" {
+  function_name    = "${local.resource_prefix}-resolvers"
   role             = aws_iam_role.lambda_exec.arn
-  handler          = "com.mootmaker.handler.ListRoomsHandler::handleRequest"
+  handler          = "com.mootmaker.handler.ResolverDispatchHandler::handleRequest"
   runtime          = "java25"
   filename         = local.lambda_jar_path
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
   timeout          = 15
-  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
-  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
-  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
-  # published version rather than the mutable $LATEST.
+  # A published version is required for SnapStart (it never applies to $LATEST); the "live" alias
+  # below is what AppSync actually invokes, so each deploy's new version becomes live only once
+  # Terraform has finished applying, and SnapStart's snapshot is taken from this published version
+  # rather than the mutable $LATEST.
   publish = true
 
   snap_start {
@@ -43,152 +57,20 @@ resource "aws_lambda_function" "list_rooms" {
   }
 
   environment {
-    variables = local.lambda_env_vars
+    variables = local.resolver_lambda_env_vars
   }
 }
 
-resource "aws_lambda_function" "list_people" {
-  function_name    = "${local.resource_prefix}-list-people"
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "com.mootmaker.handler.ListPeopleHandler::handleRequest"
-  runtime          = "java25"
-  filename         = local.lambda_jar_path
-  source_code_hash = local.lambda_jar_hash
-  memory_size      = 512
-  timeout          = 15
-  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
-  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
-  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
-  # published version rather than the mutable $LATEST.
-  publish = true
-
-  snap_start {
-    apply_on = "PublishedVersions"
-  }
-
-  environment {
-    variables = local.lambda_env_vars
-  }
+resource "aws_lambda_alias" "resolvers_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.resolvers.function_name
+  function_version = aws_lambda_function.resolvers.version
 }
 
-resource "aws_lambda_function" "suggest_room" {
-  function_name    = "${local.resource_prefix}-suggest-room"
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "com.mootmaker.handler.SuggestRoomHandler::handleRequest"
-  runtime          = "java25"
-  filename         = local.lambda_jar_path
-  source_code_hash = local.lambda_jar_hash
-  memory_size      = 512
-  timeout          = 15
-  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
-  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
-  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
-  # published version rather than the mutable $LATEST.
-  publish = true
-
-  snap_start {
-    apply_on = "PublishedVersions"
-  }
-
-  environment {
-    variables = local.lambda_env_vars
-  }
-}
-
-resource "aws_lambda_function" "create_room" {
-  function_name    = "${local.resource_prefix}-create-room"
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "com.mootmaker.handler.CreateRoomHandler::handleRequest"
-  runtime          = "java25"
-  filename         = local.lambda_jar_path
-  source_code_hash = local.lambda_jar_hash
-  memory_size      = 512
-  timeout          = 15
-  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
-  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
-  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
-  # published version rather than the mutable $LATEST.
-  publish = true
-
-  snap_start {
-    apply_on = "PublishedVersions"
-  }
-
-  environment {
-    variables = local.admin_gated_env_vars
-  }
-}
-
-resource "aws_lambda_function" "update_room" {
-  function_name    = "${local.resource_prefix}-update-room"
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "com.mootmaker.handler.UpdateRoomHandler::handleRequest"
-  runtime          = "java25"
-  filename         = local.lambda_jar_path
-  source_code_hash = local.lambda_jar_hash
-  memory_size      = 512
-  timeout          = 15
-  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
-  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
-  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
-  # published version rather than the mutable $LATEST.
-  publish = true
-
-  snap_start {
-    apply_on = "PublishedVersions"
-  }
-
-  environment {
-    variables = local.admin_gated_env_vars
-  }
-}
-
-resource "aws_lambda_function" "create_person" {
-  function_name    = "${local.resource_prefix}-create-person"
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "com.mootmaker.handler.CreatePersonHandler::handleRequest"
-  runtime          = "java25"
-  filename         = local.lambda_jar_path
-  source_code_hash = local.lambda_jar_hash
-  memory_size      = 512
-  timeout          = 15
-  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
-  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
-  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
-  # published version rather than the mutable $LATEST.
-  publish = true
-
-  snap_start {
-    apply_on = "PublishedVersions"
-  }
-
-  environment {
-    variables = local.admin_gated_env_vars
-  }
-}
-
-resource "aws_lambda_function" "update_person" {
-  function_name    = "${local.resource_prefix}-update-person"
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "com.mootmaker.handler.UpdatePersonHandler::handleRequest"
-  runtime          = "java25"
-  filename         = local.lambda_jar_path
-  source_code_hash = local.lambda_jar_hash
-  memory_size      = 512
-  timeout          = 15
-
-  # Also needs COGNITO_USER_POOL_ID (to propagate a rename to Cognito's own name attribute).
-  # Unlike PostConfirmationCreatePersonHandler (which reads userPoolId from its own Cognito
-  # trigger event instead - see that handler's comment - specifically to avoid a circular
-  # dependency), this function's own AppSync event has no such field, and it isn't itself
-  # referenced by aws_cognito_user_pool.this, so adding this here is safe.
-  environment {
-    variables = merge(local.admin_gated_env_vars, {
-      COGNITO_USER_POOL_ID = aws_cognito_user_pool.this.id
-    })
-  }
-}
-
+# Cognito's PostConfirmation trigger, not an AppSync resolver - a different event shape (a Cognito
+# trigger event, not an AppSync $ctx), firing once per sign-up rather than as part of an
+# interactive multi-field GraphQL burst, so it stays a function of its own rather than being folded
+# into the resolvers dispatcher above.
 resource "aws_lambda_function" "post_confirmation_create_person" {
   function_name    = "${local.resource_prefix}-post-confirmation-create-person"
   role             = aws_iam_role.lambda_exec.arn
@@ -199,9 +81,9 @@ resource "aws_lambda_function" "post_confirmation_create_person" {
   memory_size      = 512
   timeout          = 15
   # A published version is required for SnapStart (it never applies to $LATEST); the "live"
-  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
-  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
-  # published version rather than the mutable $LATEST.
+  # alias below is what Cognito actually invokes, so each deploy's new version becomes live only
+  # once Terraform has finished applying, and SnapStart's snapshot is taken from this published
+  # version rather than the mutable $LATEST.
   publish = true
 
   snap_start {
@@ -211,147 +93,10 @@ resource "aws_lambda_function" "post_confirmation_create_person" {
   environment {
     variables = local.lambda_env_vars
   }
-}
-
-resource "aws_lambda_function" "my_person" {
-  function_name    = "${local.resource_prefix}-my-person"
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "com.mootmaker.handler.MyPersonHandler::handleRequest"
-  runtime          = "java25"
-  filename         = local.lambda_jar_path
-  source_code_hash = local.lambda_jar_hash
-  memory_size      = 512
-  timeout          = 15
-  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
-  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
-  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
-  # published version rather than the mutable $LATEST.
-  publish = true
-
-  snap_start {
-    apply_on = "PublishedVersions"
-  }
-
-  environment {
-    variables = local.lambda_env_vars
-  }
-}
-
-resource "aws_lambda_function" "list_meetings" {
-  function_name    = "${local.resource_prefix}-list-meetings"
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "com.mootmaker.handler.ListMeetingsHandler::handleRequest"
-  runtime          = "java25"
-  filename         = local.lambda_jar_path
-  source_code_hash = local.lambda_jar_hash
-  memory_size      = 512
-  timeout          = 15
-  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
-  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
-  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
-  # published version rather than the mutable $LATEST.
-  publish = true
-
-  snap_start {
-    apply_on = "PublishedVersions"
-  }
-
-  environment {
-    variables = local.lambda_env_vars
-  }
-}
-
-resource "aws_lambda_function" "create_meeting" {
-  function_name    = "${local.resource_prefix}-create-meeting"
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "com.mootmaker.handler.CreateMeetingHandler::handleRequest"
-  runtime          = "java25"
-  filename         = local.lambda_jar_path
-  source_code_hash = local.lambda_jar_hash
-  memory_size      = 512
-  timeout          = 15
-  # A published version is required for SnapStart (it never applies to $LATEST); the "live"
-  # alias below is what AppSync/Cognito actually invoke, so each deploy's new version becomes
-  # live only once Terraform has finished applying, and SnapStart's snapshot is taken from this
-  # published version rather than the mutable $LATEST.
-  publish = true
-
-  snap_start {
-    apply_on = "PublishedVersions"
-  }
-
-  environment {
-    variables = local.lambda_env_vars
-  }
-}
-
-# "live" aliases: SnapStart only ever applies to a published version, never to $LATEST, so
-# AppSync's data sources and Cognito's trigger config (below/in cognito.tf) point at these
-# aliases rather than the functions themselves. Each deploy re-points the alias at the version
-# `publish = true` just created, once Terraform finishes applying - so traffic only ever reaches
-# a fully-deployed version, never a half-applied one.
-resource "aws_lambda_alias" "list_rooms_live" {
-  name             = "live"
-  function_name    = aws_lambda_function.list_rooms.function_name
-  function_version = aws_lambda_function.list_rooms.version
-}
-
-resource "aws_lambda_alias" "list_people_live" {
-  name             = "live"
-  function_name    = aws_lambda_function.list_people.function_name
-  function_version = aws_lambda_function.list_people.version
-}
-
-resource "aws_lambda_alias" "suggest_room_live" {
-  name             = "live"
-  function_name    = aws_lambda_function.suggest_room.function_name
-  function_version = aws_lambda_function.suggest_room.version
-}
-
-resource "aws_lambda_alias" "create_room_live" {
-  name             = "live"
-  function_name    = aws_lambda_function.create_room.function_name
-  function_version = aws_lambda_function.create_room.version
-}
-
-resource "aws_lambda_alias" "update_room_live" {
-  name             = "live"
-  function_name    = aws_lambda_function.update_room.function_name
-  function_version = aws_lambda_function.update_room.version
-}
-
-resource "aws_lambda_alias" "create_person_live" {
-  name             = "live"
-  function_name    = aws_lambda_function.create_person.function_name
-  function_version = aws_lambda_function.create_person.version
-}
-
-resource "aws_lambda_alias" "update_person_live" {
-  name             = "live"
-  function_name    = aws_lambda_function.update_person.function_name
-  function_version = aws_lambda_function.update_person.version
 }
 
 resource "aws_lambda_alias" "post_confirmation_create_person_live" {
   name             = "live"
   function_name    = aws_lambda_function.post_confirmation_create_person.function_name
   function_version = aws_lambda_function.post_confirmation_create_person.version
-}
-
-resource "aws_lambda_alias" "my_person_live" {
-  name             = "live"
-  function_name    = aws_lambda_function.my_person.function_name
-  function_version = aws_lambda_function.my_person.version
-}
-
-resource "aws_lambda_alias" "list_meetings_live" {
-  name             = "live"
-  function_name    = aws_lambda_function.list_meetings.function_name
-  function_version = aws_lambda_function.list_meetings.version
-}
-
-resource "aws_lambda_alias" "create_meeting_live" {
-  name             = "live"
-  function_name    = aws_lambda_function.create_meeting.function_name
-  function_version = aws_lambda_function.create_meeting.version
 }

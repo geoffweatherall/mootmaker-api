@@ -10,117 +10,24 @@ resource "aws_appsync_graphql_api" "this" {
   }
 }
 
-resource "aws_appsync_datasource" "list_rooms" {
+# One data source, shared by every resolver below - AppSync supports many resolvers pointing at
+# the same Lambda data source, and ResolverDispatchHandler (see lambda.tf) is the single Lambda
+# behind all of them, routing on $context.info.parentTypeName/fieldName.
+resource "aws_appsync_datasource" "resolvers" {
   api_id           = aws_appsync_graphql_api.this.id
-  name             = "ListRoomsDataSource"
+  name             = "ResolversDataSource"
   type             = "AWS_LAMBDA"
   service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
 
   lambda_config {
-    function_arn = aws_lambda_alias.list_rooms_live.arn
-  }
-}
-
-resource "aws_appsync_datasource" "list_people" {
-  api_id           = aws_appsync_graphql_api.this.id
-  name             = "ListPeopleDataSource"
-  type             = "AWS_LAMBDA"
-  service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
-
-  lambda_config {
-    function_arn = aws_lambda_alias.list_people_live.arn
-  }
-}
-
-resource "aws_appsync_datasource" "create_room" {
-  api_id           = aws_appsync_graphql_api.this.id
-  name             = "CreateRoomDataSource"
-  type             = "AWS_LAMBDA"
-  service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
-
-  lambda_config {
-    function_arn = aws_lambda_alias.create_room_live.arn
-  }
-}
-
-resource "aws_appsync_datasource" "update_room" {
-  api_id           = aws_appsync_graphql_api.this.id
-  name             = "UpdateRoomDataSource"
-  type             = "AWS_LAMBDA"
-  service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
-
-  lambda_config {
-    function_arn = aws_lambda_alias.update_room_live.arn
-  }
-}
-
-resource "aws_appsync_datasource" "create_person" {
-  api_id           = aws_appsync_graphql_api.this.id
-  name             = "CreatePersonDataSource"
-  type             = "AWS_LAMBDA"
-  service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
-
-  lambda_config {
-    function_arn = aws_lambda_alias.create_person_live.arn
-  }
-}
-
-resource "aws_appsync_datasource" "update_person" {
-  api_id           = aws_appsync_graphql_api.this.id
-  name             = "UpdatePersonDataSource"
-  type             = "AWS_LAMBDA"
-  service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
-
-  lambda_config {
-    function_arn = aws_lambda_alias.update_person_live.arn
-  }
-}
-
-resource "aws_appsync_datasource" "my_person" {
-  api_id           = aws_appsync_graphql_api.this.id
-  name             = "MyPersonDataSource"
-  type             = "AWS_LAMBDA"
-  service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
-
-  lambda_config {
-    function_arn = aws_lambda_alias.my_person_live.arn
-  }
-}
-
-resource "aws_appsync_datasource" "list_meetings" {
-  api_id           = aws_appsync_graphql_api.this.id
-  name             = "ListMeetingsDataSource"
-  type             = "AWS_LAMBDA"
-  service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
-
-  lambda_config {
-    function_arn = aws_lambda_alias.list_meetings_live.arn
-  }
-}
-
-resource "aws_appsync_datasource" "create_meeting" {
-  api_id           = aws_appsync_graphql_api.this.id
-  name             = "CreateMeetingDataSource"
-  type             = "AWS_LAMBDA"
-  service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
-
-  lambda_config {
-    function_arn = aws_lambda_alias.create_meeting_live.arn
-  }
-}
-
-resource "aws_appsync_datasource" "suggest_room" {
-  api_id           = aws_appsync_graphql_api.this.id
-  name             = "SuggestRoomDataSource"
-  type             = "AWS_LAMBDA"
-  service_role_arn = aws_iam_role.appsync_lambda_invoke.arn
-
-  lambda_config {
-    function_arn = aws_lambda_alias.suggest_room_live.arn
+    function_arn = aws_lambda_alias.resolvers_live.arn
   }
 }
 
 locals {
+  # $util.toJson($ctx) already includes $ctx.info (fieldName/parentTypeName), which
+  # ResolverDispatchHandler uses to route - so no per-resolver template is needed even though all
+  # 10 fields now share one Lambda.
   direct_lambda_request_template  = "{\"version\":\"2018-05-29\",\"operation\":\"Invoke\",\"payload\":$util.toJson($ctx)}"
   direct_lambda_response_template = "$util.toJson($ctx.result)"
 }
@@ -129,7 +36,7 @@ resource "aws_appsync_resolver" "rooms" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Query"
   field             = "rooms"
-  data_source       = aws_appsync_datasource.list_rooms.name
+  data_source       = aws_appsync_datasource.resolvers.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
 }
@@ -138,7 +45,7 @@ resource "aws_appsync_resolver" "people" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Query"
   field             = "people"
-  data_source       = aws_appsync_datasource.list_people.name
+  data_source       = aws_appsync_datasource.resolvers.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
 }
@@ -147,7 +54,7 @@ resource "aws_appsync_resolver" "create_room" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Mutation"
   field             = "createRoom"
-  data_source       = aws_appsync_datasource.create_room.name
+  data_source       = aws_appsync_datasource.resolvers.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
 }
@@ -156,7 +63,7 @@ resource "aws_appsync_resolver" "update_room" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Mutation"
   field             = "updateRoom"
-  data_source       = aws_appsync_datasource.update_room.name
+  data_source       = aws_appsync_datasource.resolvers.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
 }
@@ -165,7 +72,7 @@ resource "aws_appsync_resolver" "create_person" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Mutation"
   field             = "createPerson"
-  data_source       = aws_appsync_datasource.create_person.name
+  data_source       = aws_appsync_datasource.resolvers.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
 }
@@ -174,7 +81,7 @@ resource "aws_appsync_resolver" "update_person" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Mutation"
   field             = "updatePerson"
-  data_source       = aws_appsync_datasource.update_person.name
+  data_source       = aws_appsync_datasource.resolvers.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
 }
@@ -183,7 +90,7 @@ resource "aws_appsync_resolver" "my_person" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Query"
   field             = "myPerson"
-  data_source       = aws_appsync_datasource.my_person.name
+  data_source       = aws_appsync_datasource.resolvers.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
 }
@@ -192,7 +99,7 @@ resource "aws_appsync_resolver" "meetings" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Query"
   field             = "meetings"
-  data_source       = aws_appsync_datasource.list_meetings.name
+  data_source       = aws_appsync_datasource.resolvers.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
 }
@@ -201,7 +108,7 @@ resource "aws_appsync_resolver" "create_meeting" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Mutation"
   field             = "createMeeting"
-  data_source       = aws_appsync_datasource.create_meeting.name
+  data_source       = aws_appsync_datasource.resolvers.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
 }
@@ -210,7 +117,7 @@ resource "aws_appsync_resolver" "suggest_room" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Query"
   field             = "suggestRoom"
-  data_source       = aws_appsync_datasource.suggest_room.name
+  data_source       = aws_appsync_datasource.resolvers.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
 }

@@ -92,20 +92,11 @@ resource "aws_iam_role" "appsync_lambda_invoke" {
 data "aws_iam_policy_document" "appsync_invoke_lambda" {
   statement {
     actions = ["lambda:InvokeFunction"]
-    # The "live" alias ARNs, not the function ARNs - AppSync's data sources invoke through the
-    # alias (see appsync.tf), and IAM requires an exact resource match, so a grant on the
-    # function ARN alone wouldn't cover invoking the alias.
+    # The "live" alias ARN, not the function ARN - AppSync's data source invokes through the
+    # alias (see appsync.tf), and IAM requires an exact resource match, so a grant on the function
+    # ARN alone wouldn't cover invoking the alias.
     resources = [
-      aws_lambda_alias.list_rooms_live.arn,
-      aws_lambda_alias.list_people_live.arn,
-      aws_lambda_alias.create_room_live.arn,
-      aws_lambda_alias.update_room_live.arn,
-      aws_lambda_alias.create_person_live.arn,
-      aws_lambda_alias.update_person_live.arn,
-      aws_lambda_alias.my_person_live.arn,
-      aws_lambda_alias.list_meetings_live.arn,
-      aws_lambda_alias.create_meeting_live.arn,
-      aws_lambda_alias.suggest_room_live.arn,
+      aws_lambda_alias.resolvers_live.arn,
     ]
   }
 }
