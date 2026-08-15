@@ -35,25 +35,30 @@ This document covers what's specific to this repo.
   transit) and writes it to a DynamoDB table, instead of the acceptance/e2e suites needing to read
   real email. Taking over this trigger hands it Cognito's default sending entirely for that user
   pool, so when enabled it deliberately sends no email at all rather than reimplementing sending —
-  nothing in an ephemeral environment needs to receive it (that's Option 2's job). Gated so it's
-  only active where explicitly enabled — **on for ephemeral environments, off for `test` and
-  `production`** — so this never touches how a real user's confirmation email behaves, and doesn't
-  exist at all in an environment a real person might use. Applies to every sign-up/reset in an
-  enabled environment rather than needing a further test-only address convention on top — there's
-  no real user to protect from it once the environment itself is ephemeral. That gate is decided by
-  `deploy.sh` from the **environment name's naming pattern alone**, not passed in by whatever's
-  calling it: a `claude-*`/`e2e-*` name self-enables the bypass, anything else (`test`, `production`,
-  a developer's own personal-sandbox name) leaves it off. No caller — including
-  `mootmaker-e2e/create-ephemeral-env.sh` (see
-  [mootmaker-e2e/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-e2e/blob/main/testing-strategy.md#ephemeral-environment-scripts))
-  — needs to know this variable exists or pass a flag for it.
+  nothing in an ephemeral environment needs to receive it (that's Option 2's job). Applies to every
+  sign-up/reset in an enabled environment rather than needing a further test-only address
+  convention on top — there's no real user to protect from it once the environment itself is
+  ephemeral.
+
+  Two gates, not one: `local.is_ephemeral` (the environment name's naming pattern alone —
+  `claude-*`/`e2e-*`) **and** `var.enable_test_email_bypass` (a plain Terraform variable,
+  **defaulting to `false`**). The original design was is_ephemeral alone, so no caller of
+  `deploy.sh` would ever need to know a variable exists or pass a flag for it — but real deployment
+  testing found that self-enabling from the name alone means *every* `claude-*`/`e2e-*` deploy
+  unconditionally tries to create the KMS key below, which this account's SCP denies outright,
+  breaking every ephemeral deploy, not just this feature. `enable_test_email_bypass` exists purely
+  to keep that scoped to an explicit opt-in until the SCP is actually updated; flipping its default
+  to `true` at that point restores the original zero-flags design exactly.
 
   **Blocked on the same account-wide SCP as Option 2**, for a different reason: `CustomEmailSender`
   needs a customer-managed KMS key Cognito can encrypt with, and `kms` isn't on the allow-list
   either. The Java handler, DynamoDB table, and Terraform are written and unit-tested (the decrypt
   logic is genuinely exercised locally, against a plain JCE key standing in for the real
   `KmsMasterKeyProvider` — only the specific real-KMS integration remains unverified), but
-  deliberately left unapplied until that allow-list is updated (Claude doesn't modify SCPs).
+  deliberately left unapplied (via the `enable_test_email_bypass` default above) until that
+  allow-list is updated (Claude doesn't modify SCPs). **Verified 2026-08-15**: with the bypass
+  correctly defaulting off, a fresh `claude-*` environment deploys cleanly end-to-end (44 resources,
+  `test_email_codes_table_name` output correctly empty) and tears down cleanly.
 
   **Worth knowing before deciding to pursue this further**: the AWS Encryption SDK dependency this
   needs is genuinely heavy (Bouncy Castle, a formally-verified crypto runtime pulled in

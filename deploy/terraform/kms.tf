@@ -10,7 +10,7 @@
 # handing it to the Lambda - there's no way to use an AWS-managed key here, since the key policy
 # below has to explicitly grant the Cognito service principal permission to encrypt with it.
 resource "aws_kms_key" "test_email_bypass" {
-  count = local.is_ephemeral ? 1 : 0
+  count = local.test_email_bypass_enabled ? 1 : 0
 
   description             = "Encrypts verification codes Cognito hands to CustomEmailSenderBypassHandler in ${var.environment}"
   deletion_window_in_days = 7
@@ -44,7 +44,7 @@ resource "aws_kms_key" "test_email_bypass" {
 }
 
 resource "aws_kms_alias" "test_email_bypass" {
-  count = local.is_ephemeral ? 1 : 0
+  count = local.test_email_bypass_enabled ? 1 : 0
 
   name          = "alias/${local.resource_prefix}-test-email-bypass"
   target_key_id = aws_kms_key.test_email_bypass[0].key_id

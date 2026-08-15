@@ -105,11 +105,11 @@ resource "aws_lambda_alias" "post_confirmation_create_person_live" {
 # AppSync resolver - like post_confirmation_create_person above, a function of its own rather than
 # folded into the resolvers dispatcher, for the same reasons (different event shape, not part of an
 # interactive multi-field GraphQL burst). Only ever wired into lambda_config for an
-# is_ephemeral environment (see cognito.tf) - see CustomEmailSenderBypassHandler's javadoc for why
+# the email-bypass gate is enabled (see locals.tf, cognito.tf) - see CustomEmailSenderBypassHandler's javadoc for why
 # that invariant matters (configuring this trigger at all replaces Cognito's default sending
 # unconditionally for the whole user pool).
 resource "aws_lambda_function" "test_email_bypass" {
-  count = local.is_ephemeral ? 1 : 0
+  count = local.test_email_bypass_enabled ? 1 : 0
 
   function_name    = "${local.resource_prefix}-test-email-bypass"
   role             = aws_iam_role.lambda_exec.arn
@@ -134,7 +134,7 @@ resource "aws_lambda_function" "test_email_bypass" {
 }
 
 resource "aws_lambda_alias" "test_email_bypass_live" {
-  count = local.is_ephemeral ? 1 : 0
+  count = local.test_email_bypass_enabled ? 1 : 0
 
   name             = "live"
   function_name    = aws_lambda_function.test_email_bypass[0].function_name

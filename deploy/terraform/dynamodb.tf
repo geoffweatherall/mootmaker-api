@@ -129,7 +129,7 @@ resource "aws_dynamodb_table" "meeting_participants" {
 # environment a real person might use" (see testing-strategy.md) - the table itself is absent in
 # test/production, not just empty.
 resource "aws_dynamodb_table" "test_email_codes" {
-  count = local.is_ephemeral ? 1 : 0
+  count = local.test_email_bypass_enabled ? 1 : 0
 
   name         = "${local.resource_prefix}-test-email-codes"
   billing_mode = "PAY_PER_REQUEST"
