@@ -28,11 +28,6 @@ output "meeting_participants_table_name" {
   value       = aws_dynamodb_table.meeting_participants.name
 }
 
-output "test_email_codes_table_name" {
-  description = "DynamoDB table name for bypass-captured verification codes (see testing-strategy.md's \"Email verification code bypass\" section) - empty string when this environment isn't ephemeral, since the table doesn't exist there at all. authenticate.sh exports this so test code can read a code directly instead of needing to read real email."
-  value       = local.test_email_bypass_enabled ? aws_dynamodb_table.test_email_codes[0].name : ""
-}
-
 output "cognito_user_pool_id" {
   description = "Id of the Cognito user pool that authenticates API callers."
   value       = aws_cognito_user_pool.this.id

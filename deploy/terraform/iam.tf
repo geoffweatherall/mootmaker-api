@@ -74,32 +74,6 @@ resource "aws_iam_role_policy" "lambda_cognito_access" {
   policy = data.aws_iam_policy_document.lambda_cognito_access.json
 }
 
-# SCP-BLOCKED as of 2026-08-15 (see kms.tf) - only present when the email-bypass gate is enabled (see locals.tf), same as
-# the resources it grants access to.
-data "aws_iam_policy_document" "lambda_test_email_bypass_access" {
-  count = local.test_email_bypass_enabled ? 1 : 0
-
-  statement {
-    actions   = ["dynamodb:PutItem"]
-    resources = [aws_dynamodb_table.test_email_codes[0].arn]
-  }
-
-  statement {
-    # CustomEmailSenderBypassHandler only ever decrypts (Cognito is the one that encrypts, per
-    # kms.tf's key policy) - no kms:Encrypt/GenerateDataKey needed here.
-    actions   = ["kms:Decrypt"]
-    resources = [aws_kms_key.test_email_bypass[0].arn]
-  }
-}
-
-resource "aws_iam_role_policy" "lambda_test_email_bypass_access" {
-  count = local.test_email_bypass_enabled ? 1 : 0
-
-  name   = "${local.resource_prefix}-lambda-test-email-bypass-access"
-  role   = aws_iam_role.lambda_exec.id
-  policy = data.aws_iam_policy_document.lambda_test_email_bypass_access[0].json
-}
-
 data "aws_iam_policy_document" "appsync_assume_role" {
   statement {
     actions = ["sts:AssumeRole"]

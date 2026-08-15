@@ -23,9 +23,6 @@
 #   PEOPLE_TABLE_NAME          DynamoDB table name for Person records
 #   MEETINGS_TABLE_NAME        DynamoDB table name for Meeting records
 #   MEETING_PARTICIPANTS_TABLE_NAME  DynamoDB table name for the meeting-participants join index
-#   TEST_EMAIL_CODES_TABLE_NAME  DynamoDB table for bypass-captured verification codes (see
-#                                 testing-strategy.md) - exported as an empty string, not a
-#                                 failure, for a non-ephemeral environment where it doesn't exist
 #
 # Must be SOURCED, not executed, so the exports persist in your shell:
 #   source authenticate.sh <environment>
@@ -72,14 +69,6 @@ _authenticate_read_output() {
   export "${var_name}=${value}"
 }
 
-# Unlike _authenticate_read_output above, an empty value here is expected (a non-ephemeral
-# environment has no test-email-codes table at all - see dynamodb.tf) rather than a failure.
-_authenticate_read_optional_output() {
-  local var_name="$1" output_name="$2" value
-  value="$(TF_DATA_DIR="${_authenticate_tf_data_dir}" terraform -chdir="${_authenticate_terraform_dir}" output -raw "${output_name}" 2>/dev/null)" || value=""
-  export "${var_name}=${value}"
-}
-
 if [[ -z "${_authenticate_failed}" ]]; then
   _authenticate_read_output GRAPHQL_API_URL graphql_api_url &&
     _authenticate_read_output COGNITO_USER_POOL_ID cognito_user_pool_id &&
@@ -97,14 +86,13 @@ if [[ -z "${_authenticate_failed}" ]]; then
     _authenticate_read_output PEOPLE_TABLE_NAME people_table_name &&
     _authenticate_read_output MEETINGS_TABLE_NAME meetings_table_name &&
     _authenticate_read_output MEETING_PARTICIPANTS_TABLE_NAME meeting_participants_table_name
-  _authenticate_read_optional_output TEST_EMAIL_CODES_TABLE_NAME test_email_codes_table_name
 fi
 
 if [[ -z "${_authenticate_failed}" ]]; then
-  echo "Exported GRAPHQL_API_URL, the COGNITO_*/E2E_*/DEMO_* authentication variables, AWS_REGION, ROOMS_TABLE_NAME, PEOPLE_TABLE_NAME, MEETINGS_TABLE_NAME, MEETING_PARTICIPANTS_TABLE_NAME, and TEST_EMAIL_CODES_TABLE_NAME for '${_authenticate_environment}'."
+  echo "Exported GRAPHQL_API_URL, the COGNITO_*/E2E_*/DEMO_* authentication variables, AWS_REGION, ROOMS_TABLE_NAME, PEOPLE_TABLE_NAME, MEETINGS_TABLE_NAME, and MEETING_PARTICIPANTS_TABLE_NAME for '${_authenticate_environment}'."
 fi
 
-unset -f _authenticate_read_output _authenticate_read_optional_output
+unset -f _authenticate_read_output
 unset _authenticate_script_dir _authenticate_terraform_dir _authenticate_tf_data_dir _authenticate_environment
 
 [[ -z "${_authenticate_failed}" ]] || { unset _authenticate_failed; return 1; }

@@ -27,46 +27,21 @@ This document covers what's specific to this repo.
   (`claude-<timestamp>-<rand>` or `e2e-<timestamp>-<rand>` — see the [naming
   convention](https://github.com/geoffweatherall/mootmaker/blob/main/testing-strategy.md#environments)
   in the overall doc), then tears it down.
-- **Email verification code bypass (Option 1, implemented, unapplied pending SCP)**: a
-  `CustomEmailSender` Lambda trigger (not `CustomMessage` — see
-  [mootmaker/testing-strategy.md's
-  section](https://github.com/geoffweatherall/mootmaker/blob/main/testing-strategy.md#reading-cognitos-emails-in-tests)
-  for why `CustomMessage` can't do this) decrypts Cognito's generated code (KMS-encrypted in
-  transit) and writes it to a DynamoDB table, instead of the acceptance/e2e suites needing to read
-  real email. Taking over this trigger hands it Cognito's default sending entirely for that user
-  pool, so when enabled it deliberately sends no email at all rather than reimplementing sending —
-  nothing in an ephemeral environment needs to receive it (that's Option 2's job). Applies to every
-  sign-up/reset in an enabled environment rather than needing a further test-only address
-  convention on top — there's no real user to protect from it once the environment itself is
-  ephemeral.
-
-  Two gates, not one: `local.is_ephemeral` (the environment name's naming pattern alone —
-  `claude-*`/`e2e-*`) **and** `var.enable_test_email_bypass` (a plain Terraform variable,
-  **defaulting to `false`**). The original design was is_ephemeral alone, so no caller of
-  `deploy.sh` would ever need to know a variable exists or pass a flag for it — but real deployment
-  testing found that self-enabling from the name alone means *every* `claude-*`/`e2e-*` deploy
-  unconditionally tries to create the KMS key below, which this account's SCP denies outright,
-  breaking every ephemeral deploy, not just this feature. `enable_test_email_bypass` exists purely
-  to keep that scoped to an explicit opt-in until the SCP is actually updated; flipping its default
-  to `true` at that point restores the original zero-flags design exactly.
-
-  **Blocked on the same account-wide SCP as Option 2**, for a different reason: `CustomEmailSender`
-  needs a customer-managed KMS key Cognito can encrypt with, and `kms` isn't on the allow-list
-  either. The Java handler, DynamoDB table, and Terraform are written and unit-tested (the decrypt
-  logic is genuinely exercised locally, against a plain JCE key standing in for the real
-  `KmsMasterKeyProvider` — only the specific real-KMS integration remains unverified), but
-  deliberately left unapplied (via the `enable_test_email_bypass` default above) until that
-  allow-list is updated (Claude doesn't modify SCPs). **Verified 2026-08-15**: with the bypass
-  correctly defaulting off, a fresh `claude-*` environment deploys cleanly end-to-end (44 resources,
-  `test_email_codes_table_name` output correctly empty) and tears down cleanly.
-
-  **Worth knowing before deciding to pursue this further**: the AWS Encryption SDK dependency this
-  needs is genuinely heavy (Bouncy Castle, a formally-verified crypto runtime pulled in
-  transitively) — even after excluding the same unused HTTP clients this project already excludes
-  elsewhere, it takes the shaded jar from ~7.2 MB to ~24 MB. Every Lambda function in this project
-  shares one jar (see `lambda.tf`'s "one shaded jar" comment), so this is a cold-start cost paid by
-  every function, not just this one — worth weighing against just relying on Option 2 instead once
-  the SCP unblocks either.
+- **Email verification code bypass (Option 1) — dropped 2026-08-15.** A `CustomEmailSender`
+  Lambda trigger + KMS decrypt + a DynamoDB bypass table was built, unit-tested, and confirmed
+  `terraform validate`-clean, but never applied (blocked on the account's SCP allowing `kms`).
+  Removed rather than left unapplied once the cost/complexity became clear: a customer-managed KMS
+  key is billed a flat $1/month *per key* regardless of use (unlike everything else in this
+  project, which is pure pay-per-request) — and as originally designed, one key would have been
+  created per ephemeral environment, not shared, so it wouldn't have stayed near-zero-cost the way
+  the rest of this project does. The AWS Encryption SDK dependency it needed was also heavy enough
+  to take the shared Lambda jar from ~7.2 MB to ~24 MB (every function in this project ships from
+  one jar — see `lambda.tf`'s "one shaded jar" comment), a real cold-start cost paid by every
+  function, not just this one. mootmaker/testing-strategy.md's "Reading Cognito's emails in tests"
+  now covers Option 2 only; use the Cognito Admin API (`AdminConfirmSignUp`/`AdminSetUserPassword`)
+  directly from test code for anything that needs a working account but doesn't care about
+  exercising the real code-entry UI step — no new infrastructure needed for that, `cognito-idp:*`
+  is already SCP-allowed.
 - The GraphQL schema ([api/mootmaker.graphql](api/mootmaker.graphql)) is the contract
   mootmaker-webapp's hand-maintained types currently mirror by hand. Codegen to remove that drift
   risk is tracked as a to-do in [mootmaker's

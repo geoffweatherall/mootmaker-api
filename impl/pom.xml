@@ -89,38 +89,6 @@
       <artifactId>crac</artifactId>
       <version>1.5.0</version>
     </dependency>
-    <!-- CustomEmailSenderBypassHandler decrypts the KMS-encrypted verification code Cognito's
-         CustomEmailSender trigger hands it (see testing-strategy.md's "Email verification code
-         bypass" section) - this is the library AWS's own Cognito documentation uses for that
-         trigger type. Not yet exercised against real Cognito/KMS traffic (blocked on an SCP
-         update - see testing-strategy.md), only unit-tested locally against a plain JCE master key
-         standing in for a real KmsMasterKeyProvider, which exercises the same AwsCrypto.decryptData
-         call path.
-         NOTE: this is a genuinely heavy dependency (Bouncy Castle, the newer material-providers
-         library transitively even though the simpler MasterKeyProvider API above is what's
-         actually used, Dafny's generated-verification runtime) - even with the exclusions below,
-         it took the shaded jar from ~7.2 MB to ~24 MB, which is shared by every Lambda function in
-         this project (see lambda.tf's "one shaded jar" comment), not just this one. Worth weighing
-         against Option 2 (real email, no new Lambda dependency at all) once the SCP unblocks
-         either - see testing-strategy.md. -->
-    <dependency>
-      <groupId>com.amazonaws</groupId>
-      <artifactId>aws-encryption-sdk-java</artifactId>
-      <version>3.0.2</version>
-      <exclusions>
-        <!-- Same reasoning as the dynamodb/cognitoidentityprovider exclusions above - this
-             dependency's own transitive `kms` artifact pulls in both alternative HTTP clients
-             otherwise unused anywhere in this project. -->
-        <exclusion>
-          <groupId>software.amazon.awssdk</groupId>
-          <artifactId>apache5-client</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>software.amazon.awssdk</groupId>
-          <artifactId>netty-nio-client</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
     <!--
       The AWS SDK pulls in slf4j-api transitively (via sdk-core) with no binding on the classpath,
       which prints "Failed to load class StaticLoggerBinder" at cold start. Declaring slf4j-api
