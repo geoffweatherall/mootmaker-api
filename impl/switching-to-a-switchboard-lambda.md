@@ -31,26 +31,30 @@ own SnapStart snapshot. A single page load that queries `rooms`, `people`, and `
 start three unrelated execution environments, even though it's one user's one page load.
 
 ```mermaid
-flowchart TB
-    Q1["Query.rooms"] --> DS1["data source"] --> L1["Lambda: ListRoomsHandler"]
-    L1 ~~~ Q2["Query.people"]
-    Q2 --> DS2["data source"] --> L2["Lambda: ListPeopleHandler"]
-    L2 ~~~ Q3["Query.myPerson"]
-    Q3 --> DS3["data source"] --> L3["Lambda: MyPersonHandler"]
-    L3 ~~~ Q4["Query.meetings"]
-    Q4 --> DS4["data source"] --> L4["Lambda: ListMeetingsHandler"]
-    L4 ~~~ Q5["Query.suggestRoom"]
-    Q5 --> DS5["data source"] --> L5["Lambda: SuggestRoomHandler"]
-    L5 ~~~ M1["Mutation.createRoom"]
-    M1 --> DS6["data source"] --> L6["Lambda: CreateRoomHandler"]
-    L6 ~~~ M2["Mutation.updateRoom"]
-    M2 --> DS7["data source"] --> L7["Lambda: UpdateRoomHandler"]
-    L7 ~~~ M3["Mutation.createPerson"]
-    M3 --> DS8["data source"] --> L8["Lambda: CreatePersonHandler"]
-    L8 ~~~ M4["Mutation.updatePerson"]
-    M4 --> DS9["data source"] --> L9["Lambda: UpdatePersonHandler"]
-    L9 ~~~ M5["Mutation.createMeeting"]
-    M5 --> DS10["data source"] --> L10["Lambda: CreateMeetingHandler"]
+flowchart LR
+    subgraph AppSync["AWS AppSync"]
+        Q1["Query.rooms"]
+        Q2["Query.people"]
+        Q3["Query.myPerson"]
+        Q4["Query.meetings"]
+        Q5["Query.suggestRoom"]
+        M1["Mutation.createRoom"]
+        M2["Mutation.updateRoom"]
+        M3["Mutation.createPerson"]
+        M4["Mutation.updatePerson"]
+        M5["Mutation.createMeeting"]
+    end
+
+    Q1 --> DS1["data source"] --> L1["Lambda\nListRoomsHandler"]
+    Q2 --> DS2["data source"] --> L2["Lambda\nListPeopleHandler"]
+    Q3 --> DS3["data source"] --> L3["Lambda\nMyPersonHandler"]
+    Q4 --> DS4["data source"] --> L4["Lambda\nListMeetingsHandler"]
+    Q5 --> DS5["data source"] --> L5["Lambda\nSuggestRoomHandler"]
+    M1 --> DS6["data source"] --> L6["Lambda\nCreateRoomHandler"]
+    M2 --> DS7["data source"] --> L7["Lambda\nUpdateRoomHandler"]
+    M3 --> DS8["data source"] --> L8["Lambda\nCreatePersonHandler"]
+    M4 --> DS9["data source"] --> L9["Lambda\nUpdatePersonHandler"]
+    M5 --> DS10["data source"] --> L10["Lambda\nCreateMeetingHandler"]
 ```
 
 *10 functions, 10 SnapStart snapshots, 10 independently-restoring execution environments.*
@@ -61,51 +65,33 @@ flowchart TB
 in-process to the same unchanged per-operation handler classes.
 
 ```mermaid
-flowchart TB
-    Q1["Query.rooms"]
-    Q1 ~~~ Q2["Query.people"]
-    Q2 ~~~ Q3["Query.myPerson"]
-    Q3 ~~~ Q4["Query.meetings"]
-    Q4 ~~~ Q5["Query.suggestRoom"]
-    Q5 ~~~ M1["Mutation.createRoom"]
-    M1 ~~~ M2["Mutation.updateRoom"]
-    M2 ~~~ M3["Mutation.createPerson"]
-    M3 ~~~ M4["Mutation.updatePerson"]
-    M4 ~~~ M5["Mutation.createMeeting"]
+flowchart LR
+    subgraph AppSync["AWS AppSync"]
+        Q1["Query.rooms"]
+        Q2["Query.people"]
+        Q3["Query.myPerson"]
+        Q4["Query.meetings"]
+        Q5["Query.suggestRoom"]
+        M1["Mutation.createRoom"]
+        M2["Mutation.updateRoom"]
+        M3["Mutation.createPerson"]
+        M4["Mutation.updatePerson"]
+        M5["Mutation.createMeeting"]
+    end
 
-    Q1 --> DS["one data source\naws_appsync_datasource.resolvers"]
-    Q2 --> DS
-    Q3 --> DS
-    Q4 --> DS
-    Q5 --> DS
-    M1 --> DS
-    M2 --> DS
-    M3 --> DS
-    M4 --> DS
-    M5 --> DS
-
+    Q1 & Q2 & Q3 & Q4 & Q5 & M1 & M2 & M3 & M4 & M5 --> DS["one data source\naws_appsync_datasource.resolvers"]
     DS --> L["one Lambda\nResolverDispatchHandler\n(one SnapStart snapshot)"]
     L --> SB{"switchboard\nroutes on parentTypeName + '.' + fieldName"}
-
     SB --> H1["ListRoomsHandler"]
-    H1 ~~~ H2["ListPeopleHandler"]
-    SB --> H2
-    H2 ~~~ H3["MyPersonHandler"]
-    SB --> H3
-    H3 ~~~ H4["ListMeetingsHandler"]
-    SB --> H4
-    H4 ~~~ H5["SuggestRoomHandler"]
-    SB --> H5
-    H5 ~~~ H6["CreateRoomHandler"]
-    SB --> H6
-    H6 ~~~ H7["UpdateRoomHandler"]
-    SB --> H7
-    H7 ~~~ H8["CreatePersonHandler"]
-    SB --> H8
-    H8 ~~~ H9["UpdatePersonHandler"]
-    SB --> H9
-    H9 ~~~ H10["CreateMeetingHandler"]
-    SB --> H10
+    SB --> H2["ListPeopleHandler"]
+    SB --> H3["MyPersonHandler"]
+    SB --> H4["ListMeetingsHandler"]
+    SB --> H5["SuggestRoomHandler"]
+    SB --> H6["CreateRoomHandler"]
+    SB --> H7["UpdateRoomHandler"]
+    SB --> H8["CreatePersonHandler"]
+    SB --> H9["UpdatePersonHandler"]
+    SB --> H10["CreateMeetingHandler"]
 ```
 
 *Same 10 business-logic classes, unchanged — only how a request reaches them changes. Once any one
