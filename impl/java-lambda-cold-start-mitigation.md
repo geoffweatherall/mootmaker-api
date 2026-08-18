@@ -55,7 +55,6 @@ flowchart TB
     A --> B --> C --> D --> E
 
     subgraph LAMBDA["On AWS Lambda, this pipeline is deliberately cut short"]
-        direction TB
         P["Pre-Java 25 runtimes:\ntiering capped at C1 by default -\nC2 is never reached at all"]
         Q["Java 25, for SnapStart /\nProvisioned Concurrency only:\nthe cap is lifted - C2 becomes\nreachable, since this compiling now\nhappens during Init, off the\ncustomer request path"]
     end
@@ -130,7 +129,6 @@ in conversation — but only the third one involves zero restore work at all.
 ```mermaid
 flowchart TB
     subgraph INIT["INIT PHASE — once per published version, at deploy time (publish-version)"]
-        direction LR
         I1["Runtime init:\nJVM boots"]
         I2["Function init:\nstatic init + handler constructor run\n(ResolverDispatchHandler builds\nall 10 handler instances)"]
         I3["Class loading of every code\npath touched so far (guaranteed) +\nJIT compilation of whatever ran\noften/long enough to qualify (limited)"]
@@ -144,7 +142,6 @@ flowchart TB
     I6 -.->|"cached snapshot, reused by\nevery future fresh environment"| R1
 
     subgraph RESTORE["RESTORE PHASE (SnapStart only) — once per new execution environment"]
-        direction LR
         R1["Snapshot thawed:\nclasses + JIT'd code already present -\nnothing reloaded, nothing recompiled"]
         R2["After-restore runtime hook:\nCRaC afterRestore() reconnects\nTCP/TLS + refreshes credentials"]
         R1 --> R2
@@ -153,7 +150,6 @@ flowchart TB
     R2 --> V1
 
     subgraph INVOKE["INVOKE PHASE — every single request"]
-        direction LR
         V1["First invoke after a Restore:\nhandleRequest runs -\nbusiness logic only, already warm"]
         V2["Later invokes, same still-live\nexecution environment -\nthis is AWS's 'warm start':\nno Restore, nothing to re-prime"]
         V1 -.->|"environment stays warm,\nnext request"| V2
