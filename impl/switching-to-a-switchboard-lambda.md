@@ -24,6 +24,83 @@ into one high-combined-volume function means environments get reused more often 
 aggressively in aggregate. Both are real and worth having; neither is "every burst pays only one
 restore, guaranteed."
 
+## Before / after
+
+**Before** — 10 independent AppSync data sources, each backed by its own Lambda function with its
+own SnapStart snapshot. A single page load that queries `rooms`, `people`, and `meetings` can cold
+start three unrelated execution environments, even though it's one user's one page load.
+
+```mermaid
+flowchart LR
+    subgraph AppSync["AWS AppSync"]
+        direction TB
+        Q1["Query.rooms"]
+        Q2["Query.people"]
+        Q3["Query.myPerson"]
+        Q4["Query.meetings"]
+        Q5["Query.suggestRoom"]
+        M1["Mutation.createRoom"]
+        M2["Mutation.updateRoom"]
+        M3["Mutation.createPerson"]
+        M4["Mutation.updatePerson"]
+        M5["Mutation.createMeeting"]
+    end
+
+    Q1 --> DS1["data source"] --> L1["Lambda\nListRoomsHandler"]
+    Q2 --> DS2["data source"] --> L2["Lambda\nListPeopleHandler"]
+    Q3 --> DS3["data source"] --> L3["Lambda\nMyPersonHandler"]
+    Q4 --> DS4["data source"] --> L4["Lambda\nListMeetingsHandler"]
+    Q5 --> DS5["data source"] --> L5["Lambda\nSuggestRoomHandler"]
+    M1 --> DS6["data source"] --> L6["Lambda\nCreateRoomHandler"]
+    M2 --> DS7["data source"] --> L7["Lambda\nUpdateRoomHandler"]
+    M3 --> DS8["data source"] --> L8["Lambda\nCreatePersonHandler"]
+    M4 --> DS9["data source"] --> L9["Lambda\nUpdatePersonHandler"]
+    M5 --> DS10["data source"] --> L10["Lambda\nCreateMeetingHandler"]
+```
+
+*10 functions, 10 SnapStart snapshots, 10 independently-restoring execution environments.*
+
+**After** — one AppSync data source, backed by one Lambda function
+(`ResolverDispatchHandler`) with one SnapStart snapshot. AppSync already sends
+`$context.info.parentTypeName` / `.fieldName` in every request; the dispatcher uses that to route
+in-process to the same unchanged per-operation handler classes.
+
+```mermaid
+flowchart LR
+    subgraph AppSync["AWS AppSync"]
+        direction TB
+        Q1["Query.rooms"]
+        Q2["Query.people"]
+        Q3["Query.myPerson"]
+        Q4["Query.meetings"]
+        Q5["Query.suggestRoom"]
+        M1["Mutation.createRoom"]
+        M2["Mutation.updateRoom"]
+        M3["Mutation.createPerson"]
+        M4["Mutation.updatePerson"]
+        M5["Mutation.createMeeting"]
+    end
+
+    Q1 & Q2 & Q3 & Q4 & Q5 & M1 & M2 & M3 & M4 & M5 --> DS["one data source\naws_appsync_datasource.resolvers"]
+    DS --> L["one Lambda\nResolverDispatchHandler\n(one SnapStart snapshot)"]
+    L --> SB{"switchboard\nroutes on parentTypeName + '.' + fieldName"}
+    SB --> H1["ListRoomsHandler"]
+    SB --> H2["ListPeopleHandler"]
+    SB --> H3["MyPersonHandler"]
+    SB --> H4["ListMeetingsHandler"]
+    SB --> H5["SuggestRoomHandler"]
+    SB --> H6["CreateRoomHandler"]
+    SB --> H7["UpdateRoomHandler"]
+    SB --> H8["CreatePersonHandler"]
+    SB --> H9["UpdatePersonHandler"]
+    SB --> H10["CreateMeetingHandler"]
+```
+
+*Same 10 business-logic classes, unchanged — only how a request reaches them changes. Once any one
+field has restored the shared environment, every other field's call in that session can land on
+that same warm environment (see the calibration note above for exactly what this does and doesn't
+guarantee).*
+
 ## Recommended approach
 
 **New dispatcher class** — `com.mootmaker.handler.ResolverDispatchHandler`, alongside the existing
