@@ -24,7 +24,8 @@ This document covers what's specific to this repo.
   environment instead of the shared `test` one is a change in *usage*, not code. Going forward,
   **`test` is reserved for human manual testing**; any automated acceptance-test run (Claude's or
   future CI's) targets a fresh ephemeral environment instead
-  (`claude-<timestamp>-<rand>` or `e2e-<timestamp>-<rand>` — see the [naming
+  (`claude-<timestamp>-<rand>` for Claude's own dev sessions, or `<frontend>-<tier>-<timestamp>-<rand>`
+  for an automated suite's own run, e.g. `web-e2e-<timestamp>-<rand>` — see the [naming
   convention](https://github.com/geoffweatherall/mootmaker/blob/main/testing-strategy.md#environments)
   in the overall doc), then tears it down.
 - **Email verification code bypass (Option 1) — dropped 2026-08-15.** A `CustomEmailSender`
@@ -53,7 +54,13 @@ This document covers what's specific to this repo.
 ## Full-stack e2e
 
 Deployed-webapp-against-deployed-API end-to-end testing (including real email delivery via
-SES→SNS→SQS) lives in [mootmaker-e2e](https://github.com/geoffweatherall/mootmaker-e2e), not here —
-this repo's own acceptance tests stay API-only, machine-to-machine, and never touch a browser or
-real email. See
-[mootmaker-e2e/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-e2e/blob/main/testing-strategy.md).
+SES→SNS→SQS) lives with each frontend now, not here — this repo's own acceptance tests stay
+API-only, machine-to-machine, and never touch a browser or real email. **Changed 2026-08-19**:
+previously lived in a shared `mootmaker-e2e` repo; that repo is now
+[mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra) (only the
+genuinely cross-frontend pieces - ephemeral-environment lifecycle, the SES email pipeline), and
+each frontend owns its own full-stack suite in its own repo instead - see
+[mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md)
+for that repo's `e2e/`/`acceptance/` suites, and
+[mootmaker/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/testing-strategy.md)
+for the overall cross-repo picture.
