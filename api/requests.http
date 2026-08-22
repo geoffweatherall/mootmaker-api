@@ -110,7 +110,7 @@ Authorization: {{accessToken}}
 
 ### Create a meeting
 ### Replace roomId/organiserId/attendeeIds below with real ids from the "List rooms" / "List people" requests above.
-### startTime/endTime must fall on a 5 minute boundary (e.g. :00, :05, :10, ...).
+### startTime/endTime must fall on a 15 minute boundary (e.g. :00, :15, :30, :45).
 ### On failure, "errors" is a non-empty list of the broken rules and "meeting" is null.
 POST {{graphqlUrl}}
 Content-Type: application/json
@@ -124,8 +124,8 @@ Authorization: {{accessToken}}
       "organiserId": "4d4c933e-28c9-45ca-bf7c-a96f26cfa355",
       "attendeeIds": ["78514c8d-ac39-4a8a-9f97-abeb66eba37f"],
       "subject": "Weekly planning",
-      "startTime": "2026-07-01T15:05:00",
-      "endTime": "2026-07-01T15:10:00"
+      "startTime": "2026-07-01T15:15:00",
+      "endTime": "2026-07-01T15:30:00"
     }
   }
 }

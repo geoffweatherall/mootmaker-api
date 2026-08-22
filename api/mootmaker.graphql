@@ -108,9 +108,9 @@ input MeetingInput {
     attendeeIds: [ID!]!
     "Must not be null or blank."
     subject: String!
-    "ISO-8601 local date-time with no time-zone offset, must fall on a 5 minute boundary, e.g. \"2026-07-01T14:30:00\". Must be on the same calendar date as endTime - a meeting cannot span midnight."
+    "ISO-8601 local date-time with no time-zone offset, must fall on a 15 minute boundary, e.g. \"2026-07-01T14:30:00\". Must be on the same calendar date as endTime - a meeting cannot span midnight."
     startTime: String!
-    "ISO-8601 local date-time with no time-zone offset, must fall on a 5 minute boundary, e.g. \"2026-07-01T15:00:00\". Must be on the same calendar date as startTime - a meeting cannot span midnight."
+    "ISO-8601 local date-time with no time-zone offset, must fall on a 15 minute boundary, e.g. \"2026-07-01T15:00:00\". Must be on the same calendar date as startTime - a meeting cannot span midnight."
     endTime: String!
 }
 

@@ -19,7 +19,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 
 /**
- * Acceptance tests for the {@code createMeeting} validation rules: 5-minute time boundaries,
+ * Acceptance tests for the {@code createMeeting} validation rules: 15-minute time boundaries,
  * room capacity, and overlapping meetings for the same room (with overlap edge cases).
  */
 class CreateMeetingValidationAcceptanceIT {
@@ -60,20 +60,23 @@ class CreateMeetingValidationAcceptanceIT {
     }
 
     @Test
-    void startTimeNotOnFiveMinuteBoundaryIsRejected() {
-        LOG.info("Checking startTime not aligned to a 5 minute boundary is rejected");
+    void startTimeNotOnFifteenMinuteBoundaryIsRejected() {
+        LOG.info("Checking startTime not aligned to a 15 minute boundary is rejected");
+        // :20 is on a 5-minute boundary but not a 15-minute one - specifically proves the rule is
+        // 15 minutes, not just "not a multiple of 5".
         final JsonNode payload = createMeetingPayload(roomId, organiserId, List.of(attendeeId),
-                "2026-09-01T10:02:00", "2026-09-01T10:30:00");
+                "2026-09-01T10:20:00", "2026-09-01T10:45:00");
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.StartMissaligned.name())));
     }
 
     @Test
-    void endTimeNotOnFiveMinuteBoundaryIsRejected() {
-        LOG.info("Checking endTime not aligned to a 5 minute boundary is rejected");
+    void endTimeNotOnFifteenMinuteBoundaryIsRejected() {
+        LOG.info("Checking endTime not aligned to a 15 minute boundary is rejected");
+        // :20 is on a 5-minute boundary but not a 15-minute one - see startTimeNotOnFifteenMinuteBoundaryIsRejected.
         final JsonNode payload = createMeetingPayload(roomId, organiserId, List.of(attendeeId),
-                "2026-09-01T10:00:00", "2026-09-01T10:33:00");
+                "2026-09-01T10:00:00", "2026-09-01T10:20:00");
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.EndMissaligned.name())));
@@ -81,7 +84,7 @@ class CreateMeetingValidationAcceptanceIT {
 
     @Test
     void startTimeWithNonZeroSecondsIsRejected() {
-        LOG.info("Checking startTime with non-zero seconds is rejected even though the minute is on a 5 minute boundary");
+        LOG.info("Checking startTime with non-zero seconds is rejected even though the minute is on a 15 minute boundary");
         final JsonNode payload = createMeetingPayload(roomId, organiserId, List.of(attendeeId),
                 "2026-09-01T10:00:30", "2026-09-01T10:30:00");
 

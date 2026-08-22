@@ -120,9 +120,11 @@ class CreateMeetingHandlerTest {
     }
 
     @Test
-    void rejectsStartOrEndTimeNotOnFiveMinuteBoundary() {
+    void rejectsStartOrEndTimeNotOnFifteenMinuteBoundary() {
+        // :35 is on a 5-minute boundary but not a 15-minute one - specifically proves the rule is
+        // 15 minutes, not just "not on a 5-minute boundary" (which :32 alone wouldn't distinguish).
         final Map<String, Object> event = meetingArguments("room-1", "organiser-1", List.of("attendee-1"),
-                "2026-07-01T14:32:00", "2026-07-01T15:00:00");
+                "2026-07-01T14:35:00", "2026-07-01T15:00:00");
 
         final Map<String, Object> result = invoke(event);
 

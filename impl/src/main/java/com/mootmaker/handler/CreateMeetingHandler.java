@@ -70,8 +70,8 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
             errors.add(MeetingError.SubjectRequired.name());
         }
 
-        final LocalDateTime startTime = parseOnFiveMinuteBoundary(startTimeText, MeetingError.StartMissaligned, errors);
-        final LocalDateTime endTime = parseOnFiveMinuteBoundary(endTimeText, MeetingError.EndMissaligned, errors);
+        final LocalDateTime startTime = parseOnFifteenMinuteBoundary(startTimeText, MeetingError.StartMissaligned, errors);
+        final LocalDateTime endTime = parseOnFifteenMinuteBoundary(endTimeText, MeetingError.EndMissaligned, errors);
 
         if (startTime != null && endTime != null && !startTime.toLocalDate().equals(endTime.toLocalDate())) {
             errors.add(MeetingError.SpansMultipleDays.name());
@@ -168,7 +168,7 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
         dynamoDbClient.transactWriteItems(TransactWriteItemsRequest.builder().transactItems(transactItems).build());
     }
 
-    private static LocalDateTime parseOnFiveMinuteBoundary(final String text, final MeetingError error, final List<String> errors) {
+    private static LocalDateTime parseOnFifteenMinuteBoundary(final String text, final MeetingError error, final List<String> errors) {
         if (text == null) {
             errors.add(error.name());
             return null;
@@ -180,7 +180,7 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
             errors.add(error.name());
             return null;
         }
-        if (dateTime.getSecond() != 0 || dateTime.getNano() != 0 || dateTime.getMinute() % 5 != 0) {
+        if (dateTime.getSecond() != 0 || dateTime.getNano() != 0 || dateTime.getMinute() % 15 != 0) {
             errors.add(error.name());
             return null;
         }

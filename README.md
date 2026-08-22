@@ -10,7 +10,7 @@ The GraphQL schema lives in [api/mootmaker.graphql](api/mootmaker.graphql). Ther
 
 - **Room** — `id`, `name`, `capacity`. Capacity is the total number of people the room holds (organiser + attendees).
 - **Person** — `id`, `name`. Also has a backend-only `cognitoSub` attribute, not exposed over GraphQL: it's set to the Cognito user's `sub` for a Person created automatically on sign-up (see [Sign-up creates a linked Person](#sign-up-creates-a-linked-person)), and left unset for people added directly (e.g. guests with no login), so a future account-deletion flow can find and remove the Person linked to a deleted Cognito user.
-- **Meeting** — `id`, `room`, `organiser` (a Person), `attendees` (list of Person), `subject`, `startTime`, `endTime`. `subject` must not be null or blank. Times are ISO-8601 local date-times with no time-zone offset (`java.time.LocalDateTime` semantics), e.g. `2026-07-01T14:30:00`, must fall on a 5-minute boundary, and `startTime`/`endTime` must fall on the same calendar date — a meeting cannot span midnight (see [Validation](#validation)).
+- **Meeting** — `id`, `room`, `organiser` (a Person), `attendees` (list of Person), `subject`, `startTime`, `endTime`. `subject` must not be null or blank. Times are ISO-8601 local date-times with no time-zone offset (`java.time.LocalDateTime` semantics), e.g. `2026-07-01T14:30:00`, must fall on a 15-minute boundary, and `startTime`/`endTime` must fall on the same calendar date — a meeting cannot span midnight (see [Validation](#validation)).
 
 All `id` values are server-generated UUIDs; clients never supply ids on creation.
 
@@ -275,7 +275,7 @@ A room's capacity can be reduced below the size of a meeting already booked into
 
 | Error | Rule |
 |---|---|
-| `StartMissaligned` / `EndMissaligned` | Start/end time must parse as an ISO-8601 local date-time and fall exactly on a 5-minute boundary (no seconds/nanos) |
+| `StartMissaligned` / `EndMissaligned` | Start/end time must parse as an ISO-8601 local date-time and fall exactly on a 15-minute boundary (no seconds/nanos) |
 | `SpansMultipleDays` | `startTime` and `endTime` must fall on the same calendar date — a meeting cannot span midnight |
 | `RoomRequired` | `roomId` must not be blank |
 | `RoomNotFound` | `roomId` must refer to an existing room |
