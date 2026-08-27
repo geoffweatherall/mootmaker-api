@@ -120,6 +120,34 @@ class CreateMeetingHandlerTest {
     }
 
     @Test
+    void rejectsWhenEndTimeIsBeforeStartTime() {
+        final Map<String, Object> event = meetingArguments("room-1", "organiser-1", List.of("attendee-1"),
+                "2026-07-01T14:00:00", "2026-07-01T10:00:00");
+
+        final Map<String, Object> result = invoke(event);
+
+        @SuppressWarnings("unchecked")
+        final List<String> errors = (List<String>) result.get("errors");
+        assertTrue(errors.contains(MeetingError.EndBeforeStart.name()));
+        assertNull(result.get("meeting"));
+        assertTrue(fakeClient.tables.getOrDefault("Meetings", List.of()).isEmpty());
+    }
+
+    @Test
+    void rejectsWhenEndTimeEqualsStartTime() {
+        final Map<String, Object> event = meetingArguments("room-1", "organiser-1", List.of("attendee-1"),
+                "2026-07-01T10:00:00", "2026-07-01T10:00:00");
+
+        final Map<String, Object> result = invoke(event);
+
+        @SuppressWarnings("unchecked")
+        final List<String> errors = (List<String>) result.get("errors");
+        assertTrue(errors.contains(MeetingError.EndBeforeStart.name()));
+        assertNull(result.get("meeting"));
+        assertTrue(fakeClient.tables.getOrDefault("Meetings", List.of()).isEmpty());
+    }
+
+    @Test
     void rejectsStartOrEndTimeNotOnFifteenMinuteBoundary() {
         // :35 is on a 5-minute boundary but not a 15-minute one - specifically proves the rule is
         // 15 minutes, not just "not on a 5-minute boundary" (which :32 alone wouldn't distinguish).

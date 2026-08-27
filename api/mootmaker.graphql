@@ -126,6 +126,8 @@ enum MeetingError {
     EndMissaligned
     "startTime and endTime fall on different calendar dates - a meeting cannot span midnight."
     SpansMultipleDays
+    "endTime is not strictly after startTime (earlier than, or equal to, startTime), on the same calendar date."
+    EndBeforeStart
     InsufficientCapacity
     TimeRangeUnavailable
     RoomRequired

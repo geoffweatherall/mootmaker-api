@@ -1,5 +1,7 @@
 # Consolidate AppSync-resolver Lambdas into one dispatched function
 
+**Status: implemented.** See [ResolverDispatchHandler.java](src/main/java/com/mootmaker/handler/ResolverDispatchHandler.java), `aws_lambda_function.resolvers` and `aws_appsync_datasource.resolvers` in [deploy/terraform/lambda.tf](../deploy/terraform/lambda.tf)/[appsync.tf](../deploy/terraform/appsync.tf), and the README's [How it is implemented](../README.md#how-it-is-implemented) section. The rest of this document is kept as the design record for why and how, written at proposal time.
+
 ## Context
 
 Today, 10 of the project's 11 Lambda functions each serve exactly one AppSync direct-Lambda

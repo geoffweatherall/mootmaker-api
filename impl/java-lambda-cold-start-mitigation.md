@@ -391,7 +391,11 @@ request's critical path — just a much cheaper one than before, since it's now 
 TCP + TLS handshake and credential resolution, not also a cold class load.
 
 In this project's own before/after measurements (`test-mootmaker-list-rooms`, forced-cold
-invocations, 3 samples each — see the project's PR history / conversation log for full detail):
+invocations, 3 samples each — see the project's PR history / conversation log for full detail).
+Note: this was measured against the standalone `list-rooms` function that existed before the
+switchboard consolidation (see [switching-to-a-switchboard-lambda.md](switching-to-a-switchboard-lambda.md));
+that function no longer exists on its own, having been folded into `resolvers`, so these numbers
+predate that change and haven't been re-measured against it:
 
 | Configuration | Init/Restore Duration | Handler `Duration` (first real DynamoDB call) | Total wall clock | Billed |
 |---|---|---|---|---|

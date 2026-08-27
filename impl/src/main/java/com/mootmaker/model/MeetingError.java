@@ -8,6 +8,7 @@ public enum MeetingError {
     StartMissaligned,
     EndMissaligned,
     SpansMultipleDays,
+    EndBeforeStart,
     InsufficientCapacity,
     TimeRangeUnavailable,
     RoomRequired,

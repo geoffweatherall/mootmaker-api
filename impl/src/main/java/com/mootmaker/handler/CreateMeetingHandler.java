@@ -73,8 +73,12 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
         final LocalDateTime startTime = parseOnFifteenMinuteBoundary(startTimeText, MeetingError.StartMissaligned, errors);
         final LocalDateTime endTime = parseOnFifteenMinuteBoundary(endTimeText, MeetingError.EndMissaligned, errors);
 
-        if (startTime != null && endTime != null && !startTime.toLocalDate().equals(endTime.toLocalDate())) {
-            errors.add(MeetingError.SpansMultipleDays.name());
+        if (startTime != null && endTime != null) {
+            if (!startTime.toLocalDate().equals(endTime.toLocalDate())) {
+                errors.add(MeetingError.SpansMultipleDays.name());
+            } else if (!endTime.isAfter(startTime)) {
+                errors.add(MeetingError.EndBeforeStart.name());
+            }
         }
 
         Room room = null;
