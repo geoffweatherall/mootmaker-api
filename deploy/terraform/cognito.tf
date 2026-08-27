@@ -1,13 +1,32 @@
 data "aws_caller_identity" "current" {}
 
+# Verified in mootmaker-domain (deploy/terraform/ses.tf) - referenced here via a `data` source
+# rather than a hard remote-state dependency, the same loose-coupling pattern
+# mootmaker-test-infra's ses.tf already uses for the same identity (its own receiving side), and
+# that mootmaker-api/mootmaker-webapp already use to find mootmaker-domain's hosted zone (data
+# "aws_route53_zone"). Same-account reference, so no cross-account SES identity policy is needed.
+data "aws_ses_domain_identity" "mail" {
+  domain = "mail.mootmaker.com"
+}
+
 resource "aws_cognito_user_pool" "this" {
   name = "${local.resource_prefix}-users"
 
-  # Users sign in with their email address; Cognito emails a verification code
-  # on sign-up and for password resets (COGNITO_DEFAULT sender, fine at demo
-  # volumes).
+  # Users sign in with their email address; Cognito emails a verification code on sign-up and for
+  # password resets. Sent via the verified mail.mootmaker.com SES identity (email_configuration
+  # below) rather than Cognito's own COGNITO_DEFAULT sender - that built-in sender has a low,
+  # undocumented daily cap shared account-wide across every user pool, which real usage plus the
+  # acceptance suite's own account creation started hitting (see testing-strategy.md). SES's own
+  # quota is governed by ../../../mootmaker-domain and this AWS account's own SES sending limits
+  # instead, which are far higher.
   username_attributes      = ["email"]
   auto_verified_attributes = ["email"]
+
+  email_configuration {
+    email_sending_account = "DEVELOPER"
+    source_arn            = data.aws_ses_domain_identity.mail.arn
+    from_email_address    = "MootMaker <noreply@mail.mootmaker.com>"
+  }
 
   # Deliberately loose: this is a demo system, not a real business, and the whole point is to let
   # anyone try it out via the publicly-known demo user below (see aws_cognito_user.demo) without
