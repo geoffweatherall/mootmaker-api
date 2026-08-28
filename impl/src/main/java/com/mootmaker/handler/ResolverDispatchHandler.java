@@ -38,7 +38,8 @@ public class ResolverDispatchHandler implements RequestHandler<Map<String, Objec
                 Map.entry("Mutation.updateRoom", new UpdateRoomHandler()),
                 Map.entry("Mutation.createPerson", new CreatePersonHandler()),
                 Map.entry("Mutation.updatePerson", new UpdatePersonHandler()),
-                Map.entry("Mutation.createMeeting", new CreateMeetingHandler())));
+                Map.entry("Mutation.createMeeting", new CreateMeetingHandler()),
+                Map.entry("Mutation.deleteMyAccount", new DeleteMyAccountHandler())));
     }
 
     ResolverDispatchHandler(final Map<String, RequestHandler<Map<String, Object>, Object>> handlersByRoutingKey) {

@@ -32,6 +32,8 @@ type Mutation {
  "Allowed for the caller's own linked Person (self-rename), or for anyone if the caller is admin."
  updatePerson(id: ID!, person: PersonInput!): UpdatePersonResult!
  createMeeting(meeting: MeetingInput!): CreateMeetingResult!
+ "Deletes the signed-in caller's own account: cancels every upcoming meeting they organise, removes them from every upcoming meeting they only attend, deletes their linked Person, then deletes their Cognito user entirely. Past meetings are left untouched. Irreversible. Not available for reserved system accounts (e.g. the demo user), which reject with an error."
+ deleteMyAccount: Boolean!
 }
 
 type Room {

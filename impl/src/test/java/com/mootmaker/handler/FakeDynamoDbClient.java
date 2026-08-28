@@ -4,6 +4,7 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.BatchGetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.BatchGetItemResponse;
+import software.amazon.awssdk.services.dynamodb.model.Delete;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
@@ -58,13 +59,25 @@ class FakeDynamoDbClient implements DynamoDbClient {
         return PutItemResponse.builder().build();
     }
 
-    /** Only supports Put transact items - the only kind the handlers under test issue. */
+    /** Supports Put (replacing any existing item with the same "id", as putItem above does) and Delete transact items. */
     @Override
     public TransactWriteItemsResponse transactWriteItems(final TransactWriteItemsRequest request) {
         for (final TransactWriteItem transactItem : request.transactItems()) {
             final Put put = transactItem.put();
             if (put != null) {
-                tables.computeIfAbsent(put.tableName(), _ -> new ArrayList<>()).add(put.item());
+                final List<Map<String, AttributeValue>> items = tables.computeIfAbsent(put.tableName(), _ -> new ArrayList<>());
+                final AttributeValue id = put.item().get("id");
+                if (id != null) {
+                    items.removeIf(item -> id.equals(item.get("id")));
+                }
+                items.add(put.item());
+            }
+            final Delete delete = transactItem.delete();
+            if (delete != null) {
+                final List<Map<String, AttributeValue>> items = tables.get(delete.tableName());
+                if (items != null) {
+                    items.removeIf(item -> matchesKey(item, delete.key()));
+                }
             }
         }
         return TransactWriteItemsResponse.builder().build();

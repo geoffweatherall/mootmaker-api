@@ -77,6 +77,33 @@ class ListMeetingsHandlerTest {
     }
 
     @Test
+    void resolvesAMeetingWhoseOrganiserOrAttendeeWasDeletedToAPlaceholderInsteadOfCrashing() {
+        final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+        fakeClient.tables.put("Rooms", List.of(new Room("r1", "Conference A", 8).toItem()));
+        // Neither "p1" (organiser) nor "p2" (attendee) has a matching People row - as if both had
+        // deleted their accounts (see DeleteMyAccountHandler) after this historical meeting happened.
+        fakeClient.tables.put("People", List.of());
+        final MeetingRecord record = new MeetingRecord(
+                "1", "r1", "p1", List.of("p2"), "Old sync", "2020-07-01T14:30:00", "2020-07-01T15:00:00");
+        fakeClient.tables.put("Meetings", List.of(record.toItem()));
+
+        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People", "MeetingParticipants");
+
+        final List<Map<String, Object>> result = invoke(handler, AUTHENTICATED_EVENT);
+
+        assertEquals(1, result.size());
+        final Map<String, Object> resultMeeting = result.getFirst();
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> resultOrganiser = (Map<String, Object>) resultMeeting.get("organiser");
+        assertEquals("p1", resultOrganiser.get("id"));
+        assertEquals("Deleted user", resultOrganiser.get("name"));
+
+        @SuppressWarnings("unchecked")
+        final List<Map<String, Object>> resultAttendees = (List<Map<String, Object>>) resultMeeting.get("attendees");
+        assertEquals("Deleted user", resultAttendees.getFirst().get("name"));
+    }
+
+    @Test
     void resolvesTheSamePersonOrRoomOnlyOnceAcrossMultipleMeetings() {
         final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
         fakeClient.tables.put("Rooms", List.of(new Room("r1", "Conference A", 8).toItem()));

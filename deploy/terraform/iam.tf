@@ -27,15 +27,19 @@ data "aws_iam_policy_document" "lambda_dynamodb_access" {
       "dynamodb:Scan",
       "dynamodb:Query",
       # CreateMeetingHandler writes a meeting and its meeting-participants rows atomically so the
-      # two can never drift under normal operation.
+      # two can never drift under normal operation; DeleteMyAccountHandler's meeting-cancellation
+      # cascade uses the same transactional Delete/Put pattern.
       "dynamodb:TransactWriteItems",
+      # DeleteMyAccountHandler deletes the caller's own Person item directly (not via
+      # TransactWriteItems, since it isn't part of any meeting cascade) - re-added after having been
+      # removed when ResetHandler (its only prior user) moved out to mootmaker-tools/database-reset
+      # (its own Lambda, with its own narrowly-scoped role) - see the README's "Reset and real user
+      # accounts" section.
+      "dynamodb:DeleteItem",
       # Metadata-only, no items read/written - used by DynamoDbClientProvider's SnapStart
       # afterRestore hook purely to re-establish the DynamoDB connection/credentials before the
       # first real request reaches the handler.
       "dynamodb:DescribeTable",
-      # No dynamodb:DeleteItem: that was only ever needed by ResetHandler, which moved out to
-      # mootmaker-tools/database-reset (its own Lambda, with its own narrowly-scoped role) - see
-      # the README's "Reset and real user accounts" section.
     ]
     resources = [
       aws_dynamodb_table.rooms.arn,
@@ -60,10 +64,11 @@ resource "aws_iam_role_policy" "lambda_dynamodb_access" {
 }
 
 # PostConfirmationCreatePersonHandler (sets a new sign-up's default class) and UpdatePersonHandler
-# (propagates a Person rename to Cognito's own name attribute) both call AdminUpdateUserAttributes.
+# (propagates a Person rename to Cognito's own name attribute) both call AdminUpdateUserAttributes;
+# DeleteMyAccountHandler calls AdminDeleteUser to remove the caller's own Cognito user entirely.
 data "aws_iam_policy_document" "lambda_cognito_access" {
   statement {
-    actions   = ["cognito-idp:AdminUpdateUserAttributes"]
+    actions   = ["cognito-idp:AdminUpdateUserAttributes", "cognito-idp:AdminDeleteUser"]
     resources = [aws_cognito_user_pool.this.arn]
   }
 }

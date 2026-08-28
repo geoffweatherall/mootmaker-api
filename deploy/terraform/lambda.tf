@@ -29,6 +29,10 @@ locals {
   # circular-dependency concern above doesn't apply here.
   resolver_lambda_env_vars = merge(local.admin_gated_env_vars, {
     COGNITO_USER_POOL_ID = aws_cognito_user_pool.this.id
+    # DeleteMyAccountHandler refuses to delete these - the public demo login and the Playwright e2e
+    # user are both Terraform-managed (see cognito.tf) and would otherwise be a real,
+    # self-service-deletable account like any other, breaking the demo/e2e suite until re-applied.
+    RESERVED_ACCOUNT_EMAILS = "${aws_cognito_user.demo.username},${aws_cognito_user.e2e.username}"
   })
 }
 

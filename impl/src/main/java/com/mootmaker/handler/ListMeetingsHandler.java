@@ -210,9 +210,20 @@ public class ListMeetingsHandler implements RequestHandler<Map<String, Object>, 
 
     private static Meeting resolve(final MeetingRecord record, final Map<String, Room> roomsById, final Map<String, Person> peopleById) {
         final Room room = roomsById.get(record.roomId());
-        final Person organiser = peopleById.get(record.organiserId());
-        final List<Person> attendees = record.attendeeIds().stream().map(peopleById::get).toList();
+        final Person organiser = resolvePerson(record.organiserId(), peopleById);
+        final List<Person> attendees = record.attendeeIds().stream().map(id -> resolvePerson(id, peopleById)).toList();
         return new Meeting(record.id(), room, organiser, attendees, record.subject(), record.startTime(), record.endTime());
+    }
+
+    /**
+     * A meeting can outlive one of its participants: DeleteMyAccountHandler deliberately leaves
+     * past meetings untouched when an organiser/attendee deletes their account, rather than
+     * deleting meetings that already happened - so their Person row can be gone while a historical
+     * meeting still references its id. Substituting a placeholder here avoids the null that would
+     * otherwise reach Meeting.toResponseMap() and NullPointerException.
+     */
+    private static Person resolvePerson(final String personId, final Map<String, Person> peopleById) {
+        return peopleById.getOrDefault(personId, new Person(personId, "Deleted user"));
     }
 
     private static Map<String, Room> toRoomsById(final Map<String, Map<String, AttributeValue>> itemsById) {
