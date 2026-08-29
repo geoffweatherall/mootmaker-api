@@ -6,14 +6,14 @@ import software.amazon.awssdk.services.lambda.model.InvokeRequest;
 import software.amazon.awssdk.services.lambda.model.InvokeResponse;
 
 /**
- * Invokes the mootmaker-tools/database-reset Lambda directly (AWS IAM auth, via whatever
+ * Invokes the mootmaker-admin-tools/database-reset Lambda directly (AWS IAM auth, via whatever
  * credentials are running the tests), rather than through GraphQL - {@code Mutation.reset} no
  * longer exists (see the API README's "Reset and real user accounts" section). Most acceptance
  * tests call {@link #reset()} immediately before they act, so they can't be thrown off by data
  * left behind by another test or a previous run.
  *
  * <p>Reads {@code DATABASE_RESET_FUNCTION_NAME} (exported by {@code verify.sh}, computed the same
- * deterministic way mootmaker-tools/database-reset's own {@code run.sh} does) and picks up its AWS
+ * deterministic way mootmaker-admin-tools/database-reset's own {@code run.sh} does) and picks up its AWS
  * region from the {@code AWS_REGION} environment variable {@code authenticate.sh} exports, the
  * same way the AWS SDK would for any other caller.
  */

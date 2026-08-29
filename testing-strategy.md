@@ -13,7 +13,7 @@ This document covers what's specific to this repo.
 - **Acceptance tests** (`verify/`, JUnit `*IT.java`, run via `./verify.sh <environment>` — see
   [README.md](README.md#directory-structure)): exercise the **deployed** API over real
   HTTP/AppSync, with real Cognito M2M (`client_credentials`) auth and real DynamoDB, resetting
-  state via [mootmaker-tools/database-reset](https://github.com/geoffweatherall/mootmaker-tools/tree/main/database-reset)
+  state via [mootmaker-admin-tools/database-reset](https://github.com/geoffweatherall/mootmaker-admin-tools/tree/main/database-reset)
   before each test class. This is the layer that catches Terraform misconfiguration, IAM gaps,
   AppSync↔Lambda wiring problems, and anything else that only exists once the pieces are actually
   deployed together.

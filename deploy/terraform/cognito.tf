@@ -132,7 +132,7 @@ resource "aws_cognito_resource_server" "api" {
   # M2M tooling (sample-data-generator, the acceptance tests below) has no Cognito user behind it
   # at all, so it can never carry a custom:class claim the way a real signed-in user's ID token
   # does - this scope is Identity.requireAdmin's equivalent for that caller. See
-  # mootmaker-tools/sample-data-generator and this project's README for why that tool still needs
+  # mootmaker-demo-data/sample-data-generator and this project's README for why that tool still needs
   # to create rooms/people now that those mutations are admin-only.
   scope {
     scope_name        = "admin"
@@ -221,7 +221,7 @@ resource "aws_cognito_user" "demo" {
 # The demo user above is created directly by Terraform rather than through the sign-up/confirm
 # API calls, so it never fires PostConfirmationCreatePersonHandler (see "Sign-up creates a linked
 # Person" in the README) and would otherwise have no Person - showing up nameless in the webapp
-# and being wiped by every mootmaker-tools/database-reset run, since it only preserves people with
+# and being wiped by every mootmaker-admin-tools/database-reset run, since it only preserves people with
 # a cognitoSub. This writes one directly, in the same shape as Person.toItem(), linked via
 # cognitoSub to aws_cognito_user.demo's sub.
 resource "random_uuid" "demo_person_id" {}
