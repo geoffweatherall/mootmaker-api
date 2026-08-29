@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 
 environment="${1:-}"
 if [[ -z "${environment}" ]]; then
-  echo "Usage: ./undeploy.sh <environment>   (e.g. test, production, or your own name)" >&2
+  echo "Usage: ./undeploy.sh <environment>   (e.g. an ephemeral name, or production)" >&2
   exit 1
 fi
 # See deploy.sh for why anything starting with "prod" but not exactly

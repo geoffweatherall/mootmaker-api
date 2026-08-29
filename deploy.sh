@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the Lambda jar and deploys the mootmaker API to AWS via Terraform,
-# into the given environment (e.g. "test", "production", or a developer's own
+# into the given environment (e.g. an ephemeral name, "production", or a developer's own
 # name for a personal sandbox - see the mootmaker project README for the
 # full multi-environment how-to).
 # NOTE: `terraform apply -auto-approve` creates real AWS resources in whatever
@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 
 environment="${1:-}"
 if [[ -z "${environment}" ]]; then
-  echo "Usage: ./deploy.sh <environment>   (e.g. test, production, or your own name)" >&2
+  echo "Usage: ./deploy.sh <environment>   (e.g. an ephemeral name, or production)" >&2
   exit 1
 fi
 if [[ ! "${environment}" =~ ^[a-z0-9-]+$ ]]; then
@@ -30,7 +30,7 @@ fi
 echo "Deploying mootmaker-api to '${environment}'..."
 
 # Isolates this environment's Terraform provider cache/backend pointer from
-# other environments, so deploying "test" and "production" from the same
+# other environments, so deploying two different environments from the same
 # checkout (even concurrently) can't cross-contaminate each other.
 export TF_DATA_DIR=".terraform-${environment}"
 

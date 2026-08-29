@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 if [[ -z "${1:-}" ]]; then
-  echo "Usage: ./verify.sh <environment>   (e.g. test, production, or your own name)" >&2
+  echo "Usage: ./verify.sh <environment>   (e.g. an ephemeral name, or production)" >&2
   exit 1
 fi
 

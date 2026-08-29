@@ -3,7 +3,7 @@
 # from Terraform outputs) into the current shell, for use with the /verify
 # acceptance tests, api/requests.http, and the webapp's deploy/e2e tests.
 #
-# Takes the environment to read from (e.g. "test", "production", or a
+# Takes the environment to read from (e.g. an ephemeral name, "production", or a
 # developer's own name), matching whatever was passed to deploy.sh.
 #
 # Exported variables:
@@ -35,7 +35,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 fi
 
 if [[ -z "${1:-}" ]]; then
-  echo "Usage: source authenticate.sh <environment>   (e.g. test, production, or your own name)" >&2
+  echo "Usage: source authenticate.sh <environment>   (e.g. an ephemeral name, or production)" >&2
   return 1
 fi
 
