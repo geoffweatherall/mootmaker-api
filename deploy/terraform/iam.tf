@@ -32,7 +32,7 @@ data "aws_iam_policy_document" "lambda_dynamodb_access" {
       "dynamodb:TransactWriteItems",
       # DeleteMyAccountHandler deletes the caller's own Person item directly (not via
       # TransactWriteItems, since it isn't part of any meeting cascade) - re-added after having been
-      # removed when ResetHandler (its only prior user) moved out to mootmaker-tools/database-reset
+      # removed when ResetHandler (its only prior user) moved out to mootmaker-admin-tools/database-reset
       # (its own Lambda, with its own narrowly-scoped role) - see the README's "Reset and real user
       # accounts" section.
       "dynamodb:DeleteItem",

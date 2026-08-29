@@ -4,27 +4,27 @@ output "graphql_api_url" {
 }
 
 output "aws_region" {
-  description = "AWS region this environment is deployed into - for tools that call AWS APIs directly (e.g. mootmaker-tools/database-repair) rather than only through the GraphQL API."
+  description = "AWS region this environment is deployed into - for tools that call AWS APIs directly (e.g. mootmaker-admin-tools/database-repair) rather than only through the GraphQL API."
   value       = var.aws_region
 }
 
 output "rooms_table_name" {
-  description = "DynamoDB table name for Room records - for tools that need direct read/write access (e.g. mootmaker-tools/database-reset), not exposed via the GraphQL API."
+  description = "DynamoDB table name for Room records - for tools that need direct read/write access (e.g. mootmaker-admin-tools/database-reset), not exposed via the GraphQL API."
   value       = aws_dynamodb_table.rooms.name
 }
 
 output "people_table_name" {
-  description = "DynamoDB table name for Person records - for tools that need direct read/write access (e.g. mootmaker-tools/database-repair, mootmaker-tools/database-reset), not exposed via the GraphQL API."
+  description = "DynamoDB table name for Person records - for tools that need direct read/write access (e.g. mootmaker-admin-tools/database-repair, mootmaker-admin-tools/database-reset), not exposed via the GraphQL API."
   value       = aws_dynamodb_table.people.name
 }
 
 output "meetings_table_name" {
-  description = "DynamoDB table name for Meeting records - for tools that need direct read/write access (e.g. mootmaker-tools/database-repair, mootmaker-tools/database-reset), not exposed via the GraphQL API."
+  description = "DynamoDB table name for Meeting records - for tools that need direct read/write access (e.g. mootmaker-admin-tools/database-repair, mootmaker-admin-tools/database-reset), not exposed via the GraphQL API."
   value       = aws_dynamodb_table.meetings.name
 }
 
 output "meeting_participants_table_name" {
-  description = "DynamoDB table name for the meeting-participants join index - for tools that need direct read/write access (e.g. mootmaker-tools/database-repair's RebuildMeetingParticipantsRepair, mootmaker-tools/database-reset), not exposed via the GraphQL API."
+  description = "DynamoDB table name for the meeting-participants join index - for tools that need direct read/write access (e.g. mootmaker-admin-tools/database-repair's RebuildMeetingParticipantsRepair, mootmaker-admin-tools/database-reset), not exposed via the GraphQL API."
   value       = aws_dynamodb_table.meeting_participants.name
 }
 
@@ -55,7 +55,7 @@ output "cognito_test_client_secret" {
 }
 
 output "cognito_test_scope" {
-  description = "OAuth2 scope(s) requested by the acceptance-test client's client_credentials tokens, space-separated (the format the token endpoint's `scope` parameter expects for more than one). Includes both execute (GraphQL access) and admin (the M2M-tooling equivalent of custom:class=admin - see Identity.requireAdmin) - every M2M caller (mootmaker-api's own acceptance tests, mootmaker-tools/sample-data-generator) requests exactly this value, so both need it to keep creating rooms/people now that those mutations are admin-only."
+  description = "OAuth2 scope(s) requested by the acceptance-test client's client_credentials tokens, space-separated (the format the token endpoint's `scope` parameter expects for more than one). Includes both execute (GraphQL access) and admin (the M2M-tooling equivalent of custom:class=admin - see Identity.requireAdmin) - every M2M caller (mootmaker-api's own acceptance tests, mootmaker-demo-data/sample-data-generator) requests exactly this value, so both need it to keep creating rooms/people now that those mutations are admin-only."
   value       = "${aws_cognito_resource_server.api.identifier}/execute ${aws_cognito_resource_server.api.identifier}/admin"
 }
 
