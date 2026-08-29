@@ -2,7 +2,7 @@
 
 The overall cross-repo strategy (environments, the approach to reading Cognito's emails in tests,
 and how "vibe coding" shapes all of this) is recorded in
-[mootmaker/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/testing-strategy.md).
+[mootmaker/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md).
 This document covers what's specific to this repo.
 
 ## Layers
@@ -26,7 +26,7 @@ This document covers what's specific to this repo.
   future CI's) targets a fresh ephemeral environment instead
   (`claude-<timestamp>-<rand>` for Claude's own dev sessions, or `<frontend>-<tier>-<timestamp>-<rand>`
   for an automated suite's own run, e.g. `web-e2e-<timestamp>-<rand>` — see the [naming
-  convention](https://github.com/geoffweatherall/mootmaker/blob/main/testing-strategy.md#environments)
+  convention](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md#environments)
   in the overall doc), then tears it down.
 - **Email verification code bypass (Option 1) — dropped 2026-08-15.** A `CustomEmailSender`
   Lambda trigger + KMS decrypt + a DynamoDB bypass table was built, unit-tested, and confirmed
@@ -62,5 +62,5 @@ genuinely cross-frontend pieces - ephemeral-environment lifecycle, the SES email
 each frontend owns its own full-stack suite in its own repo instead - see
 [mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md)
 for that repo's `e2e/`/`acceptance/` suites, and
-[mootmaker/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/testing-strategy.md)
+[mootmaker/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md)
 for the overall cross-repo picture.
