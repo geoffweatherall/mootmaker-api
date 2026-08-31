@@ -32,6 +32,8 @@ type Mutation {
  "Allowed for the caller's own linked Person (self-rename), or for anyone if the caller is admin."
  updatePerson(id: ID!, person: PersonInput!): UpdatePersonResult!
  createMeeting(meeting: MeetingInput!): CreateMeetingResult!
+ "Sets the signed-in caller's own date/time display preferences. Self-only - requires a linked Person, and there is no admin override, unlike updatePerson. Purely presentational: does not change the ISO-8601 format this API uses for every date/time it accepts and returns."
+ updateMyPreferences(preferences: PreferencesInput!): UpdateMyPreferencesResult!
  "Deletes the signed-in caller's own account: cancels every upcoming meeting they organise, removes them from every upcoming meeting they only attend, deletes their linked Person, then deletes their Cognito user entirely. Past meetings are left untouched. Irreversible. Not available for reserved system accounts (e.g. the demo user), which reject with an error."
  deleteMyAccount: Boolean!
 }
@@ -73,10 +75,50 @@ enum RoomError {
 type Person {
     id: ID!
     name: String!
+    "How this person prefers dates rendered and parsed by clients. Never null; defaults to Iso for anyone who has never chosen."
+    dateFormat: DateFormat!
+    "How this person prefers times rendered and parsed by clients. Never null; defaults to TwentyFourHour for anyone who has never chosen."
+    timeFormat: TimeFormat!
 }
 
 input PersonInput {
     name: String!
+}
+
+"How a client renders and parses dates. Display only - this API always speaks ISO-8601."
+enum DateFormat {
+    "MM/DD/YYYY"
+    Usa
+    "DD/MM/YYYY"
+    British
+    "YYYY-MM-DD"
+    Iso
+}
+
+"How a client renders and parses times. Display only - this API always speaks ISO-8601."
+enum TimeFormat {
+    "HH:mm"
+    TwentyFourHour
+    "hh:mm A"
+    AmPm
+}
+
+"Both formats are required - updateMyPreferences replaces the caller's whole preference pair, it does not patch one of them."
+input PreferencesInput {
+    dateFormat: DateFormat!
+    timeFormat: TimeFormat!
+}
+
+type UpdateMyPreferencesResult {
+    "Populated when the update was applied."
+    person: Person
+    "Non-empty when the update was rejected; one entry per validation rule broken."
+    errors: [PreferencesError!]!
+}
+
+enum PreferencesError {
+    "The caller has no linked Person, so there is nothing to store a preference against."
+    NoLinkedPerson
 }
 
 type UpdatePersonResult {
