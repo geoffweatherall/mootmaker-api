@@ -86,6 +86,15 @@ resource "aws_appsync_resolver" "update_person" {
   response_template = local.direct_lambda_response_template
 }
 
+resource "aws_appsync_resolver" "update_my_preferences" {
+  api_id            = aws_appsync_graphql_api.this.id
+  type              = "Mutation"
+  field             = "updateMyPreferences"
+  data_source       = aws_appsync_datasource.resolvers.name
+  request_template  = local.direct_lambda_request_template
+  response_template = local.direct_lambda_response_template
+}
+
 resource "aws_appsync_resolver" "my_person" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Query"

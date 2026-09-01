@@ -9,7 +9,7 @@ A GraphQL API for scheduling meetings in meeting rooms. Clients can create and l
 The GraphQL schema lives in [api/mootmaker.graphql](api/mootmaker.graphql). There are three entities:
 
 - **Room** — `id`, `name`, `capacity`. Capacity is the total number of people the room holds (organiser + attendees).
-- **Person** — `id`, `name`. Also has a backend-only `cognitoSub` attribute, not exposed over GraphQL: it's set to the Cognito user's `sub` for a Person created automatically on sign-up (see [Sign-up creates a linked Person](#sign-up-creates-a-linked-person)), and left unset for people added directly (e.g. guests with no login), so a future account-deletion flow can find and remove the Person linked to a deleted Cognito user.
+- **Person** — `id`, `name`, `dateFormat`, `timeFormat`. The two formats are the person's own display preferences (`Usa`/`British`/`Iso` and `TwentyFourHour`/`AmPm`), non-null over GraphQL and defaulting to `Iso`/`TwentyFourHour` for anyone who has never chosen — including every Person written before the preferences existed, and every guest. They are **display-only**: this API accepts and returns ISO-8601 local date-times regardless of anyone's setting, and nothing server-side branches on them (see [Date/time display preferences](#datetime-display-preferences)). Also has a backend-only `cognitoSub` attribute, not exposed over GraphQL: it's set to the Cognito user's `sub` for a Person created automatically on sign-up (see [Sign-up creates a linked Person](#sign-up-creates-a-linked-person)), and left unset for people added directly (e.g. guests with no login), so a future account-deletion flow can find and remove the Person linked to a deleted Cognito user.
 - **Meeting** — `id`, `room`, `organiser` (a Person), `attendees` (list of Person), `subject`, `startTime`, `endTime`. `subject` must not be null or blank. Times are ISO-8601 local date-times with no time-zone offset (`java.time.LocalDateTime` semantics), e.g. `2026-07-01T14:30:00`, must fall on a 15-minute boundary, and `startTime`/`endTime` must fall on the same calendar date — a meeting cannot span midnight (see [Validation](#validation)).
 
 All `id` values are server-generated UUIDs; clients never supply ids on creation.
@@ -68,6 +68,7 @@ The meetings table remains the source of truth; meeting-participants is a **deri
 | `updateRoom(id, room)` | Mutation | **Admin only.** Replaces a room's name/capacity. Returns `UpdateRoomResult` (room or errors, including `RoomNotFound`) |
 | `createPerson(person)` | Mutation | **Admin only.** Returns the created `Person`; no validation beyond a required `name` |
 | `updatePerson(id, person)` | Mutation | **Self, or admin.** Renames a person and propagates the change to Cognito if they're a linked account (see [Denormalised data: Cognito's `name` attribute](#denormalised-data-cognitos-name-attribute)). Returns `UpdatePersonResult` (person or errors, including `PersonNotFound`) |
+| `updateMyPreferences(preferences)` | Mutation | **Self only, no admin override.** Sets the caller's own `dateFormat`/`timeFormat`. Both are required — it replaces the pair rather than patching one. Returns `UpdateMyPreferencesResult` (person or errors, i.e. `NoLinkedPerson`) |
 | `createMeeting(meeting)` | Mutation | Returns `CreateMeetingResult` (meeting or validation errors) |
 
 Wiping stored data is no longer an API operation - see [Reset and real user accounts](#reset-and-real-user-accounts).
@@ -158,6 +159,16 @@ Accounts confirmed before this feature shipped have no `custom:class` attribute 
 Meetings aren't denormalised by room/person name at all — see [Storage](#storage) above — so a rename via `updateRoom`/`updatePerson` is reflected everywhere automatically with no extra propagation. The one real exception is Cognito's own `name` user attribute, a separate copy of a linked person's name set once at sign-up. `UpdatePersonHandler` keeps it in sync: whenever the target person has a `cognitoSub`, it calls `AdminUpdateUserAttributes` to set Cognito's `name` to match, after the DynamoDB write succeeds — for both a self-rename and an admin renaming someone else's linked account. This call is best-effort (logged and swallowed on failure, like the PostConfirmation trigger) so a transient Cognito problem never fails the rename itself; the DynamoDB `Person.name` remains the source of truth read by `myPerson`, so a swallowed sync failure only means the *next* sign-in's JWT `name` claim is briefly stale, not that the rename was lost.
 
 **Known trade-off, accepted as-is:** the demo person ("Demo Strater") is declared by an `aws_dynamodb_table_item` Terraform resource (see [Sign-up creates a linked Person](#sign-up-creates-a-linked-person) above). If an admin renames it via the webapp, a future unrelated `terraform apply` for that environment will silently revert the name back to "Demo Strater" the next time that resource is applied. This is a known, deliberately-unfixed gap (no `lifecycle { ignore_changes }` guard) — harmless for a demo system, just worth knowing if it's ever confusing during a demo.
+
+## Date/time display preferences
+
+A `Person` carries a `dateFormat` and a `timeFormat`, set by their owner in the webapp's Settings page and used by clients to render and parse date/times for humans.
+
+**They change nothing about this API.** Every date/time crossing the GraphQL boundary is an ISO-8601 local date-time with no time-zone offset (`java.time.LocalDateTime` semantics, e.g. `2026-07-01T14:30:00`) — `Meeting.startTime`/`endTime`, `MeetingInput`, `suggestRoom`'s arguments, and the `MeetingsFilter` window — in both directions, for every caller, regardless of their preference. This is a display preference stored as data, not content negotiation: nothing here renders a date, parses a localized one, or varies its wire format by who is asking. A wrong preference can only show a human the right instant written the wrong way round; it can never corrupt stored data or change validation.
+
+Both fields are non-null in the schema, but the DynamoDB attributes behind them are optional — Persons written before this feature simply lack them. [`Person.fromItem`](impl/src/main/java/com/mootmaker/model/Person.java) substitutes the defaults, which is the single point holding the non-null guarantee up against pre-existing data, so it is unit-tested directly in [`PersonTest`](impl/src/test/java/com/mootmaker/model/PersonTest.java). An unrecognised stored value also falls back to the default rather than failing the read.
+
+[`UpdateMyPreferencesHandler`](impl/src/main/java/com/mootmaker/handler/UpdateMyPreferencesHandler.java) is **self-only with no admin bypass**, deliberately unlike `updatePerson`: a personal display preference isn't profile data an admin should set on someone else's behalf, so the handler takes no id at all and always targets the Person linked to `identity.sub`. Like `UpdatePersonHandler` it does a full-item `PutItem`, so it carries `name` and `cognitoSub` forward explicitly — the mirror image of that handler's own care, in the other direction.
 
 ## Directory structure
 
@@ -268,6 +279,14 @@ On success the entity field is populated and `errors` is empty. On failure the e
 |---|---|
 | `NameRequired` | `name` must not be null or blank |
 | `PersonNotFound` | `id` must refer to an existing person |
+
+`updateMyPreferences` ([UpdateMyPreferencesHandler](impl/src/main/java/com/mootmaker/handler/UpdateMyPreferencesHandler.java)):
+
+| Error | Rule |
+|---|---|
+| `NoLinkedPerson` | The caller must have a linked Person to store a preference against |
+
+Both formats being non-null in `PreferencesInput` means AppSync rejects a missing or null one before the resolver runs, so there is no validation rule here beyond the above.
 
 A room's capacity can be reduced below the size of a meeting already booked into it — nothing retroactively re-validates past decisions, matching how nothing else in this API does either.
 
