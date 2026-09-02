@@ -1,0 +1,120 @@
+# Publishes api/mootmaker.graphql as a versioned artifact when it changes on main.
+#
+# Standalone rather than a step inside a deploy pipeline: see
+# mootmaker/designs/graphql-schema-sharing.md Decision 3. Publishing a static file needs no AWS
+# credentials, no environment targeting and no deployment machinery, so it does not have to wait
+# for designs/ci-cd-pipeline.md - which that design can absorb this workflow into once it lands.
+#
+# Two registries, deliberately (Decision 1): npmjs.com for the npm artifact because GitHub Packages
+# requires an access token to install even a PUBLIC package, which would make mootmaker-webapp
+# unbuildable for anyone cloning it; GitHub Packages for the Maven artifact because its only
+# consumers are this project's own repositories, which already authenticate.
+name: Publish schema
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/mootmaker.graphql'
+      - 'api/package.json'
+  # Lets a failed publish be retried without an empty commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Read the declared version
+        id: version
+        run: echo "value=$(node -p "require('./api/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # The failure this guards is the expected one: changing the schema and forgetting to bump.
+      # Registries are immutable, so `npm publish` would fail anyway - but with a raw 409 that says
+      # nothing about what to do. Checking explicitly makes the message actionable.
+      # See Decision 5.
+      - name: Check the version is unused
+        run: |
+          version='${{ steps.version.outputs.value }}'
+          if npm view "@mootmaker/schema@${version}" version >/dev/null 2>&1; then
+            echo "::error::@mootmaker/schema@${version} is already published, but api/mootmaker.graphql has changed."
+            echo "::error::Bump \"version\" in api/package.json in the same pull request as the schema change."
+            exit 1
+          fi
+          echo "@mootmaker/schema@${version} is unused - publishing."
+
+      - name: Publish to npmjs.com
+        working-directory: api
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # The Maven artifact carries the same schema at the same version, generated from the same
+      # string, so one version means one thing in both registries (Decision 5). It has no consumer
+      # yet - the Java consumers keep hand-written operations until a later piece of work
+      # (Decision 9) - but publishing from the start is what gives mootmaker-android and
+      # mootmaker-demo-data a complete version history rather than one starting mid-stream.
+      - name: Generate the Maven pom from the same version
+        run: |
+          mkdir -p target/maven
+          cp api/mootmaker.graphql target/maven/
+          cat > target/maven/pom.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>com.mootmaker</groupId>
+            <artifactId>mootmaker-schema</artifactId>
+            <version>${{ steps.version.outputs.value }}</version>
+            <packaging>jar</packaging>
+            <description>The mootmaker GraphQL schema - the single source of truth for the API contract.</description>
+          </project>
+          EOF
+
+      # server-id/username/password make setup-java write a ~/.m2/settings.xml with a <server>
+      # entry called "github" - which is what deploy:deploy-file's -DrepositoryId resolves
+      # credentials by. Setting GITHUB_TOKEN as a bare env var would not authenticate anything.
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          server-id: github
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+
+      # Packaged as a jar so Maven resolves it like any other dependency; the schema sits at the
+      # root of the jar as mootmaker.graphql.
+      - name: Publish to GitHub Packages
+        working-directory: target/maven
+        run: |
+          jar cf mootmaker-schema.jar mootmaker.graphql
+          mvn -B deploy:deploy-file \
+            -DgroupId=com.mootmaker \
+            -DartifactId=mootmaker-schema \
+            -Dversion='${{ steps.version.outputs.value }}' \
+            -Dpackaging=jar \
+            -Dfile=mootmaker-schema.jar \
+            -DpomFile=pom.xml \
+            -DrepositoryId=github \
+            -Durl=https://maven.pkg.github.com/geoffweatherall/mootmaker-api
+        env:
+          MAVEN_USERNAME: ${{ github.actor }}
+          MAVEN_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "### Published \`@mootmaker/schema@${{ steps.version.outputs.value }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- npmjs.com (installable anonymously)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- GitHub Packages: \`com.mootmaker:mootmaker-schema\`" >> "$GITHUB_STEP_SUMMARY"
