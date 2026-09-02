@@ -1,5 +1,5 @@
 # Credentials for mootmaker-demo-data, the third deployable component (see
-# ../../../mootmaker/designs/demo-data-component.md).
+# ../../../mootmaker/designs/archive/demo-data-component.md).
 #
 # demo-data used to authenticate as aws_cognito_user_pool_client.acceptance_tests - the *tests'*
 # client - with its secret read from this project's Terraform outputs at deploy time, passed
