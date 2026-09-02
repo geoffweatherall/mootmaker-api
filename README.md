@@ -125,14 +125,23 @@ Every GraphQL request must carry a JWT issued by the user pool in the `Authoriza
 1. **AppSync** is configured with `AMAZON_COGNITO_USER_POOLS` authentication: it verifies the token's signature, issuer, and expiry against the user pool **before any resolver runs**, and returns HTTP 401 `UnauthorizedException` otherwise.
 2. **Every Lambda handler** re-checks, before running any logic, that the AppSync context it received contains an authenticated `identity` ([Identity.requireAuthenticated](impl/src/main/java/com/mootmaker/handler/Identity.java)) — defence-in-depth in case the API is ever accidentally exposed without the authoriser.
 
-The user pool has two app clients (plus a hosted domain used only for the OAuth2 token endpoint):
+The user pool has three app clients (plus a hosted domain used only for the OAuth2 token endpoint):
 
 | App client | Kind | Used by |
 |---|---|---|
 | `mootmaker-webapp` | Public (no secret), SRP auth flow | The [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) browser SPA: users sign up / sign in and their id token is sent with each GraphQL call |
 | `mootmaker-acceptance-tests` | Confidential (client secret), OAuth2 `client_credentials` flow | The [verify/](verify/) acceptance tests and [api/requests.http](api/requests.http) |
+| `mootmaker-demo-data` | Confidential (client secret), OAuth2 `client_credentials` flow | [mootmaker-demo-data](https://github.com/geoffweatherall/mootmaker-demo-data), which reads its id and secret from SSM at runtime — see below |
 
-The resource server (`mootmaker-api`) defines two OAuth2 scopes: `execute` (general API access) and `admin` (see [User classes and authorization](#user-classes-and-authorization)). `mootmaker-acceptance-tests` requests both — `authenticate.sh`'s `COGNITO_TEST_SCOPE` output is the space-separated pair — so M2M-authenticated tooling (acceptance tests, `sample-data-generator`) can call the admin-gated mutations without needing a real Cognito user.
+The resource server (`mootmaker-api`) defines two OAuth2 scopes: `execute` (general API access) and `admin` (see [User classes and authorization](#user-classes-and-authorization)). `mootmaker-acceptance-tests` requests both — `authenticate.sh`'s `COGNITO_TEST_SCOPE` output is the space-separated pair — so M2M-authenticated tooling can call the admin-gated mutations without needing a real Cognito user. `mootmaker-demo-data` requests the same pair.
+
+#### How mootmaker-demo-data gets its credentials
+
+It has its **own** app client rather than borrowing the acceptance tests'. Sharing one credential between two unrelated consumers meant neither could be rotated or revoked without breaking the other, and CloudTrail could not tell them apart.
+
+[demo-data-credentials.tf](deploy/terraform/demo-data-credentials.tf) publishes that client's id and secret — plus the GraphQL URL, token endpoint and scopes — to SSM Parameter Store under `/mootmaker/<environment>/demo-data/`, and demo-data's Lambda reads them **at runtime**. The client secret is a `SecureString` on the AWS-managed `alias/aws/ssm` key (free; a customer-managed key would be $1/month per environment).
+
+That path is derived from the environment name alone, which is the point: demo-data's deploy needs nothing from this project's Terraform state, so the secret never lands in its state or in a Lambda environment variable, and the two repos' releases stay uncoupled. It is the same deterministic-name loose coupling used for the `database-reset` function name.
 
 ### Demo user
 
@@ -155,7 +164,7 @@ Most acceptance tests reset the database to a known state immediately before the
 
 Every Cognito user has a `custom:class` attribute, `standard` or `admin`, included in the ID token as the `custom:class` claim. `PostConfirmationCreatePersonHandler` (see [Sign-up creates a linked Person](#sign-up-creates-a-linked-person) above) sets it to `standard` for every new sign-up via `AdminUpdateUserAttributes`, right after creating the linked Person — the client is never trusted to set its own class, and the webapp's `mootmaker-webapp` app client is deliberately not granted write access to `custom:class` (see its `write_attributes` in [cognito.tf](deploy/terraform/cognito.tf)), so a signed-in user can't self-promote by calling Cognito's own attribute-update API directly. The Terraform-managed demo user is `admin` and the e2e test user is `standard` (`aws_cognito_user.demo` / `aws_cognito_user.e2e` in [cognito.tf](deploy/terraform/cognito.tf)).
 
-[Identity.requireAdmin](impl/src/main/java/com/mootmaker/handler/Identity.java) is the enforcement point, checked before any logic runs in an admin-only handler (`CreateRoomHandler`, `UpdateRoomHandler`, `CreatePersonHandler`) — same shape as `Identity.requireAuthenticated`, but also accepting a caller whose `scope` claim contains the `mootmaker-api/admin` OAuth scope, so the M2M `mootmaker-acceptance-tests` client (and tools built on it, e.g. `sample-data-generator`) keeps working without a real Cognito user or `custom:class` claim behind it. `UpdatePersonHandler` uses the softer `Identity.isAdmin` instead: a caller may update a person if they're admin *or* if the target person's `cognitoSub` matches their own `identity.sub` (a self-rename).
+[Identity.requireAdmin](impl/src/main/java/com/mootmaker/handler/Identity.java) is the enforcement point, checked before any logic runs in an admin-only handler (`CreateRoomHandler`, `UpdateRoomHandler`, `CreatePersonHandler`) — same shape as `Identity.requireAuthenticated`, but also accepting a caller whose `scope` claim contains the `mootmaker-api/admin` OAuth scope, so the M2M `mootmaker-acceptance-tests` and `mootmaker-demo-data` clients keep working without a real Cognito user or `custom:class` claim behind them. `UpdatePersonHandler` uses the softer `Identity.isAdmin` instead: a caller may update a person if they're admin *or* if the target person's `cognitoSub` matches their own `identity.sub` (a self-rename).
 
 This is enforced **server-side only** — the webapp's `isAdmin` flag (read from the same JWT claim) only decides what the UI shows; a standard user calling `updateRoom` directly still gets rejected by the Lambda regardless of what the client thinks.
 

@@ -58,9 +58,10 @@ resource "aws_iam_role_policy" "database_reset_access" {
 }
 
 resource "aws_lambda_function" "database_reset" {
-  # Matches the deterministic name mootmaker-demo-data/sample-data-generator and this repo's own
-  # verify.sh already compute (<environment>-mootmaker-database-reset) - neither needed to change
-  # when this Lambda moved here from mootmaker-admin-tools.
+  # Matches the deterministic name this repo's own verify.sh and mootmaker-demo-data's acceptance
+  # suite already compute (<environment>-mootmaker-database-reset) - neither needed to change when
+  # this Lambda moved here from mootmaker-admin-tools. Note mootmaker-demo-data itself never
+  # invokes this: only its test harness does, to clear an environment before seeding it.
   function_name    = "${local.resource_prefix}-database-reset"
   role             = aws_iam_role.database_reset_exec.arn
   handler          = "com.mootmaker.handler.DatabaseResetHandler::handleRequest"
