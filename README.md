@@ -158,6 +158,17 @@ package**, which would make `mootmaker-webapp` unbuildable for anyone cloning it
 such restriction. The Maven consumers are this project's own repositories, which already
 authenticate, so the token costs nothing there.
 
+**Authentication is by OIDC trusted publishing, not a token.** The workflow authenticates as
+itself; there is no `NPM_TOKEN` secret to rotate. npm revoked classic tokens in December 2025, and
+write-enabled granular tokens expire within 90 days and stop working for publishing in January 2027,
+so a token here would have been a thing to rebuild rather than maintain. It also means the published
+package carries a provenance attestation linking it to the commit that produced it.
+
+The trusted publisher is configured on the package itself (npmjs.com → the package → Settings),
+naming `geoffweatherall/mootmaker-api` and `publish-schema.yml`. Because npm requires a package to
+exist before a trusted publisher can be attached to it, `1.0.0` was published by hand once; every
+version after it comes from this workflow.
+
 `api/package.json` holds the version, bumped in the same pull request as the schema change.
 Registries are immutable, so forgetting to bump cannot silently succeed — the workflow checks
 explicitly and fails with a message naming the file to edit, rather than a raw 409.

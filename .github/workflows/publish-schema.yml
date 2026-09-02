@@ -23,6 +23,11 @@ on:
 permissions:
   contents: read
   packages: write
+  # Lets the runner mint an OIDC token, which is how npm authenticates this workflow without a
+  # secret. npm classic tokens were revoked in December 2025, and write-enabled granular tokens
+  # expire within 90 days and stop working for publishing altogether in January 2027 - so a token
+  # here would be a thing to rebuild, not a thing to maintain.
+  id-token: write
 
 jobs:
   publish:
@@ -30,10 +35,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14. Node 24 ships npm 11.x, but the
+      # exact bundled version moves, so it is upgraded explicitly below rather than assumed.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
 
       - name: Read the declared version
         id: version
@@ -53,11 +65,13 @@ jobs:
           fi
           echo "@mootmaker/schema@${version} is unused - publishing."
 
+      # No NODE_AUTH_TOKEN: npm resolves this workflow's OIDC identity against the trusted
+      # publisher configured on the package (geoffweatherall/mootmaker-api, this workflow file).
+      # The provenance attestation comes free with it, so the published package carries a verifiable
+      # link back to the commit that produced it.
       - name: Publish to npmjs.com
         working-directory: api
         run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # The Maven artifact carries the same schema at the same version, generated from the same
       # string, so one version means one thing in both registries (Decision 5). It has no consumer
