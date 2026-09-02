@@ -23,7 +23,14 @@ import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsResponse
 
 import module java.base;
 
-/** Minimal in-memory test double covering only the operations the handlers under test use. */
+/**
+ * Minimal in-memory test double covering only the operations the handlers under test use.
+ * {@code DatabaseReset}/{@code DatabaseRepairHandler}'s repairs issue their per-item calls
+ * concurrently (see {@code ConcurrencyUtils.runInParallel}), so every method here is synchronized -
+ * a real {@code DynamoDbClient} handles concurrent calls from multiple threads fine, and this fake
+ * needs to behave the same way, since a plain {@code ArrayList} silently drops entries (or throws)
+ * under concurrent, unsynchronized mutation.
+ */
 class FakeDynamoDbClient implements DynamoDbClient {
 
     /** Two-character operators must be checked before their one-character prefixes (">=" before ">"). */
@@ -49,7 +56,7 @@ class FakeDynamoDbClient implements DynamoDbClient {
      * behind once update* handlers started overwriting an existing item.
      */
     @Override
-    public PutItemResponse putItem(final PutItemRequest request) {
+    public synchronized PutItemResponse putItem(final PutItemRequest request) {
         final List<Map<String, AttributeValue>> items = tables.computeIfAbsent(request.tableName(), _ -> new ArrayList<>());
         final AttributeValue id = request.item().get("id");
         if (id != null) {
@@ -61,7 +68,7 @@ class FakeDynamoDbClient implements DynamoDbClient {
 
     /** Supports Put (replacing any existing item with the same "id", as putItem above does) and Delete transact items. */
     @Override
-    public TransactWriteItemsResponse transactWriteItems(final TransactWriteItemsRequest request) {
+    public synchronized TransactWriteItemsResponse transactWriteItems(final TransactWriteItemsRequest request) {
         for (final TransactWriteItem transactItem : request.transactItems()) {
             final Put put = transactItem.put();
             if (put != null) {
@@ -84,13 +91,13 @@ class FakeDynamoDbClient implements DynamoDbClient {
     }
 
     @Override
-    public ScanResponse scan(final ScanRequest request) {
-        final List<Map<String, AttributeValue>> items = tables.getOrDefault(request.tableName(), new ArrayList<>());
+    public synchronized ScanResponse scan(final ScanRequest request) {
+        final List<Map<String, AttributeValue>> items = List.copyOf(tables.getOrDefault(request.tableName(), new ArrayList<>()));
         return ScanResponse.builder().items(items).count(items.size()).build();
     }
 
     @Override
-    public GetItemResponse getItem(final GetItemRequest request) {
+    public synchronized GetItemResponse getItem(final GetItemRequest request) {
         final List<Map<String, AttributeValue>> items = tables.getOrDefault(request.tableName(), new ArrayList<>());
         return items.stream()
                 .filter(item -> matchesKey(item, request.key()))
@@ -118,7 +125,7 @@ class FakeDynamoDbClient implements DynamoDbClient {
      * unaliased reserved word used as a literal attribute name.
      */
     @Override
-    public QueryResponse query(final QueryRequest request) {
+    public synchronized QueryResponse query(final QueryRequest request) {
         final List<Map<String, AttributeValue>> tableItems = tables.getOrDefault(request.tableName(), new ArrayList<>());
         final Map<String, AttributeValue> values = request.expressionAttributeValues();
         final Map<String, String> names = request.expressionAttributeNames() == null ? Map.of() : request.expressionAttributeNames();
@@ -214,7 +221,7 @@ class FakeDynamoDbClient implements DynamoDbClient {
 
     /** Supports only single-table requests with no unprocessed keys, which is all the handlers under test issue. */
     @Override
-    public BatchGetItemResponse batchGetItem(final BatchGetItemRequest request) {
+    public synchronized BatchGetItemResponse batchGetItem(final BatchGetItemRequest request) {
         final Map<String, List<Map<String, AttributeValue>>> responses = new HashMap<>();
         for (final Map.Entry<String, KeysAndAttributes> entry : request.requestItems().entrySet()) {
             final String tableName = entry.getKey();
@@ -229,7 +236,7 @@ class FakeDynamoDbClient implements DynamoDbClient {
     }
 
     @Override
-    public DeleteItemResponse deleteItem(final DeleteItemRequest request) {
+    public synchronized DeleteItemResponse deleteItem(final DeleteItemRequest request) {
         final List<Map<String, AttributeValue>> items = tables.get(request.tableName());
         if (items != null) {
             items.removeIf(item -> matchesKey(item, request.key()));

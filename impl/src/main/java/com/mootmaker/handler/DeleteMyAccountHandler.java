@@ -38,7 +38,7 @@ import module java.base;
  * confusing empty-account state. This ordering instead fails toward the safer outcome: on any
  * failure, the account either still works with all its data intact (nothing attempted yet), or is
  * already unusable for sign-in with some data cleanup still pending, which is recoverable via
- * mootmaker-admin-tools/database-repair rather than user-visible.
+ * {@code database-repair} rather than user-visible.
  *
  * <p>Every upcoming meeting the caller organises is cancelled (deleted, along with its
  * meeting-participants rows) - other attendees simply lose that meeting from their view, with no

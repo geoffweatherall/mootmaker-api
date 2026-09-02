@@ -19,10 +19,6 @@
 #   DEMO_USER_EMAIL            Pre-confirmed, publicly-known demo user shown on the webapp home page
 #   DEMO_USER_PASSWORD         Password for that user (not a secret - it's shown in the webapp UI)
 #   AWS_REGION                 Region this environment is deployed into
-#   ROOMS_TABLE_NAME           DynamoDB table name for Room records
-#   PEOPLE_TABLE_NAME          DynamoDB table name for Person records
-#   MEETINGS_TABLE_NAME        DynamoDB table name for Meeting records
-#   MEETING_PARTICIPANTS_TABLE_NAME  DynamoDB table name for the meeting-participants join index
 #
 # Must be SOURCED, not executed, so the exports persist in your shell:
 #   source authenticate.sh <environment>
@@ -81,15 +77,11 @@ if [[ -z "${_authenticate_failed}" ]]; then
     _authenticate_read_output E2E_USER_PASSWORD e2e_user_password &&
     _authenticate_read_output DEMO_USER_EMAIL demo_user_email &&
     _authenticate_read_output DEMO_USER_PASSWORD demo_user_password &&
-    _authenticate_read_output AWS_REGION aws_region &&
-    _authenticate_read_output ROOMS_TABLE_NAME rooms_table_name &&
-    _authenticate_read_output PEOPLE_TABLE_NAME people_table_name &&
-    _authenticate_read_output MEETINGS_TABLE_NAME meetings_table_name &&
-    _authenticate_read_output MEETING_PARTICIPANTS_TABLE_NAME meeting_participants_table_name
+    _authenticate_read_output AWS_REGION aws_region
 fi
 
 if [[ -z "${_authenticate_failed}" ]]; then
-  echo "Exported GRAPHQL_API_URL, the COGNITO_*/E2E_*/DEMO_* authentication variables, AWS_REGION, ROOMS_TABLE_NAME, PEOPLE_TABLE_NAME, MEETINGS_TABLE_NAME, and MEETING_PARTICIPANTS_TABLE_NAME for '${_authenticate_environment}'."
+  echo "Exported GRAPHQL_API_URL, the COGNITO_*/E2E_*/DEMO_* authentication variables, and AWS_REGION for '${_authenticate_environment}'."
 fi
 
 unset -f _authenticate_read_output

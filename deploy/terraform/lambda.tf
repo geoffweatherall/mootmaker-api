@@ -21,6 +21,12 @@ locals {
     COGNITO_ADMIN_SCOPE = "${aws_cognito_resource_server.api.identifier}/admin"
   })
 
+  # The two Terraform-managed reserved accounts - DeleteMyAccountHandler refuses to let either
+  # self-delete, and database-reset (see admin-tools.tf) preserves exactly these two, and nothing
+  # else, when it wipes the Cognito pool. One local so both consumers can never disagree about
+  # which accounts are reserved.
+  reserved_account_emails = "${aws_cognito_user.demo.username},${aws_cognito_user.e2e.username}"
+
   # ResolverDispatchHandler (see impl/src/main/java/com/mootmaker/handler/ResolverDispatchHandler.java)
   # is the single entry point for every AppSync direct-Lambda resolver, so it needs the union of
   # every env var any individual resolver handler used to need - including COGNITO_USER_POOL_ID
@@ -28,11 +34,8 @@ locals {
   # this function is never itself referenced by aws_cognito_user_pool.this's lambda_config, so the
   # circular-dependency concern above doesn't apply here.
   resolver_lambda_env_vars = merge(local.admin_gated_env_vars, {
-    COGNITO_USER_POOL_ID = aws_cognito_user_pool.this.id
-    # DeleteMyAccountHandler refuses to delete these - the public demo login and the Playwright e2e
-    # user are both Terraform-managed (see cognito.tf) and would otherwise be a real,
-    # self-service-deletable account like any other, breaking the demo/e2e suite until re-applied.
-    RESERVED_ACCOUNT_EMAILS = "${aws_cognito_user.demo.username},${aws_cognito_user.e2e.username}"
+    COGNITO_USER_POOL_ID    = aws_cognito_user_pool.this.id
+    RESERVED_ACCOUNT_EMAILS = local.reserved_account_emails
   })
 }
 

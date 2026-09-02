@@ -21,6 +21,10 @@ those change — it is load-bearing, and both people and agents rely on it being
 - **Java 25**, Maven, `mvn -f impl/pom.xml test` for unit tests.
 - **Cold starts are real.** Java Lambdas take several seconds on first invocation, which has caused
   test timeouts before. Consider it before concluding something is broken.
+- **`database-reset`/`database-repair` live here too**, as two more Lambdas built from the same jar
+  (`DatabaseResetHandler`/`DatabaseRepairHandler`, `deploy/terraform/admin-tools.tf`) — invoked
+  directly via `aws lambda invoke`, never through a wrapper script. See
+  [README.md's "Reset and real user accounts"](README.md#reset-and-real-user-accounts).
 
 ---
 

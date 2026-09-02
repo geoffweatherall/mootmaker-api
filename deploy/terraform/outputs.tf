@@ -4,28 +4,8 @@ output "graphql_api_url" {
 }
 
 output "aws_region" {
-  description = "AWS region this environment is deployed into - for tools that call AWS APIs directly (e.g. mootmaker-admin-tools/database-repair) rather than only through the GraphQL API."
+  description = "AWS region this environment is deployed into - for tools that call AWS APIs directly (e.g. the verify/ acceptance tests' own Lambda-invoke and Cognito Admin API calls) rather than only through the GraphQL API."
   value       = var.aws_region
-}
-
-output "rooms_table_name" {
-  description = "DynamoDB table name for Room records - for tools that need direct read/write access (e.g. mootmaker-admin-tools/database-reset), not exposed via the GraphQL API."
-  value       = aws_dynamodb_table.rooms.name
-}
-
-output "people_table_name" {
-  description = "DynamoDB table name for Person records - for tools that need direct read/write access (e.g. mootmaker-admin-tools/database-repair, mootmaker-admin-tools/database-reset), not exposed via the GraphQL API."
-  value       = aws_dynamodb_table.people.name
-}
-
-output "meetings_table_name" {
-  description = "DynamoDB table name for Meeting records - for tools that need direct read/write access (e.g. mootmaker-admin-tools/database-repair, mootmaker-admin-tools/database-reset), not exposed via the GraphQL API."
-  value       = aws_dynamodb_table.meetings.name
-}
-
-output "meeting_participants_table_name" {
-  description = "DynamoDB table name for the meeting-participants join index - for tools that need direct read/write access (e.g. mootmaker-admin-tools/database-repair's RebuildMeetingParticipantsRepair, mootmaker-admin-tools/database-reset), not exposed via the GraphQL API."
-  value       = aws_dynamodb_table.meeting_participants.name
 }
 
 output "cognito_user_pool_id" {
