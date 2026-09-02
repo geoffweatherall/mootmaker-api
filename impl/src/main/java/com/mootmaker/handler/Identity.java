@@ -13,7 +13,7 @@ final class Identity {
 
     /**
      * OAuth scope (e.g. {@code test-mootmaker-api/admin}) that grants admin-equivalent access to
-     * the M2M tooling client (sample-data-generator, the acceptance tests) - that client
+     * the M2M tooling clients (the acceptance tests, mootmaker-demo-data) - that client
      * authenticates via client_credentials with no Cognito user behind it at all, so it can never
      * carry a {@code custom:class} claim the way a real signed-in user's ID token does. Set by
      * Terraform (see cognito.tf's admin resource-server scope and lambda.tf).

@@ -9,8 +9,8 @@ import module java.base;
  * own identical copy of this when they were separate Maven projects in mootmaker-admin-tools; merging
  * into this one repo removed the reason to keep two copies.
  *
- * <p>{@code mootmaker-demo-data}'s sample-data-generator keeps its own separate copy - it stays a
- * different repository, with no shared-code mechanism to this one.
+ * <p>{@code mootmaker-demo-data} keeps its own separate copy - it stays a different repository,
+ * with no shared-code mechanism to this one.
  */
 public final class ConcurrencyUtils {
 

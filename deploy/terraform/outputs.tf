@@ -35,7 +35,7 @@ output "cognito_test_client_secret" {
 }
 
 output "cognito_test_scope" {
-  description = "OAuth2 scope(s) requested by the acceptance-test client's client_credentials tokens, space-separated (the format the token endpoint's `scope` parameter expects for more than one). Includes both execute (GraphQL access) and admin (the M2M-tooling equivalent of custom:class=admin - see Identity.requireAdmin) - every M2M caller (mootmaker-api's own acceptance tests, mootmaker-demo-data/sample-data-generator) requests exactly this value, so both need it to keep creating rooms/people now that those mutations are admin-only."
+  description = "OAuth2 scope(s) requested by the acceptance-test client's client_credentials tokens, space-separated (the format the token endpoint's `scope` parameter expects for more than one). Includes both execute (GraphQL access) and admin (the M2M-tooling equivalent of custom:class=admin - see Identity.requireAdmin) - this project's own acceptance tests request exactly this value, so they can keep creating rooms/people now that those mutations are admin-only. mootmaker-demo-data requests the same pair, but reads it from its own SSM parameter rather than this output - see demo-data-credentials.tf."
   value       = "${aws_cognito_resource_server.api.identifier}/execute ${aws_cognito_resource_server.api.identifier}/admin"
 }
 

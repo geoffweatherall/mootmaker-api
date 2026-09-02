@@ -129,11 +129,11 @@ resource "aws_cognito_resource_server" "api" {
     scope_description = "Full access to the mootmaker GraphQL API"
   }
 
-  # M2M tooling (sample-data-generator, the acceptance tests below) has no Cognito user behind it
-  # at all, so it can never carry a custom:class claim the way a real signed-in user's ID token
-  # does - this scope is Identity.requireAdmin's equivalent for that caller. See
-  # mootmaker-demo-data/sample-data-generator and this project's README for why that tool still needs
-  # to create rooms/people now that those mutations are admin-only.
+  # M2M tooling (the acceptance-test client below, and mootmaker-demo-data's own client in
+  # demo-data-credentials.tf) has no Cognito user behind it at all, so it can never carry a
+  # custom:class claim the way a real signed-in user's ID token does - this scope is
+  # Identity.requireAdmin's equivalent for that caller. See this project's README for why
+  # mootmaker-demo-data still needs to create rooms/people now that those mutations are admin-only.
   scope {
     scope_name        = "admin"
     scope_description = "Admin-equivalent access (room/person maintenance) for M2M tooling"
@@ -202,7 +202,7 @@ resource "random_password" "demo_user" {
 # anyone can sign in as this user - no sign-up needed - to try out the app. The webapp's home page
 # fetches these credentials at deploy time (see mootmaker-webapp's deploy.sh) and displays them
 # to signed-out visitors, offering a one-click sign-in. Deliberately NOT gated by environment name
-# (e.g. unlike reset/sample-data-generator) - this demo user is meant to exist even in a
+# (e.g. unlike database-reset) - this demo user is meant to exist even in a
 # "production" deployment, since making the app easy to try is the point.
 resource "aws_cognito_user" "demo" {
   user_pool_id = aws_cognito_user_pool.this.id
