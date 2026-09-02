@@ -125,14 +125,23 @@ Every GraphQL request must carry a JWT issued by the user pool in the `Authoriza
 1. **AppSync** is configured with `AMAZON_COGNITO_USER_POOLS` authentication: it verifies the token's signature, issuer, and expiry against the user pool **before any resolver runs**, and returns HTTP 401 `UnauthorizedException` otherwise.
 2. **Every Lambda handler** re-checks, before running any logic, that the AppSync context it received contains an authenticated `identity` ([Identity.requireAuthenticated](impl/src/main/java/com/mootmaker/handler/Identity.java)) — defence-in-depth in case the API is ever accidentally exposed without the authoriser.
 
-The user pool has two app clients (plus a hosted domain used only for the OAuth2 token endpoint):
+The user pool has three app clients (plus a hosted domain used only for the OAuth2 token endpoint):
 
 | App client | Kind | Used by |
 |---|---|---|
 | `mootmaker-webapp` | Public (no secret), SRP auth flow | The [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) browser SPA: users sign up / sign in and their id token is sent with each GraphQL call |
 | `mootmaker-acceptance-tests` | Confidential (client secret), OAuth2 `client_credentials` flow | The [verify/](verify/) acceptance tests and [api/requests.http](api/requests.http) |
+| `mootmaker-demo-data` | Confidential (client secret), OAuth2 `client_credentials` flow | [mootmaker-demo-data](https://github.com/geoffweatherall/mootmaker-demo-data), which reads its id and secret from SSM at runtime — see below |
 
-The resource server (`mootmaker-api`) defines two OAuth2 scopes: `execute` (general API access) and `admin` (see [User classes and authorization](#user-classes-and-authorization)). `mootmaker-acceptance-tests` requests both — `authenticate.sh`'s `COGNITO_TEST_SCOPE` output is the space-separated pair — so M2M-authenticated tooling (acceptance tests, `sample-data-generator`) can call the admin-gated mutations without needing a real Cognito user.
+The resource server (`mootmaker-api`) defines two OAuth2 scopes: `execute` (general API access) and `admin` (see [User classes and authorization](#user-classes-and-authorization)). `mootmaker-acceptance-tests` requests both — `authenticate.sh`'s `COGNITO_TEST_SCOPE` output is the space-separated pair — so M2M-authenticated tooling can call the admin-gated mutations without needing a real Cognito user. `mootmaker-demo-data` requests the same pair.
+
+#### How mootmaker-demo-data gets its credentials
+
+It has its **own** app client rather than borrowing the acceptance tests'. Sharing one credential between two unrelated consumers meant neither could be rotated or revoked without breaking the other, and CloudTrail could not tell them apart.
+
+[demo-data-credentials.tf](deploy/terraform/demo-data-credentials.tf) publishes that client's id and secret — plus the GraphQL URL, token endpoint and scopes — to SSM Parameter Store under `/mootmaker/<environment>/demo-data/`, and demo-data's Lambda reads them **at runtime**. The client secret is a `SecureString` on the AWS-managed `alias/aws/ssm` key (free; a customer-managed key would be $1/month per environment).
+
+That path is derived from the environment name alone, which is the point: demo-data's deploy needs nothing from this project's Terraform state, so the secret never lands in its state or in a Lambda environment variable, and the two repos' releases stay uncoupled. It is the same deterministic-name loose coupling used for the `database-reset` function name.
 
 ### Demo user
 
