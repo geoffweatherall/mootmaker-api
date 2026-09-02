@@ -98,9 +98,9 @@ resource "aws_dynamodb_table" "meetings" {
 # (meeting, participant) pair - the organiser plus every attendee - alongside the meeting item
 # itself, in a single TransactWriteItems call in CreateMeetingHandler, so the two can never drift
 # under normal operation. The meetings table remains the source of truth; this table is a derived
-# index that mootmaker-admin-tools/database-repair's RebuildMeetingParticipantsRepair can
-# regenerate from it (needed once when this table is first introduced against an environment that
-# already has meetings, and as a safety net against any drift).
+# index that database-repair's RebuildMeetingParticipantsRepair can regenerate from it (needed
+# once when this table is first introduced against an environment that already has meetings, and
+# as a safety net against any drift).
 resource "aws_dynamodb_table" "meeting_participants" {
   name         = "${local.resource_prefix}-meeting-participants"
   billing_mode = "PAY_PER_REQUEST"

@@ -35,11 +35,18 @@
   </dependencyManagement>
 
   <dependencies>
-    <!-- Invokes the mootmaker-tools/database-reset Lambda directly (AWS IAM auth), rather than
-         through GraphQL - see DatabaseReset.java. -->
+    <!-- Invokes the database-reset Lambda directly (AWS IAM auth), rather than through GraphQL -
+         see DatabaseReset.java. -->
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>lambda</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- DatabaseResetCognitoWipeAcceptanceIT talks to Cognito directly (AdminCreateUser/
+         AdminGetUser) to prove reset's Cognito-wipe survivor logic against a real deployed pool. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>cognitoidentityprovider</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>

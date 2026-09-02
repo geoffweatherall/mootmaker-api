@@ -220,10 +220,12 @@ resource "aws_cognito_user" "demo" {
 
 # The demo user above is created directly by Terraform rather than through the sign-up/confirm
 # API calls, so it never fires PostConfirmationCreatePersonHandler (see "Sign-up creates a linked
-# Person" in the README) and would otherwise have no Person - showing up nameless in the webapp
-# and being wiped by every mootmaker-admin-tools/database-reset run, since it only preserves people with
-# a cognitoSub. This writes one directly, in the same shape as Person.toItem(), linked via
-# cognitoSub to aws_cognito_user.demo's sub.
+# Person" in the README) and would otherwise have no Person - showing up nameless in the webapp,
+# and (if one existed anyway with no cognitoSub) getting deleted by the next database-reset run,
+# since reset only ever preserves people linked to a Cognito account. This writes one directly, in
+# the same shape as Person.toItem(), linked via cognitoSub to aws_cognito_user.demo's sub - which
+# is also what protects it from database-reset's Cognito-wipe pass (see admin-tools.tf's
+# RESERVED_ACCOUNT_EMAILS), not just its DynamoDB-level survival rule.
 resource "random_uuid" "demo_person_id" {}
 
 resource "aws_dynamodb_table_item" "demo_person" {

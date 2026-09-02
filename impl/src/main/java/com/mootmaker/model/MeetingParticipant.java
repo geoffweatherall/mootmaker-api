@@ -11,8 +11,8 @@ import module java.base;
  * answered with a GSI on the meetings table itself; this table exists purely to answer it in a
  * single Query. The meetings table remains the source of truth - CreateMeetingHandler writes a
  * meeting's participant rows in the same {@code TransactWriteItems} call as the meeting itself,
- * and mootmaker-admin-tools/database-repair's RebuildMeetingParticipantsRepair can regenerate this
- * table from the meetings table if the two ever drift.
+ * and {@code database-repair}'s {@code RebuildMeetingParticipantsRepair} can regenerate this table
+ * from the meetings table if the two ever drift.
  */
 public record MeetingParticipant(String personId, String meetingId, String startTime, String endTime) {
 
