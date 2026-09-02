@@ -4,8 +4,11 @@ schema {
 }
 
 type Query {
+ "Every Person, in no particular order - real signed-up users and generated demo people alike, with nothing in the response distinguishing them. Returns the whole table with no pagination, so a caller that needs an order must impose its own."
  people: [Person!]!
+ "Every room, in no particular order. Returns the whole table with no pagination."
  rooms: [Room!]!
+ "Meetings matching the filter, in no particular order, each with its room, organiser and attendees resolved. Omitting the filter entirely returns every meeting ever stored, which is rarely what a client wants - pass a time range."
  meetings(filter: MeetingsFilter): [Meeting!]!
  "The Person linked to the signed-in caller's own Cognito account, or null if none exists (e.g. the account predates automatic Person creation on sign-up, or was created without going through the confirm-sign-up flow)."
  myPerson: Person
