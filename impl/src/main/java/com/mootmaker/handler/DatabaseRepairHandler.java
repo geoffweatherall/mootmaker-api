@@ -2,8 +2,6 @@ package com.mootmaker.handler;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.mootmaker.cognito.CognitoIdentityProviderClientProvider;
-import com.mootmaker.dynamo.DynamoDbClientProvider;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
@@ -24,6 +22,12 @@ import module java.base;
  *
  * <p>The two repairs touch entirely different tables (People vs. Meetings/meeting-participants), so
  * they run concurrently on their own threads rather than one after the other.
+ *
+ * <p>Builds its own plain SDK clients rather than using {@code DynamoDbClientProvider}/
+ * {@code CognitoIdentityProviderClientProvider} - those exist to prime a connection ahead of a
+ * SnapStart snapshot for the resolvers/post-confirmation functions, which needs
+ * {@code dynamodb:DescribeTable}; this Lambda has no SnapStart config and its own dedicated IAM
+ * role deliberately doesn't grant that action, scoped to only what these repairs actually do.
  */
 public final class DatabaseRepairHandler implements RequestHandler<Map<String, Object>, Map<String, Object>> {
 
@@ -36,29 +40,30 @@ public final class DatabaseRepairHandler implements RequestHandler<Map<String, O
         final String meetingsTableName = requireEnv("MEETINGS_TABLE_NAME");
         final String meetingParticipantsTableName = requireEnv("MEETING_PARTICIPANTS_TABLE_NAME");
 
-        final DynamoDbClient dynamoDbClient = DynamoDbClientProvider.client();
-        final CognitoIdentityProviderClient cognitoClient = CognitoIdentityProviderClientProvider.client();
+        try (DynamoDbClient dynamoDbClient = DynamoDbClient.builder().build();
+                CognitoIdentityProviderClient cognitoClient = CognitoIdentityProviderClient.builder().build()) {
 
-        final ExecutorService executor = Executors.newFixedThreadPool(2);
-        try {
-            final Future<CreateMissingPersonsRepair.Result> missingPersonsFuture = executor.submit(() ->
-                    runCreateMissingPersonsRepair(cognitoClient, dynamoDbClient, userPoolId, peopleTableName, dryRun));
-            final Future<RebuildMeetingParticipantsRepair.Result> participantsFuture = executor.submit(() ->
-                    runRebuildMeetingParticipantsRepair(dynamoDbClient, meetingsTableName, meetingParticipantsTableName, dryRun));
+            final ExecutorService executor = Executors.newFixedThreadPool(2);
+            try {
+                final Future<CreateMissingPersonsRepair.Result> missingPersonsFuture = executor.submit(() ->
+                        runCreateMissingPersonsRepair(cognitoClient, dynamoDbClient, userPoolId, peopleTableName, dryRun));
+                final Future<RebuildMeetingParticipantsRepair.Result> participantsFuture = executor.submit(() ->
+                        runRebuildMeetingParticipantsRepair(dynamoDbClient, meetingsTableName, meetingParticipantsTableName, dryRun));
 
-            final CreateMissingPersonsRepair.Result missingPersonsResult = getResult(missingPersonsFuture);
-            final RebuildMeetingParticipantsRepair.Result participantsResult = getResult(participantsFuture);
+                final CreateMissingPersonsRepair.Result missingPersonsResult = getResult(missingPersonsFuture);
+                final RebuildMeetingParticipantsRepair.Result participantsResult = getResult(participantsFuture);
 
-            final Map<String, Object> summary = new LinkedHashMap<>();
-            summary.put("dryRun", dryRun);
-            summary.put("personsCreated", missingPersonsResult.repaired());
-            summary.put("personsAlreadyLinked", missingPersonsResult.alreadyLinked());
-            summary.put("participantRowsCreated", participantsResult.created());
-            summary.put("participantRowsRemoved", participantsResult.removed());
-            summary.put("participantRowsAlreadyCorrect", participantsResult.alreadyCorrect());
-            return summary;
-        } finally {
-            executor.shutdown();
+                final Map<String, Object> summary = new LinkedHashMap<>();
+                summary.put("dryRun", dryRun);
+                summary.put("personsCreated", missingPersonsResult.repaired());
+                summary.put("personsAlreadyLinked", missingPersonsResult.alreadyLinked());
+                summary.put("participantRowsCreated", participantsResult.created());
+                summary.put("participantRowsRemoved", participantsResult.removed());
+                summary.put("participantRowsAlreadyCorrect", participantsResult.alreadyCorrect());
+                return summary;
+            } finally {
+                executor.shutdown();
+            }
         }
     }
 

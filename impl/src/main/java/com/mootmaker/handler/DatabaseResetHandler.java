@@ -2,8 +2,6 @@ package com.mootmaker.handler;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.mootmaker.cognito.CognitoIdentityProviderClientProvider;
-import com.mootmaker.dynamo.DynamoDbClientProvider;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
@@ -23,6 +21,12 @@ import module java.base;
  * ({@code environment != "production"}), not read from the invoke payload - whether wiping Cognito
  * is allowed is a property of which environment this Lambda is deployed to, decided once at deploy
  * time, structurally impossible to override per-invocation.
+ *
+ * <p>Builds its own plain SDK clients rather than using {@code DynamoDbClientProvider}/
+ * {@code CognitoIdentityProviderClientProvider} - those exist to prime a connection ahead of a
+ * SnapStart snapshot for the resolvers/post-confirmation functions, which needs
+ * {@code dynamodb:DescribeTable}; this Lambda has no SnapStart config and its own dedicated IAM
+ * role deliberately doesn't grant that action, scoped to only what reset actually does.
  */
 public final class DatabaseResetHandler implements RequestHandler<Map<String, Object>, Map<String, Object>> {
 
@@ -36,53 +40,55 @@ public final class DatabaseResetHandler implements RequestHandler<Map<String, Ob
         final boolean allowCognitoWipe = Boolean.parseBoolean(requireEnv("ALLOW_COGNITO_WIPE"));
         final Set<String> reservedEmails = parseReservedEmails(System.getenv("RESERVED_ACCOUNT_EMAILS"));
 
-        final DynamoDbClient dynamoDbClient = DynamoDbClientProvider.client();
-        final CognitoIdentityProviderClient cognitoClient = CognitoIdentityProviderClientProvider.client();
+        try (DynamoDbClient dynamoDbClient = DynamoDbClient.builder().build();
+                CognitoIdentityProviderClient cognitoClient = CognitoIdentityProviderClient.builder().build()) {
 
-        // The Cognito wipe (if allowed) runs first, synchronously, because the DynamoDB people
-        // deletion below needs its result (which Cognito subs survived) to know which Persons to
-        // keep. Rooms, meetings, and people are otherwise independent of each other, so once that's
-        // known they run concurrently, same as before this Lambda gained a Cognito step.
-        final int cognitoUsersDeleted;
-        final boolean cognitoWipeSkipped = !allowCognitoWipe;
-        final Set<String> survivingSubs;
-        if (allowCognitoWipe) {
-            System.out.println("Wiping the Cognito user pool (reserved accounts excepted)...");
-            final DatabaseReset.CognitoWipeResult wipeResult = DatabaseReset.wipeCognitoPool(cognitoClient, userPoolId, reservedEmails);
-            cognitoUsersDeleted = wipeResult.usersDeleted();
-            survivingSubs = wipeResult.survivingSubs();
-        } else {
-            System.out.println("Skipping the Cognito wipe: this environment is production.");
-            cognitoUsersDeleted = 0;
-            survivingSubs = Set.of();
-        }
+            // The Cognito wipe (if allowed) runs first, synchronously, because the DynamoDB people
+            // deletion below needs its result (which Cognito subs survived) to know which Persons
+            // to keep. Rooms, meetings, and people are otherwise independent of each other, so once
+            // that's known they run concurrently, same as before this Lambda gained a Cognito step.
+            final int cognitoUsersDeleted;
+            final boolean cognitoWipeSkipped = !allowCognitoWipe;
+            final Set<String> survivingSubs;
+            if (allowCognitoWipe) {
+                System.out.println("Wiping the Cognito user pool (reserved accounts excepted)...");
+                final DatabaseReset.CognitoWipeResult wipeResult =
+                        DatabaseReset.wipeCognitoPool(cognitoClient, userPoolId, reservedEmails);
+                cognitoUsersDeleted = wipeResult.usersDeleted();
+                survivingSubs = wipeResult.survivingSubs();
+            } else {
+                System.out.println("Skipping the Cognito wipe: this environment is production.");
+                cognitoUsersDeleted = 0;
+                survivingSubs = Set.of();
+            }
 
-        final ExecutorService executor = Executors.newFixedThreadPool(3);
-        try {
-            final Future<Integer> roomsFuture = executor.submit(() -> DatabaseReset.deleteAllItems(dynamoDbClient, roomsTableName));
-            final Future<Integer> peopleFuture = executor.submit(() -> allowCognitoWipe
-                    ? DatabaseReset.deletePeopleNotLinkedTo(dynamoDbClient, peopleTableName, survivingSubs)
-                    : DatabaseReset.deleteUnlinkedPeople(dynamoDbClient, peopleTableName));
-            final Future<Integer> meetingsFuture = executor.submit(() -> DatabaseReset.deleteAllMeetingsAndParticipants(
-                    dynamoDbClient, meetingsTableName, meetingParticipantsTableName));
+            final ExecutorService executor = Executors.newFixedThreadPool(3);
+            try {
+                final Future<Integer> roomsFuture = executor.submit(() -> DatabaseReset.deleteAllItems(dynamoDbClient, roomsTableName));
+                final Future<Integer> peopleFuture = executor.submit(() -> allowCognitoWipe
+                        ? DatabaseReset.deletePeopleNotLinkedTo(dynamoDbClient, peopleTableName, survivingSubs)
+                        : DatabaseReset.deleteUnlinkedPeople(dynamoDbClient, peopleTableName));
+                final Future<Integer> meetingsFuture = executor.submit(() -> DatabaseReset.deleteAllMeetingsAndParticipants(
+                        dynamoDbClient, meetingsTableName, meetingParticipantsTableName));
 
-            final int roomsDeleted = getResult(roomsFuture);
-            final int peopleDeleted = getResult(peopleFuture);
-            final int meetingsDeleted = getResult(meetingsFuture);
+                final int roomsDeleted = getResult(roomsFuture);
+                final int peopleDeleted = getResult(peopleFuture);
+                final int meetingsDeleted = getResult(meetingsFuture);
 
-            System.out.println("Deleted " + roomsDeleted + " room(s), " + peopleDeleted + " person(s), " + meetingsDeleted
-                    + " meeting(s) (and their participant rows)" + (cognitoWipeSkipped ? "." : ", " + cognitoUsersDeleted
-                    + " Cognito user(s)."));
+                System.out.println("Deleted " + roomsDeleted + " room(s), " + peopleDeleted + " person(s), " + meetingsDeleted
+                        + " meeting(s) (and their participant rows)" + (cognitoWipeSkipped ? "." : ", " + cognitoUsersDeleted
+                        + " Cognito user(s)."));
 
-            final Map<String, Object> summary = new LinkedHashMap<>();
-            summary.put("roomsDeleted", roomsDeleted);
-            summary.put("peopleDeleted", peopleDeleted);
-            summary.put("meetingsDeleted", meetingsDeleted);
-            summary.put("cognitoWipeSkipped", cognitoWipeSkipped);
-            summary.put("cognitoUsersDeleted", cognitoUsersDeleted);
-            return summary;
-        } finally {
-            executor.shutdown();
+                final Map<String, Object> summary = new LinkedHashMap<>();
+                summary.put("roomsDeleted", roomsDeleted);
+                summary.put("peopleDeleted", peopleDeleted);
+                summary.put("meetingsDeleted", meetingsDeleted);
+                summary.put("cognitoWipeSkipped", cognitoWipeSkipped);
+                summary.put("cognitoUsersDeleted", cognitoUsersDeleted);
+                return summary;
+            } finally {
+                executor.shutdown();
+            }
         }
     }
 
