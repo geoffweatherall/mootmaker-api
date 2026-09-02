@@ -51,25 +51,49 @@ jobs:
         id: version
         run: echo "value=$(node -p "require('./api/package.json').version")" >> "$GITHUB_OUTPUT"
 
-      # The failure this guards is the expected one: changing the schema and forgetting to bump.
-      # Registries are immutable, so `npm publish` would fail anyway - but with a raw 409 that says
-      # nothing about what to do. Checking explicitly makes the message actionable.
-      # See Decision 5.
-      - name: Check the version is unused
+      # Implements the three cases in the design's Decision 5:
+      #
+      #   schema changed, version bumped    -> publish
+      #   schema changed, version forgotten -> fail, naming the file to edit
+      #   schema unchanged                  -> skip, no spurious version
+      #
+      # The third case is why this compares CONTENT rather than only checking whether the version
+      # exists. The path filter alone is not enough: a metadata edit to package.json, a re-run, or
+      # a version published by hand during bootstrap all reach this job with nothing new to
+      # publish, and failing those would leave main red for no defect.
+      - name: Decide whether to publish
+        id: decide
         run: |
           version='${{ steps.version.outputs.value }}'
+          published="$(npm view @mootmaker/schema version 2>/dev/null || true)"
+
+          if [ -n "${published}" ]; then
+            npm pack "@mootmaker/schema@${published}" --silent --pack-destination "${RUNNER_TEMP}" >/dev/null
+            tar -xzf "${RUNNER_TEMP}/mootmaker-schema-${published}.tgz" -C "${RUNNER_TEMP}"
+            if diff -q "${RUNNER_TEMP}/package/mootmaker.graphql" api/mootmaker.graphql >/dev/null 2>&1; then
+              echo "The schema is identical to the published @mootmaker/schema@${published} - nothing to publish."
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # The schema differs from what is published (or nothing is published yet), so this run
+          # must produce a new version.
           if npm view "@mootmaker/schema@${version}" version >/dev/null 2>&1; then
-            echo "::error::@mootmaker/schema@${version} is already published, but api/mootmaker.graphql has changed."
+            echo "::error::api/mootmaker.graphql has changed, but @mootmaker/schema@${version} is already published."
             echo "::error::Bump \"version\" in api/package.json in the same pull request as the schema change."
             exit 1
           fi
+
           echo "@mootmaker/schema@${version} is unused - publishing."
+          echo "publish=true" >> "$GITHUB_OUTPUT"
 
       # No NODE_AUTH_TOKEN: npm resolves this workflow's OIDC identity against the trusted
       # publisher configured on the package (geoffweatherall/mootmaker-api, this workflow file).
       # The provenance attestation comes free with it, so the published package carries a verifiable
       # link back to the commit that produced it.
       - name: Publish to npmjs.com
+        if: steps.decide.outputs.publish == 'true'
         working-directory: api
         run: npm publish
 
@@ -79,6 +103,7 @@ jobs:
       # (Decision 9) - but publishing from the start is what gives mootmaker-android and
       # mootmaker-demo-data a complete version history rather than one starting mid-stream.
       - name: Generate the Maven pom from the same version
+        if: steps.decide.outputs.publish == 'true'
         run: |
           mkdir -p target/maven
           cp api/mootmaker.graphql target/maven/
@@ -110,6 +135,7 @@ jobs:
       # Packaged as a jar so Maven resolves it like any other dependency; the schema sits at the
       # root of the jar as mootmaker.graphql.
       - name: Publish to GitHub Packages
+        if: steps.decide.outputs.publish == 'true'
         working-directory: target/maven
         run: |
           jar cf mootmaker-schema.jar mootmaker.graphql
@@ -128,6 +154,12 @@ jobs:
 
       - name: Summary
         run: |
+          if [ "${{ steps.decide.outputs.publish }}" != "true" ]; then
+            echo "### No publish needed" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "The schema is identical to the version already published." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           echo "### Published \`@mootmaker/schema@${{ steps.version.outputs.value }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- npmjs.com (installable anonymously)" >> "$GITHUB_STEP_SUMMARY"
