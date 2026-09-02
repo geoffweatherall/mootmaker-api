@@ -143,6 +143,40 @@ It has its **own** app client rather than borrowing the acceptance tests'. Shari
 
 That path is derived from the environment name alone, which is the point: demo-data's deploy needs nothing from this project's Terraform state, so the secret never lands in its state or in a Lambda environment variable, and the two repos' releases stay uncoupled. It is the same deterministic-name loose coupling used for the `database-reset` function name.
 
+### The schema is published as a package
+
+`api/mootmaker.graphql` is the source of truth for the API contract, and is published whenever it
+changes on `main` (see [.github/workflows/publish-schema.yml](.github/workflows/publish-schema.yml)):
+
+| Registry | Artifact | Who consumes it |
+|---|---|---|
+| npmjs.com | `@mootmaker/schema` | `mootmaker-webapp`, which generates its types and operations from it |
+| GitHub Packages | `com.mootmaker:mootmaker-schema` | `mootmaker-android` and `mootmaker-demo-data`, once they adopt codegen |
+
+The split is deliberate: **GitHub Packages requires an access token to install even a public
+package**, which would make `mootmaker-webapp` unbuildable for anyone cloning it. npmjs.com has no
+such restriction. The Maven consumers are this project's own repositories, which already
+authenticate, so the token costs nothing there.
+
+**Authentication is by OIDC trusted publishing, not a token.** The workflow authenticates as
+itself; there is no `NPM_TOKEN` secret to rotate. npm revoked classic tokens in December 2025, and
+write-enabled granular tokens expire within 90 days and stop working for publishing in January 2027,
+so a token here would have been a thing to rebuild rather than maintain. It also means the published
+package carries a provenance attestation linking it to the commit that produced it.
+
+The trusted publisher is configured on the package itself (npmjs.com → the package → Settings),
+naming `geoffweatherall/mootmaker-api` and `publish-schema.yml`. Because npm requires a package to
+exist before a trusted publisher can be attached to it, `1.0.0` was published by hand once; every
+version after it comes from this workflow.
+
+`api/package.json` holds the version, bumped in the same pull request as the schema change.
+Registries are immutable, so forgetting to bump cannot silently succeed — the workflow checks
+explicitly and fails with a message naming the file to edit, rather than a raw 409.
+
+Publishing is a standalone workflow rather than part of a deploy pipeline: it needs no AWS
+credentials and no environment targeting, so it does not wait for the CI/CD design. See
+[mootmaker/designs/graphql-schema-sharing.md](https://github.com/geoffweatherall/mootmaker/blob/main/designs/graphql-schema-sharing.md).
+
 ### Demo user
 
 This is a demo system rather than a real business, so every deployment — including a "production" one — includes a pre-confirmed, publicly-known demo user (`demo@mootmaker.com`, Terraform outputs `demo_user_email` / `demo_user_password`, resources `aws_cognito_user.demo` / `random_password.demo_user` in [cognito.tf](deploy/terraform/cognito.tf)) that anyone can sign in as without creating their own account. Its password is randomly generated at deploy time (like the e2e test user's), but restricted to lowercase letters and digits only, so it's easy to read and type by hand when the webapp shows it on the home page. It is not a secret and its output is not marked `sensitive` — the whole point is that it's shown in the clear. (An earlier version used a fixed password, `demo1234`, which turned out to be on Google's list of known-compromised passwords; it's random now to avoid that.)
