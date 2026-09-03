@@ -56,10 +56,12 @@ This document covers what's specific to this repo.
 Deployed-webapp-against-deployed-API end-to-end testing (including real email delivery via
 SES→SNS→SQS) lives with each frontend now, not here — this repo's own acceptance tests stay
 API-only, machine-to-machine, and never touch a browser or real email. **Changed 2026-08-19**:
-previously lived in a shared `mootmaker-e2e` repo; that repo is now
-[mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra) (only the
-genuinely cross-frontend pieces - ephemeral-environment lifecycle, the SES email pipeline), and
-each frontend owns its own full-stack suite in its own repo instead - see
+previously lived in a shared `mootmaker-e2e` repo; that repo kept only the genuinely
+cross-frontend pieces (as `mootmaker-test-infra`, then split 2026-09-03 into
+[mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs) for
+ephemeral-environment lifecycle and
+[mootmaker-email-testing](https://github.com/geoffweatherall/mootmaker-email-testing) for the SES
+email pipeline), and each frontend owns its own full-stack suite in its own repo instead - see
 [mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md)
 for that repo's `e2e/`/`acceptance/` suites, and
 [mootmaker/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md)
