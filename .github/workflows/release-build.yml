@@ -69,6 +69,24 @@ jobs:
         id: env
         run: echo "name=rel-api-$(date -u +%y%m%d)-$(openssl rand -hex 2)" >> "$GITHUB_OUTPUT"
 
+      # deploy.sh and undeploy.sh both shell out to terraform; the runner does not have it
+      # preinstalled. Without this, teardown fails with "terraform: command not found" - which is
+      # exactly how it failed on the first proving run.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # TEMPORARY diagnostic - remove once the OIDC trust match is confirmed working. Prints only
+      # the three claims the trust policy keys on, never the token itself.
+      - name: Show OIDC claims
+        run: |
+          claims="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value \
+            | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null)"
+          echo "job_workflow_ref: $(jq -r .job_workflow_ref <<<"$claims")"
+          echo "workflow_ref:     $(jq -r .workflow_ref <<<"$claims")"
+          echo "aud:              $(jq -r .aud <<<"$claims")"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
