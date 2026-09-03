@@ -1,0 +1,45 @@
+# Required PR gate for mootmaker-api. See mootmaker/designs/ci-cd-pipeline.md Decision 12.
+#
+# Scoped to what actually exists in this repository today, verified rather than assumed:
+# impl/ is the deployable Maven module and the only one that can run without AWS.
+#
+# NEVER add verify/ here. That module is the acceptance suite and needs a real deployed
+# environment; PR checks never touch AWS. Acceptance runs in release-build.yml against a
+# fresh ephemeral environment instead.
+#
+# The job name below is the branch-protection contract. Once main requires the
+# "unit-tests" context, renaming this job leaves every PR stuck on "Expected - waiting for
+# status" with no way to merge. Treat it as frozen.
+name: PR checks
+
+on:
+  pull_request:
+    branches: [main]
+  # Lets the gate be re-run without pushing an empty commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push supersedes the previous run; nothing here touches shared state, so cancelling
+# mid-flight is safe. Deliberately unlike release.yml, which queues rather than cancels.
+concurrency:
+  group: pr-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Java 25 matches maven.compiler.release in impl/pom.xml. If that moves, this moves.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Unit tests (impl/ only)
+        run: mvn -B -ntp -f impl/pom.xml test
