@@ -20,10 +20,24 @@ on:
         description: Version being released, without the leading v (e.g. 1.4.0).
         required: true
         type: string
+      ref:
+        description: >-
+          Commit, branch or tag of THIS repository to build. The orchestrator resolves main's SHA
+          once and passes it to every stage, so the tag it later pushes provably names the commit
+          that passed acceptance. Leave empty when dispatching standalone.
+        required: false
+        type: string
+        default: ''
     outputs:
       artifact-name:
         description: Name of the uploaded jar artifact, for the caller to download and promote.
         value: ${{ jobs.build.outputs.artifact-name }}
+      commit-sha:
+        description: >-
+          The commit of THIS repository that was actually built and acceptance-tested. The
+          orchestrator tags this rather than re-resolving main, so the tag cannot name a commit
+          that merged after the build started (Decision 4).
+        value: ${{ jobs.build.outputs.commit-sha }}
   # Standalone proving run. Dispatch at a v* tag, not a branch - see the OIDC note above.
   workflow_dispatch:
     inputs:
@@ -45,9 +59,25 @@ jobs:
     timeout-minutes: 45
     outputs:
       artifact-name: ${{ steps.artifact.outputs.name }}
+      commit-sha: ${{ steps.sha.outputs.value }}
       environment: ${{ steps.env.outputs.name }}
     steps:
+      # `repository` is explicit and NOT optional here. When this workflow is called by
+      # mootmaker-release/release.yml, the github context belongs to the CALLER - GitHub's
+      # reusable-workflow reference: "the github context is always associated with the caller
+      # workflow" - so a bare checkout would clone mootmaker-release, which has no impl/ at all.
+      # See mootmaker#40. `ref` falls back to github.ref so standalone dispatch at a tag still
+      # works unchanged.
       - uses: actions/checkout@v4
+        with:
+          repository: geoffweatherall/mootmaker-api
+          ref: ${{ inputs.ref || github.ref }}
+
+      # Read from the checkout rather than github.sha, which is the CALLER's commit when this
+      # workflow is called - the same context rule that makes the explicit checkout above necessary.
+      - name: Record the commit being built
+        id: sha
+        run: echo "value=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # Java 25 matches maven.compiler.release in impl/pom.xml.
       - uses: actions/setup-java@v4
