@@ -5,8 +5,26 @@
 # full multi-environment how-to).
 # NOTE: `terraform apply -auto-approve` creates real AWS resources in whatever
 # account/credentials are active. Run this deliberately, not from automation.
+#
+# --skip-build deploys the jar already sitting in impl/target/ instead of rebuilding it.
+# This is what makes Decision 8 of mootmaker/designs/ci-cd-pipeline.md ("build once, promote
+# the same artifact") actually true: the release pipeline builds the jar once, then deploys
+# that identical file to test and then production. Rebuilding per environment would produce
+# two different jars and promote nothing. Not useful interactively - omit it and this script
+# behaves exactly as it always has.
 set -euo pipefail
 cd "$(dirname "$0")"
+
+skip_build=0
+args=()
+for arg in "$@"; do
+  if [[ "${arg}" == "--skip-build" ]]; then
+    skip_build=1
+  else
+    args+=("${arg}")
+  fi
+done
+set -- "${args[@]+"${args[@]}"}"
 
 environment="${1:-}"
 if [[ -z "${environment}" ]]; then
@@ -34,7 +52,16 @@ echo "Deploying mootmaker-api to '${environment}'..."
 # checkout (even concurrently) can't cross-contaminate each other.
 export TF_DATA_DIR=".terraform-${environment}"
 
-mvn -f impl/pom.xml clean package
+jar_path="impl/target/mootmaker-api.jar"
+if [[ "${skip_build}" == "1" ]]; then
+  if [[ ! -f "${jar_path}" ]]; then
+    echo "--skip-build given but ${jar_path} does not exist - nothing to deploy." >&2
+    exit 1
+  fi
+  echo "Skipping build; deploying the existing ${jar_path}."
+else
+  mvn -f impl/pom.xml clean package
+fi
 
 terraform -chdir=deploy/terraform init -backend-config=backend.hcl -backend-config="key=${environment}/mootmaker-api/terraform.tfstate"
 terraform -chdir=deploy/terraform apply -auto-approve -var="environment=${environment}"
