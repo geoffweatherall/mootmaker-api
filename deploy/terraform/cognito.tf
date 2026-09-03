@@ -2,7 +2,7 @@ data "aws_caller_identity" "current" {}
 
 # Verified in mootmaker-domain (deploy/terraform/ses.tf) - referenced here via a `data` source
 # rather than a hard remote-state dependency, the same loose-coupling pattern
-# mootmaker-test-infra's ses.tf already uses for the same identity (its own receiving side), and
+# mootmaker-email-testing's ses.tf already uses for the same identity (its own receiving side), and
 # that mootmaker-api/mootmaker-webapp already use to find mootmaker-domain's hosted zone (data
 # "aws_route53_zone"). Same-account reference, so no cross-account SES identity policy is needed.
 data "aws_ses_domain_identity" "mail" {
