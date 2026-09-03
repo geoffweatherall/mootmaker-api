@@ -1,7 +1,7 @@
 # Publishes api/mootmaker.graphql as a versioned artifact when it changes on main.
 #
 # Standalone rather than a step inside a deploy pipeline: see
-# mootmaker/designs/graphql-schema-sharing.md Decision 3. Publishing a static file needs no AWS
+# mootmaker/designs/archive/graphql-schema-sharing.md Decision 3. Publishing a static file needs no AWS
 # credentials, no environment targeting and no deployment machinery, so it does not have to wait
 # for designs/ci-cd-pipeline.md - which that design can absorb this workflow into once it lands.
 #

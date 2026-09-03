@@ -175,7 +175,7 @@ explicitly and fails with a message naming the file to edit, rather than a raw 4
 
 Publishing is a standalone workflow rather than part of a deploy pipeline: it needs no AWS
 credentials and no environment targeting, so it does not wait for the CI/CD design. See
-[mootmaker/designs/graphql-schema-sharing.md](https://github.com/geoffweatherall/mootmaker/blob/main/designs/graphql-schema-sharing.md).
+[mootmaker/designs/graphql-schema-sharing.md](https://github.com/geoffweatherall/mootmaker/blob/main/designs/archive/graphql-schema-sharing.md).
 
 ### Demo user
 
