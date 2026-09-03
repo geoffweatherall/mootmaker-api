@@ -1,0 +1,103 @@
+# Reusable release build for mootmaker-api. See mootmaker/designs/ci-cd-pipeline.md Decision 7
+# and Rollout step 6.
+#
+# Builds the Lambda jar ONCE, proves it against a fresh ephemeral AWS environment, and uploads it
+# as an artifact. release.yml in mootmaker-release then promotes that exact artifact to test and
+# then production - it is never rebuilt per environment, which is what Decision 8 requires and
+# what deploy.sh's --skip-build flag exists to make possible.
+#
+# OIDC NOTE: the deploy role's trust policy only accepts this workflow at refs/tags/v* (see
+# mootmaker-bootstrap-aws-accounts/workload-account/github-actions-deploy-role.yaml). A run on a
+# branch authenticates to GitHub fine and then fails at AWS. To exercise this standalone, dispatch
+# it at a tag: gh workflow run release-build.yml --ref v0.0.1-rc1
+name: Release build
+
+on:
+  # Called by mootmaker-release/release.yml as part of a real release.
+  workflow_call:
+    inputs:
+      version:
+        description: Version being released, without the leading v (e.g. 1.4.0).
+        required: true
+        type: string
+    outputs:
+      artifact-name:
+        description: Name of the uploaded jar artifact, for the caller to download and promote.
+        value: ${{ jobs.build.outputs.artifact-name }}
+  # Standalone proving run. Dispatch at a v* tag, not a branch - see the OIDC note above.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to stamp this build with, without the leading v.
+        required: true
+        type: string
+
+permissions:
+  # Mint the OIDC token that configure-aws-credentials exchanges for the deploy role.
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    # The acceptance stage stands up real infrastructure; a hung step must not bill indefinitely.
+    timeout-minutes: 45
+    outputs:
+      artifact-name: ${{ steps.artifact.outputs.name }}
+      environment: ${{ steps.env.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Java 25 matches maven.compiler.release in impl/pom.xml.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # `package` runs the test phase first, so this is build + unit tests in one step. This is
+      # the ONLY compile in the whole release: everything downstream promotes the jar it produces.
+      - name: Build and unit test
+        run: mvn -B -ntp -f impl/pom.xml clean package
+
+      # Matches create-ephemeral-env.sh's <kind>-<YYMMDD>-<rand4> convention so that
+      # cleanup-stale-envs.sh can still find and sweep this environment if the run dies before
+      # teardown. Its regex is ^[a-z][a-z0-9-]{0,7}-[0-9]{6}-[a-z0-9]{4}$, and "rel-api" fits the
+      # 8-character kind budget.
+      - name: Generate ephemeral environment name
+        id: env
+        run: echo "name=rel-api-$(date -u +%y%m%d)-$(openssl rand -hex 2)" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::431071856068:role/mootmaker-release-github-actions-deploy
+          aws-region: us-east-1
+
+      # --skip-build deploys the jar built above rather than recompiling it, so the artifact
+      # proven here is byte-identical to the one promoted later.
+      - name: Deploy to the ephemeral environment
+        run: ./deploy.sh "${{ steps.env.outputs.name }}" --skip-build
+
+      - name: Acceptance tests
+        run: ./verify.sh "${{ steps.env.outputs.name }}"
+
+      # if: always() is load-bearing, not defensive. Without it a failed acceptance run - or a
+      # cancelled workflow - leaves a live AppSync API, Lambdas and DynamoDB tables billing until
+      # someone notices. --yes is required because undeploy.sh otherwise waits on an interactive
+      # confirmation there is no stdin to answer.
+      - name: Tear down the ephemeral environment
+        if: always()
+        run: ./undeploy.sh "${{ steps.env.outputs.name }}" --yes
+
+      - name: Name the artifact
+        id: artifact
+        run: echo "name=mootmaker-api-${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: impl/target/mootmaker-api.jar
+          if-no-files-found: error
+          retention-days: 30
