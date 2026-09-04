@@ -11,13 +11,23 @@
 # and deploy/import-log-groups.sh.
 
 locals {
-  # Every Lambda in this component. Kept as one list so adding a function cannot silently miss its
-  # log group - the group is derived from the same name the function uses.
+  # Names are built from resource_prefix rather than read off the function resources, and that is
+  # load-bearing rather than stylistic.
+  #
+  # Referencing aws_lambda_function.*.function_name makes each log group depend on its FUNCTION, so
+  # Terraform creates the function first. SnapStart then publishes a version, which executes the
+  # function's init to take its snapshot - and that invocation makes Lambda auto-create the log
+  # group. Terraform's own create then fails with ResourceAlreadyExistsException, on a supposedly
+  # empty environment. That is exactly how the first release carrying this file failed.
+  #
+  # Deriving the names independently inverts the dependency: the groups are created first, with the
+  # retention and tags already set, and the functions below declare depends_on so Lambda finds a
+  # group waiting rather than creating its own.
   lambda_log_groups = toset([
-    aws_lambda_function.resolvers.function_name,
-    aws_lambda_function.post_confirmation_create_person.function_name,
-    aws_lambda_function.database_reset.function_name,
-    aws_lambda_function.database_repair.function_name,
+    "${local.resource_prefix}-resolvers",
+    "${local.resource_prefix}-post-confirmation-create-person",
+    "${local.resource_prefix}-database-reset",
+    "${local.resource_prefix}-database-repair",
   ])
 }
 
