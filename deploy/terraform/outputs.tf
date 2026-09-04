@@ -62,3 +62,8 @@ output "demo_user_password" {
   # e2e_user_password below, which stays sensitive).
   value = nonsensitive(random_password.demo_user.result)
 }
+
+output "graphql_api_id" {
+  description = "AppSync API id. Needed by deploy/import-log-groups.sh, because AppSync's log group is named /aws/appsync/apis/<id> and that id is only knowable from deployed state."
+  value       = aws_appsync_graphql_api.this.id
+}
