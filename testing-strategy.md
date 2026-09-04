@@ -2,7 +2,7 @@
 
 The overall cross-repo strategy (environments, the approach to reading Cognito's emails in tests,
 and how "vibe coding" shapes all of this) is recorded in
-[mootmaker/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md).
+[mootmaker/docs/reference/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md).
 This document covers what's specific to this repo.
 
 ## Layers
@@ -38,7 +38,7 @@ This document covers what's specific to this repo.
   the rest of this project does. The AWS Encryption SDK dependency it needed was also heavy enough
   to take the shared Lambda jar from ~7.2 MB to ~24 MB (every function in this project ships from
   one jar — see `lambda.tf`'s "one shaded jar" comment), a real cold-start cost paid by every
-  function, not just this one. mootmaker/testing-strategy.md's "Reading Cognito's emails in tests"
+  function, not just this one. mootmaker/docs/reference/testing-strategy.md's "Reading Cognito's emails in tests"
   now covers Option 2 only; use the Cognito Admin API (`AdminConfirmSignUp`/`AdminSetUserPassword`)
   directly from test code for anything that needs a working account but doesn't care about
   exercising the real code-entry UI step — no new infrastructure needed for that, `cognito-idp:*`
@@ -64,5 +64,5 @@ ephemeral-environment lifecycle and
 email pipeline), and each frontend owns its own full-stack suite in its own repo instead - see
 [mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md)
 for that repo's `e2e/`/`acceptance/` suites, and
-[mootmaker/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md)
+[mootmaker/docs/reference/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md)
 for the overall cross-repo picture.

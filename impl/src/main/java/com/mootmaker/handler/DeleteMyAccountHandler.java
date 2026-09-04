@@ -28,7 +28,7 @@ import module java.base;
 /**
  * AppSync direct-Lambda resolver for {@code Mutation.deleteMyAccount}. Self-service only - always
  * deletes the caller's own account, resolved from the JWT's {@code sub} the same way
- * {@link MyPersonHandler} does. See mootmaker/delete-my-account.md in the workspace root for the
+ * {@link MyPersonHandler} does. See mootmaker/designs/archive/delete-my-account.md in the workspace root for the
  * design this implements.
  *
  * <p><b>Order of operations matters here.</b> {@link #handleRequest} deletes the Cognito user
