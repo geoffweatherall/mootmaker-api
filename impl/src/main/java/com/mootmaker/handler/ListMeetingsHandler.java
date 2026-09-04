@@ -118,7 +118,7 @@ public class ListMeetingsHandler implements RequestHandler<Map<String, Object>, 
 
     /** No filter at all genuinely means "every meeting", so a scan is the right tool, not a workaround. */
     private List<MeetingRecord> scanAllMeetings() {
-        final ScanResponse response = dynamoDbClient.scan(ScanRequest.builder().tableName(meetingsTableName).build());
+        final ScanResponse response = dynamoDbClient.scan(ScanRequest.builder().tableName(meetingsTableName).consistentRead(true).build());
         return response.items().stream().map(MeetingRecord::fromItem).toList();
     }
 
