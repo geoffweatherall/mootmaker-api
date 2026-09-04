@@ -16,6 +16,13 @@ those change — it is load-bearing, and both people and agents rely on it being
 - **Error enums are mirrored in two places.** Each entity has a GraphQL error enum (`RoomError`,
   `PersonError`, `MeetingError`) and a Java enum with exactly matching constant names. Adding a case
   means adding it to both.
+- **Releases go through `release.yml`, not `deploy.sh`.** A release in
+  [mootmaker-release](https://github.com/geoffweatherall/mootmaker-release) builds this component
+  once, tags it, and promotes that one build through `test` and then `production`, with smoke tests
+  either side and an automatic rollback if `production`'s fails. `./deploy.sh <name>` is still the
+  right tool for an ephemeral environment; it is no longer how `test` or `production` get updated.
+  This repo's `release-build.yml` is a reusable workflow called by that pipeline — it is not
+  something to dispatch directly except when proving the pipeline itself.
 - **Deploy this before the webapp.** The webapp reads this environment's Terraform outputs — the
   GraphQL URL and Cognito IDs — via `authenticate.sh`.
 - **Java 25**, Maven, `mvn -f impl/pom.xml test` for unit tests.
@@ -45,8 +52,9 @@ On GitHub: <https://github.com/geoffweatherall/mootmaker/blob/main/docs/process/
   reading the diff is the review, merging is the approval.
 - **A green acceptance run against a real deployed environment** is the definition of working — not
   a passing unit suite, and not a successful deploy.
-- **Environments are `production` or ephemeral.** Tear down any ephemeral environment you create;
-  that is part of finishing, not a tidy-up afterwards.
+- **Environments are `production`, `test`, or ephemeral.** `test` and `production` change only
+  through `release.yml` in mootmaker-release — never `./deploy.sh` by hand. Everything else is
+  ephemeral: tear down any you create, as part of finishing rather than as a tidy-up afterwards.
 - **If your change makes a document wrong, fixing it is part of the change.**
 - **Verify against reality, not your own output.** A script exiting zero is not evidence that the
   thing it was meant to do happened.
