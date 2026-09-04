@@ -1,5 +1,5 @@
 # database-reset and database-repair: merged into this repo from mootmaker-admin-tools (see
-# ../../../mootmaker/designs/admin-tools-into-api.md). Each is its own Lambda function, built from
+# ../../../mootmaker/designs/archive/admin-tools-into-api.md). Each is its own Lambda function, built from
 # the same shaded jar as the resolvers/post-confirmation functions (see lambda.tf), but - unlike
 # those - each gets its own narrowly-scoped IAM role rather than the shared aws_iam_role.lambda_exec
 # every resolver uses, matching the least-privilege role each tool already had as a standalone
