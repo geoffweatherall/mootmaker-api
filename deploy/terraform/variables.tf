@@ -19,3 +19,13 @@ variable "environment" {
     error_message = "environment must contain only lowercase letters, digits, and hyphens (it's used in AWS resource names and S3 state keys)."
   }
 }
+
+variable "log_retention_days" {
+  type        = number
+  default     = 120
+  description = <<-EOT
+    How long this environment's Lambda and AppSync logs are kept (Decision 11). 120 days
+    deliberately, not forever: permanence was never the goal, staying inside scale-to-zero was.
+    Without this, Lambda and AppSync auto-create their groups with never-expire retention.
+  EOT
+}

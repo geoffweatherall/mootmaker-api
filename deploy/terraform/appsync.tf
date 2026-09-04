@@ -8,6 +8,21 @@ resource "aws_appsync_graphql_api" "this" {
     aws_region     = var.aws_region
     default_action = "ALLOW"
   }
+
+  # Decision 11. Without this block AppSync logs NOTHING - a GraphQL error rejected before it ever
+  # reaches a resolver leaves no trace anywhere, which is the gap this closes: the Definition of
+  # done asks for AppSync's own request/resolver logs alongside the Lambda execution logs, not
+  # just the latter.
+  #
+  # ERROR rather than ALL: ALL logs every request's full resolver trace, which on a demo system
+  # refreshed daily by demo-data is a lot of volume for very little signal. Errors are what a
+  # release troubleshooting session actually reads. Raise it temporarily if a specific
+  # investigation needs the detail.
+  log_config {
+    cloudwatch_logs_role_arn = aws_iam_role.appsync_logging.arn
+    field_log_level          = "ERROR"
+    exclude_verbose_content  = true
+  }
 }
 
 # One data source, shared by every resolver below - AppSync supports many resolvers pointing at
