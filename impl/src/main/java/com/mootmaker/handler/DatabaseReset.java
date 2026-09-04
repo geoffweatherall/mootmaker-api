@@ -176,6 +176,6 @@ final class DatabaseReset {
     }
 
     private static List<Map<String, AttributeValue>> scan(final DynamoDbClient dynamoDbClient, final String tableName) {
-        return dynamoDbClient.scan(ScanRequest.builder().tableName(tableName).build()).items();
+        return dynamoDbClient.scan(ScanRequest.builder().tableName(tableName).consistentRead(true).build()).items();
     }
 }

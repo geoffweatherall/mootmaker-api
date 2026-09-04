@@ -52,7 +52,10 @@ public class SuggestRoomHandler implements RequestHandler<Map<String, Object>, O
             return List.of();
         }
 
-        final ScanResponse response = dynamoDbClient.scan(ScanRequest.builder().tableName(roomsTableName).build());
+        // Consistent read - see ListRoomsHandler for the full reasoning. A Scan defaults to
+        // eventually consistent, and every caller here acts on what it reads, so a stale read
+        // means acting on an incomplete picture.
+        final ScanResponse response = dynamoDbClient.scan(ScanRequest.builder().tableName(roomsTableName).consistentRead(true).build());
         final List<Room> candidates = response.items().stream()
                 .map(Room::fromItem)
                 .filter(room -> room.capacity() >= requiredCapacity)

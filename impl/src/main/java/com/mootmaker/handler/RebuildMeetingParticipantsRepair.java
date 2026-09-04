@@ -101,7 +101,7 @@ final class RebuildMeetingParticipantsRepair {
 
     private static <T> List<T> scan(final DynamoDbClient dynamoDbClient, final String tableName,
             final Function<Map<String, AttributeValue>, T> fromItem) {
-        return dynamoDbClient.scan(ScanRequest.builder().tableName(tableName).build())
+        return dynamoDbClient.scan(ScanRequest.builder().tableName(tableName).consistentRead(true).build())
                 .items().stream().map(fromItem).toList();
     }
 }
