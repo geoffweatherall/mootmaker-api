@@ -90,6 +90,12 @@ resource "aws_lambda_function" "database_reset" {
       RESERVED_ACCOUNT_EMAILS = local.reserved_account_emails
     })
   }
+
+  # The log group must exist BEFORE this function can be invoked. SnapStart
+  # publishes a version by executing the function's init, and that invocation would
+  # otherwise make Lambda auto-create the group - which then collides with
+  # Terraform's own create. See logs.tf for the full reasoning.
+  depends_on = [aws_cloudwatch_log_group.lambda]
 }
 
 # --- database-repair ---
@@ -171,4 +177,10 @@ resource "aws_lambda_function" "database_repair" {
       MEETING_PARTICIPANTS_TABLE_NAME = aws_dynamodb_table.meeting_participants.name
     }
   }
+
+  # The log group must exist BEFORE this function can be invoked. SnapStart
+  # publishes a version by executing the function's init, and that invocation would
+  # otherwise make Lambda auto-create the group - which then collides with
+  # Terraform's own create. See logs.tf for the full reasoning.
+  depends_on = [aws_cloudwatch_log_group.lambda]
 }

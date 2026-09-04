@@ -66,6 +66,12 @@ resource "aws_lambda_function" "resolvers" {
   environment {
     variables = local.resolver_lambda_env_vars
   }
+
+  # The log group must exist BEFORE this function can be invoked. SnapStart
+  # publishes a version by executing the function's init, and that invocation would
+  # otherwise make Lambda auto-create the group - which then collides with
+  # Terraform's own create. See logs.tf for the full reasoning.
+  depends_on = [aws_cloudwatch_log_group.lambda]
 }
 
 resource "aws_lambda_alias" "resolvers_live" {
@@ -100,6 +106,12 @@ resource "aws_lambda_function" "post_confirmation_create_person" {
   environment {
     variables = local.lambda_env_vars
   }
+
+  # The log group must exist BEFORE this function can be invoked. SnapStart
+  # publishes a version by executing the function's init, and that invocation would
+  # otherwise make Lambda auto-create the group - which then collides with
+  # Terraform's own create. See logs.tf for the full reasoning.
+  depends_on = [aws_cloudwatch_log_group.lambda]
 }
 
 resource "aws_lambda_alias" "post_confirmation_create_person_live" {
