@@ -111,3 +111,48 @@ resource "aws_iam_role_policy" "appsync_invoke_lambda" {
   role   = aws_iam_role.appsync_lambda_invoke.id
   policy = data.aws_iam_policy_document.appsync_invoke_lambda.json
 }
+
+# --- IAM propagation gate -------------------------------------------------------------------
+#
+# IAM is eventually consistent: a role can exist, and be entirely correct, before Lambda is able to
+# assume it. `CreateFunction` then fails with
+#
+#     InvalidParameterValueException: The role defined for the function cannot be assumed by Lambda
+#
+# which is what broke the first real release standing up `test` (mootmaker-api#26). The AWS provider
+# does retry that error, but its window is not always enough against a genuinely fresh account-side
+# role, and a failure here fails the whole release for a reason unrelated to the change being
+# released.
+#
+# This is deliberately NOT a fixed cost on every deploy, which is how the issue originally framed
+# the trade. `time_sleep` is re-created only when its triggers change, and the triggers here are the
+# role ARNs - so applying to an existing environment waits for nothing, and only creating a new one
+# pays the pause. That is exactly the case with the race: every release stands up three fresh
+# ephemeral environments for acceptance, so this runs several times per release and never on an
+# update to `test` or `production`.
+#
+# Triggers rather than a bare depends_on, so that a role which is ever replaced re-arms the wait
+# instead of silently skipping it.
+resource "time_sleep" "iam_role_propagation" {
+  create_duration = "30s"
+
+  triggers = {
+    lambda_exec     = aws_iam_role.lambda_exec.arn
+    database_reset  = aws_iam_role.database_reset_exec.arn
+    database_repair = aws_iam_role.database_repair_exec.arn
+  }
+
+  # Only the managed-policy attachments, deliberately. The inline aws_iam_role_policy resources are
+  # NOT listed: their policy documents reference the Cognito pool, which in turn references the
+  # post-confirmation function, so waiting on them here forms a dependency cycle.
+  #
+  # Excluding them is correct rather than merely convenient. The race is `CreateFunction` rejecting
+  # a role it cannot yet assume, which is entirely about the role's own trust policy. Permission
+  # policies are needed at invoke time, not create time, and every invocation happens long after
+  # `terraform apply` has returned.
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_basic_execution,
+    aws_iam_role_policy_attachment.database_reset_basic_execution,
+    aws_iam_role_policy_attachment.database_repair_basic_execution,
+  ]
+}
