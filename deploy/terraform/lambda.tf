@@ -71,7 +71,9 @@ resource "aws_lambda_function" "resolvers" {
   # publishes a version by executing the function's init, and that invocation would
   # otherwise make Lambda auto-create the group - which then collides with
   # Terraform's own create. See logs.tf for the full reasoning.
-  depends_on = [aws_cloudwatch_log_group.lambda]
+  # time_sleep.iam_role_propagation: IAM is eventually consistent and this function's role may not
+  # be assumable yet - see iam.tf and mootmaker-api#26.
+  depends_on = [aws_cloudwatch_log_group.lambda, time_sleep.iam_role_propagation]
 }
 
 resource "aws_lambda_alias" "resolvers_live" {
@@ -111,7 +113,9 @@ resource "aws_lambda_function" "post_confirmation_create_person" {
   # publishes a version by executing the function's init, and that invocation would
   # otherwise make Lambda auto-create the group - which then collides with
   # Terraform's own create. See logs.tf for the full reasoning.
-  depends_on = [aws_cloudwatch_log_group.lambda]
+  # time_sleep.iam_role_propagation: IAM is eventually consistent and this function's role may not
+  # be assumable yet - see iam.tf and mootmaker-api#26.
+  depends_on = [aws_cloudwatch_log_group.lambda, time_sleep.iam_role_propagation]
 }
 
 resource "aws_lambda_alias" "post_confirmation_create_person_live" {
