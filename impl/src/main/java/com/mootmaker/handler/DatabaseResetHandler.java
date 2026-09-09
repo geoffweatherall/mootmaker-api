@@ -35,7 +35,6 @@ public final class DatabaseResetHandler implements RequestHandler<Map<String, Ob
         final String roomsTableName = requireEnv("ROOMS_TABLE_NAME");
         final String peopleTableName = requireEnv("PEOPLE_TABLE_NAME");
         final String meetingsTableName = requireEnv("MEETINGS_TABLE_NAME");
-        final String meetingParticipantsTableName = requireEnv("MEETING_PARTICIPANTS_TABLE_NAME");
         final String userPoolId = requireEnv("COGNITO_USER_POOL_ID");
         final boolean allowCognitoWipe = Boolean.parseBoolean(requireEnv("ALLOW_COGNITO_WIPE"));
         final Set<String> reservedEmails = parseReservedEmails(System.getenv("RESERVED_ACCOUNT_EMAILS"));
@@ -68,8 +67,8 @@ public final class DatabaseResetHandler implements RequestHandler<Map<String, Ob
                 final Future<Integer> peopleFuture = executor.submit(() -> allowCognitoWipe
                         ? DatabaseReset.deletePeopleNotLinkedTo(dynamoDbClient, peopleTableName, survivingSubs)
                         : DatabaseReset.deleteUnlinkedPeople(dynamoDbClient, peopleTableName));
-                final Future<Integer> meetingsFuture = executor.submit(() -> DatabaseReset.deleteAllMeetingsAndParticipants(
-                        dynamoDbClient, meetingsTableName, meetingParticipantsTableName));
+                final Future<Integer> meetingsFuture = executor.submit(() -> DatabaseReset.deleteAllMeetings(
+                        dynamoDbClient, meetingsTableName));
 
                 final int roomsDeleted = getResult(roomsFuture);
                 final int peopleDeleted = getResult(peopleFuture);

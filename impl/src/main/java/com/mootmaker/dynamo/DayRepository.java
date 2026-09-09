@@ -1,6 +1,7 @@
 package com.mootmaker.dynamo;
 
 import com.mootmaker.limits.Limits;
+import com.mootmaker.model.Boundaries;
 import com.mootmaker.model.Day;
 import com.mootmaker.model.MeetingRecord;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
@@ -39,6 +40,9 @@ public final class DayRepository {
     /** Pointer items: meeting id to the date whose item holds it. The only secondary lookup kept. */
     public static final String POINTER_PK_PREFIX = "PTR#";
 
+    /** The single config item, holding the retention boundary. Seeded by Terraform when the table is created. */
+    public static final String RETENTION_CONFIG_PK = "CONFIG#retention";
+
     /**
      * Enough to clear realistic contention, few enough that a genuinely hot day fails rather than
      * retrying forever. Concurrent bookings on one date are single-figure at this scale.
@@ -47,10 +51,44 @@ public final class DayRepository {
 
     private final DynamoDbClient dynamoDbClient;
     private final String tableName;
+    private final Clock clock;
 
     public DayRepository(final DynamoDbClient dynamoDbClient, final String tableName) {
+        this(dynamoDbClient, tableName, Clock.systemUTC());
+    }
+
+    /** The clock is injectable so boundary tests do not depend on the day they are run. */
+    public DayRepository(final DynamoDbClient dynamoDbClient, final String tableName, final Clock clock) {
         this.dynamoDbClient = dynamoDbClient;
         this.tableName = tableName;
+        this.clock = clock;
+    }
+
+    /**
+     * The retention boundary is READ; the booking horizon is COMPUTED.
+     *
+     * <p>Storing the horizon as a date would need its own daily job to advance it. Storing it as a
+     * length and adding it to the server's today keeps one authority - the server - with no second
+     * schedule. The retention boundary genuinely is stored, because the cleanup job advances it
+     * before deleting anything, and reading it consistently is what stops a stale, more permissive
+     * value being handed to a client.
+     */
+    public Boundaries boundaries() {
+        final Map<String, AttributeValue> item = dynamoDbClient.getItem(GetItemRequest.builder()
+                        .tableName(tableName)
+                        .key(Map.of("pk", AttributeValue.builder().s(RETENTION_CONFIG_PK).build()))
+                        .consistentRead(true)
+                        .build())
+                .item();
+        if (item == null || item.isEmpty()) {
+            throw new IllegalStateException("No " + RETENTION_CONFIG_PK + " item in " + tableName
+                    + ". Terraform seeds it when the table is created, so an environment without one "
+                    + "was not built by the current configuration.");
+        }
+        final LocalDate today = LocalDate.now(clock);
+        return new Boundaries(
+                item.get("earliestRetainedDate").s(),
+                today.plusDays(Limits.BOOKING_HORIZON_DAYS).toString());
     }
 
     /**

@@ -1,5 +1,7 @@
 package com.mootmaker.handler;
 
+import com.mootmaker.testsupport.DayFixtures;
+import com.mootmaker.testsupport.FakeDynamoDbClient;
 import com.mootmaker.model.MeetingError;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
@@ -25,7 +27,9 @@ class CreateMeetingHandlerTest {
     @BeforeEach
     void setUp() {
         fakeClient = new FakeDynamoDbClient();
-        handler = new CreateMeetingHandler(fakeClient, "Rooms", "People", "Meetings", "MeetingParticipants");
+        fakeClient.tables.computeIfAbsent("Meetings", _ -> new ArrayList<>())
+                .add(DayFixtures.retentionConfig(DayFixtures.DEFAULT_EARLIEST_RETAINED_DATE));
+        handler = new CreateMeetingHandler(fakeClient, "Meetings", "Rooms", "People");
 
         fakeClient.tables.put("Rooms", List.of(new Room("room-1", "Conference A", 2).toItem()));
         fakeClient.tables.put("People", List.of(
@@ -68,7 +72,7 @@ class CreateMeetingHandlerTest {
         event.remove("identity");
 
         assertThrows(IllegalStateException.class, () -> handler.handleRequest(event, null));
-        assertTrue(fakeClient.tables.getOrDefault("Meetings", List.of()).isEmpty());
+        assertTrue(DayFixtures.meetingsIn(fakeClient, "Meetings").isEmpty());
     }
 
     @Test
@@ -86,11 +90,11 @@ class CreateMeetingHandlerTest {
         final Map<String, Object> meeting = (Map<String, Object>) result.get("meeting");
         assertNotNull(meeting);
         assertNotNull(meeting.get("id"));
-        assertEquals(1, fakeClient.tables.get("Meetings").size());
+        assertEquals(1, DayFixtures.meetingsIn(fakeClient, "Meetings").size());
     }
 
     @Test
-    void writesAMeetingParticipantsRowForTheOrganiserAndEveryAttendee() {
+    void writesAnIdToDatePointerAlongsideTheDay() {
         final Map<String, Object> event = meetingArguments("room-1", "organiser-1", List.of("attendee-1"),
                 "2026-07-01T14:30:00", "2026-07-01T15:00:00");
 
@@ -99,10 +103,18 @@ class CreateMeetingHandlerTest {
         final List<String> errors = (List<String>) result.get("errors");
         assertTrue(errors.isEmpty());
 
-        final List<Map<String, AttributeValue>> participants = fakeClient.tables.get("MeetingParticipants");
-        assertEquals(2, participants.size());
-        final Set<String> personIds = participants.stream().map(item -> item.get("personId").s()).collect(Collectors.toSet());
-        assertEquals(Set.of("organiser-1", "attendee-1"), personIds);
+        // Replaces the old "one participants row per person" assertion. The join table is gone; what
+        // has to exist now is the pointer that lets meeting(id:) resolve without scanning, and it must
+        // point at the day that actually holds the meeting.
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> meeting = (Map<String, Object>) result.get("meeting");
+        final String meetingId = (String) meeting.get("id");
+
+        final Map<String, AttributeValue> pointer = fakeClient.tables.get("Meetings").stream()
+                .filter(item -> ("PTR#" + meetingId).equals(item.get("pk").s()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no id -> date pointer was written for " + meetingId));
+        assertEquals("2026-07-01", pointer.get("date").s());
     }
 
     @Test
@@ -116,7 +128,7 @@ class CreateMeetingHandlerTest {
         final List<String> errors = (List<String>) result.get("errors");
         assertTrue(errors.contains(MeetingError.SpansMultipleDays.name()));
         assertNull(result.get("meeting"));
-        assertTrue(fakeClient.tables.getOrDefault("Meetings", List.of()).isEmpty());
+        assertTrue(DayFixtures.meetingsIn(fakeClient, "Meetings").isEmpty());
     }
 
     @Test
@@ -130,7 +142,7 @@ class CreateMeetingHandlerTest {
         final List<String> errors = (List<String>) result.get("errors");
         assertTrue(errors.contains(MeetingError.EndBeforeStart.name()));
         assertNull(result.get("meeting"));
-        assertTrue(fakeClient.tables.getOrDefault("Meetings", List.of()).isEmpty());
+        assertTrue(DayFixtures.meetingsIn(fakeClient, "Meetings").isEmpty());
     }
 
     @Test
@@ -144,7 +156,7 @@ class CreateMeetingHandlerTest {
         final List<String> errors = (List<String>) result.get("errors");
         assertTrue(errors.contains(MeetingError.EndBeforeStart.name()));
         assertNull(result.get("meeting"));
-        assertTrue(fakeClient.tables.getOrDefault("Meetings", List.of()).isEmpty());
+        assertTrue(DayFixtures.meetingsIn(fakeClient, "Meetings").isEmpty());
     }
 
     @Test
@@ -160,7 +172,7 @@ class CreateMeetingHandlerTest {
         final List<String> errors = (List<String>) result.get("errors");
         assertTrue(errors.contains(MeetingError.StartMissaligned.name()));
         assertNull(result.get("meeting"));
-        assertTrue(fakeClient.tables.getOrDefault("Meetings", List.of()).isEmpty());
+        assertTrue(DayFixtures.meetingsIn(fakeClient, "Meetings").isEmpty());
     }
 
     @Test
@@ -273,7 +285,7 @@ class CreateMeetingHandlerTest {
         assertTrue(errors.contains(MeetingError.OrganiserIsAttendee.name()));
         assertFalse(errors.contains(MeetingError.InsufficientCapacity.name()));
         assertNull(result.get("meeting"));
-        assertTrue(fakeClient.tables.getOrDefault("Meetings", List.of()).isEmpty());
+        assertTrue(DayFixtures.meetingsIn(fakeClient, "Meetings").isEmpty());
     }
 
     @Test
@@ -305,7 +317,7 @@ class CreateMeetingHandlerTest {
     void rejectsWhenRoomAlreadyBookedForOverlappingTime() {
         final MeetingRecord existing = new MeetingRecord("existing-meeting", "room-1", "organiser-1", List.of(),
                 "Existing meeting", "2026-07-01T14:00:00", "2026-07-01T15:00:00");
-        fakeClient.tables.put("Meetings", List.of(existing.toItem()));
+        fakeClient.tables.put("Meetings", DayFixtures.dayItems(existing));
 
         final Map<String, Object> event = meetingArguments("room-1", "organiser-1", List.of("attendee-1"),
                 "2026-07-01T14:30:00", "2026-07-01T15:30:00");
@@ -316,14 +328,14 @@ class CreateMeetingHandlerTest {
         final List<String> errors = (List<String>) result.get("errors");
         assertTrue(errors.contains(MeetingError.TimeRangeUnavailable.name()));
         assertNull(result.get("meeting"));
-        assertEquals(1, fakeClient.tables.get("Meetings").size());
+        assertEquals(1, DayFixtures.meetingsIn(fakeClient, "Meetings").size());
     }
 
     @Test
     void allowsBackToBackMeetingsThatDoNotOverlap() {
         final MeetingRecord existing = new MeetingRecord("existing-meeting", "room-1", "organiser-1", List.of(),
                 "Existing meeting", "2026-07-01T14:00:00", "2026-07-01T14:30:00");
-        fakeClient.tables.put("Meetings", new ArrayList<>(List.of(existing.toItem())));
+        fakeClient.tables.put("Meetings", new ArrayList<>(DayFixtures.dayItems(existing)));
 
         final Map<String, Object> event = meetingArguments("room-1", "organiser-1", List.of("attendee-1"),
                 "2026-07-01T14:30:00", "2026-07-01T15:00:00");

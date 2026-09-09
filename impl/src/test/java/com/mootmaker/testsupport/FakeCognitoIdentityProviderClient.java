@@ -1,4 +1,4 @@
-package com.mootmaker.handler;
+package com.mootmaker.testsupport;
 
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminDeleteUserRequest;
@@ -19,14 +19,14 @@ import module java.base;
  * this fake needs to behave the same way, since a plain {@code ArrayList} silently drops entries
  * under concurrent, unsynchronized {@code add()} calls.
  */
-class FakeCognitoIdentityProviderClient implements CognitoIdentityProviderClient {
+public class FakeCognitoIdentityProviderClient implements CognitoIdentityProviderClient {
 
-    final List<AdminUpdateUserAttributesRequest> updateRequests = new ArrayList<>();
-    final List<AdminDeleteUserRequest> deleteRequests = new ArrayList<>();
+    public final List<AdminUpdateUserAttributesRequest> updateRequests = new ArrayList<>();
+    public final List<AdminDeleteUserRequest> deleteRequests = new ArrayList<>();
     /** Backing store for {@link #listUsers}. Tests populate this directly. */
-    final List<UserType> users = new ArrayList<>();
+    public final List<UserType> users = new ArrayList<>();
     /** Lets a test force multi-page pagination; defaults to returning every user in one page. */
-    int listUsersPageSize = Integer.MAX_VALUE;
+    public int listUsersPageSize = Integer.MAX_VALUE;
     private RuntimeException failNextUpdateWith;
 
     @Override
@@ -38,7 +38,7 @@ class FakeCognitoIdentityProviderClient implements CognitoIdentityProviderClient
     public void close() {
     }
 
-    void failNextUpdateWith(final RuntimeException exception) {
+    public void failNextUpdateWith(final RuntimeException exception) {
         this.failNextUpdateWith = exception;
     }
 

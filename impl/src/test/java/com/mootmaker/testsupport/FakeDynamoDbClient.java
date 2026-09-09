@@ -1,4 +1,4 @@
-package com.mootmaker.handler;
+package com.mootmaker.testsupport;
 
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -20,6 +20,7 @@ import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsResponse;
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
 
 import module java.base;
 
@@ -31,12 +32,21 @@ import module java.base;
  * needs to behave the same way, since a plain {@code ArrayList} silently drops entries (or throws)
  * under concurrent, unsynchronized mutation.
  */
-class FakeDynamoDbClient implements DynamoDbClient {
+public class FakeDynamoDbClient implements DynamoDbClient {
 
     /** Two-character operators must be checked before their one-character prefixes (">=" before ">"). */
     private static final List<String> COMPARATORS = List.of(">=", "<=", "=", ">", "<");
 
-    final Map<String, List<Map<String, AttributeValue>>> tables = new HashMap<>();
+    public final Map<String, List<Map<String, AttributeValue>>> tables = new HashMap<>();
+
+    /**
+     * Runs immediately before each transaction commits, so a test can simulate another writer getting
+     * in first. Without a hook like this, optimistic-locking retries cannot be exercised at all.
+     */
+    public Runnable beforeWrite = () -> { };
+
+    /** How many transactions have been attempted, so a test can assert a retry actually happened. */
+    public int transactionAttempts;
 
     @Override
     public String serviceName() {
@@ -57,27 +67,74 @@ class FakeDynamoDbClient implements DynamoDbClient {
      */
     @Override
     public synchronized PutItemResponse putItem(final PutItemRequest request) {
-        final List<Map<String, AttributeValue>> items = tables.computeIfAbsent(request.tableName(), _ -> new ArrayList<>());
-        final AttributeValue id = request.item().get("id");
-        if (id != null) {
-            items.removeIf(item -> id.equals(item.get("id")));
-        }
-        items.add(request.item());
+        replace(request.tableName(), request.item());
         return PutItemResponse.builder().build();
     }
 
-    /** Supports Put (replacing any existing item with the same "id", as putItem above does) and Delete transact items. */
+    /**
+     * Replaces on whichever partition key the item carries. The meetings table is keyed by "pk" and
+     * everything else by "id"; keying only on "id" (as this did) silently appended duplicates for
+     * every day item, which looks like data corruption a long way from its cause.
+     */
+    private void replace(final String tableName, final Map<String, AttributeValue> item) {
+        final List<Map<String, AttributeValue>> items = tables.computeIfAbsent(tableName, _ -> new ArrayList<>());
+        final String keyName = item.containsKey("pk") ? "pk" : "id";
+        final AttributeValue key = item.get(keyName);
+        if (key != null) {
+            items.removeIf(existing -> key.equals(existing.get(keyName)));
+        }
+        items.add(item);
+    }
+
+    private Map<String, AttributeValue> find(final String tableName, final Map<String, AttributeValue> item) {
+        final String keyName = item.containsKey("pk") ? "pk" : "id";
+        return tables.getOrDefault(tableName, List.of()).stream()
+                .filter(existing -> item.get(keyName).equals(existing.get(keyName)))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Only the two condition shapes DayRepository writes are modelled, and anything else throws
+     * rather than silently passing - a fake that quietly accepts an unmodelled condition would turn
+     * a broken conditional write into a green test.
+     */
+    private boolean conditionHolds(final String tableName, final Put put) {
+        final String condition = put.conditionExpression();
+        if (condition == null) {
+            return true;
+        }
+        final Map<String, AttributeValue> existing = find(tableName, put.item());
+        if ("attribute_not_exists(pk)".equals(condition)) {
+            return existing == null;
+        }
+        if ("version = :expected".equals(condition)) {
+            final AttributeValue expected = put.expressionAttributeValues().get(":expected");
+            return existing != null && expected.n().equals(existing.get("version").n());
+        }
+        throw new UnsupportedOperationException("FakeDynamoDbClient does not model the condition: " + condition);
+    }
+
+    /**
+     * All-or-nothing, like the real thing: every condition is checked before anything is written.
+     * Checking as it goes would let a later failure leave earlier writes applied, which is exactly
+     * the behaviour the day-item tests exist to disprove.
+     */
     @Override
     public synchronized TransactWriteItemsResponse transactWriteItems(final TransactWriteItemsRequest request) {
+        transactionAttempts++;
+        beforeWrite.run();
+
+        for (final TransactWriteItem transactItem : request.transactItems()) {
+            if (transactItem.put() != null && !conditionHolds(transactItem.put().tableName(), transactItem.put())) {
+                throw TransactionCanceledException.builder()
+                        .message("ConditionalCheckFailed for " + transactItem.put().item()).build();
+            }
+        }
         for (final TransactWriteItem transactItem : request.transactItems()) {
             final Put put = transactItem.put();
             if (put != null) {
-                final List<Map<String, AttributeValue>> items = tables.computeIfAbsent(put.tableName(), _ -> new ArrayList<>());
-                final AttributeValue id = put.item().get("id");
-                if (id != null) {
-                    items.removeIf(item -> id.equals(item.get("id")));
-                }
-                items.add(put.item());
+                replace(put.tableName(), put.item());
             }
             final Delete delete = transactItem.delete();
             if (delete != null) {

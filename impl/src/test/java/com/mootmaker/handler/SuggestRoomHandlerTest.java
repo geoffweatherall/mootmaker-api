@@ -1,5 +1,7 @@
 package com.mootmaker.handler;
 
+import com.mootmaker.testsupport.DayFixtures;
+import com.mootmaker.testsupport.FakeDynamoDbClient;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Room;
 import org.junit.jupiter.api.BeforeEach;
@@ -89,7 +91,7 @@ class SuggestRoomHandlerTest {
     void omitsARoomThatIsAlreadyBookedOverTheRequestedTime() {
         final MeetingRecord existing = new MeetingRecord("existing-meeting", "medium", "organiser-1", List.of(),
                 "Existing meeting", "2026-07-01T14:00:00", "2026-07-01T15:00:00");
-        fakeClient.tables.put("Meetings", List.of(existing.toItem()));
+        fakeClient.tables.put("Meetings", DayFixtures.dayItems(existing));
 
         final List<Map<String, Object>> result = invoke(
                 suggestArguments("2026-07-01T14:30:00", "2026-07-01T15:30:00", 3));
@@ -103,7 +105,7 @@ class SuggestRoomHandlerTest {
                 "Meeting", "2026-07-01T14:00:00", "2026-07-01T15:00:00");
         final MeetingRecord large = new MeetingRecord("m2", "large", "organiser-1", List.of(),
                 "Meeting", "2026-07-01T14:00:00", "2026-07-01T15:00:00");
-        fakeClient.tables.put("Meetings", List.of(medium.toItem(), large.toItem()));
+        fakeClient.tables.put("Meetings", DayFixtures.dayItems(medium, large));
 
         final List<Map<String, Object>> result = invoke(
                 suggestArguments("2026-07-01T14:30:00", "2026-07-01T15:30:00", 3));

@@ -1,6 +1,7 @@
 package com.mootmaker.dynamo;
 
 import com.mootmaker.limits.Limits;
+import com.mootmaker.testsupport.FakeDynamoDbClient;
 import com.mootmaker.model.Day;
 import com.mootmaker.model.MeetingRecord;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,12 +21,12 @@ class DayRepositoryTest {
     private static final String TABLE = "meetings";
     private static final String DATE = "2026-09-14";
 
-    private FakeDayTable table;
+    private FakeDynamoDbClient table;
     private DayRepository repository;
 
     @BeforeEach
     void setUp() {
-        table = new FakeDayTable();
+        table = new FakeDynamoDbClient();
         repository = new DayRepository(table, TABLE);
     }
 
@@ -187,7 +188,7 @@ class DayRepositoryTest {
             final DayItemTooLargeException thrown = assertThrows(DayItemTooLargeException.class,
                     () -> repository.mutate(DATE, day -> day.withMeetings(tooMany)));
             assertTrue(thrown.actualBytes() > Limits.DYNAMODB_MAX_ITEM_BYTES);
-            assertTrue(table.items.isEmpty(), "nothing may be written when the item is refused");
+            assertTrue(table.tables.getOrDefault(TABLE, List.of()).isEmpty(), "nothing may be written when the item is refused");
         }
 
         @Test
@@ -219,7 +220,7 @@ class DayRepositoryTest {
                     new MeetingRecord("m-2", "room-1", "person-1", List.of(), "Other day",
                             "2026-09-15T09:00:00", "2026-09-15T09:30:00"))));
 
-            assertTrue(table.items.keySet().stream().anyMatch(pk -> pk.startsWith(DayRepository.POINTER_PK_PREFIX)),
+            assertTrue(table.tables.get(TABLE).stream().anyMatch(item -> item.get("pk").s().startsWith(DayRepository.POINTER_PK_PREFIX)),
                     "precondition: pointers exist in the table");
             final List<Day> days = repository.scanDays();
             assertEquals(2, days.size());

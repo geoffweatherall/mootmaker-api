@@ -1,5 +1,7 @@
 package com.mootmaker.handler;
 
+import com.mootmaker.testsupport.FakeDynamoDbClient;
+import com.mootmaker.testsupport.FakeCognitoIdentityProviderClient;
 import com.mootmaker.model.Person;
 import com.mootmaker.model.PersonError;
 import org.junit.jupiter.api.Test;
