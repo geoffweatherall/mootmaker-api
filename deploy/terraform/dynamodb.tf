@@ -9,6 +9,17 @@ resource "aws_dynamodb_table" "rooms" {
   }
 }
 
+# The cognitoSub-index GSI is gone from this configuration - the custom:personId claim replaced the
+# only query that used it, and the cognitoSubs list attribute serves the reverse direction.
+#
+# CAUTION for anyone reading this against a long-lived environment: deleting a global_secondary_index
+# block does NOT delete the index. That argument is Optional+Computed on aws_dynamodb_table, so an
+# absent block means "keep whatever is there" rather than "remove it" - verified here, where state
+# still holds cognitoSub-index, the configuration does not, and `terraform plan` reports no
+# differences at all. A table created from this configuration never gets the index; one that already
+# has it keeps it until the table is replaced. That is acceptable only because this design destroys
+# and rebuilds both long-lived environments anyway, and ephemeral ones are disposable. Nothing reads
+# it, and the IAM policy no longer grants access to it. Tracked as an issue rather than worked around.
 resource "aws_dynamodb_table" "people" {
   name         = "${local.resource_prefix}-people"
   billing_mode = "PAY_PER_REQUEST"
