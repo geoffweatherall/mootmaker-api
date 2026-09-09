@@ -4,7 +4,6 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.BatchLoader;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
-import com.mootmaker.model.Meeting;
 import com.mootmaker.model.MeetingParticipant;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
@@ -55,29 +54,74 @@ public class ListMeetingsHandler implements RequestHandler<Map<String, Object>, 
     public Object handleRequest(final Map<String, Object> event, final Context context) {
         Identity.requireAuthenticated(event);
 
-        final List<MeetingRecord> records = fetchMeetingRecords(parseFilter(event));
+        // Asked before anything is fetched: a query selecting only ids does no lookup at all, and
+        // one selecting organiser and attendee names does a single batched lookup for both, since
+        // they share a table. See SelectionSet for why the test is "is everything selected free?"
+        // rather than "did they ask for a field we know needs a fetch?".
+        final SelectionSet selection = SelectionSet.from(event);
+        final boolean resolveRooms = selection.needsLookup("room");
+        final boolean resolvePeople = selection.needsLookup("organiser") || selection.needsLookup("attendees");
 
-        final Set<String> roomIds = records.stream().map(MeetingRecord::roomId).collect(Collectors.toSet());
-        final Set<String> personIds = records.stream()
-                .flatMap(record -> Stream.concat(Stream.of(record.organiserId()), record.attendeeIds().stream()))
-                .collect(Collectors.toSet());
+        final List<MeetingRecord> records = fetchMeetingRecords(parseFilter(event));
 
         // Rooms and people live in separate tables, so the two lookups run concurrently; within each,
         // BatchLoader deduplicates ids and fans out over BatchGetItem so no room or person is fetched twice.
-        final CompletableFuture<Map<String, Room>> roomsById = CompletableFuture
-                .supplyAsync(() -> BatchLoader.loadById(dynamoDbClient, roomsTableName, roomIds))
-                .thenApply(ListMeetingsHandler::toRoomsById);
-        final CompletableFuture<Map<String, Person>> peopleById = CompletableFuture
-                .supplyAsync(() -> BatchLoader.loadById(dynamoDbClient, peopleTableName, personIds))
-                .thenApply(ListMeetingsHandler::toPeopleById);
+        final CompletableFuture<Map<String, Room>> roomsById = resolveRooms
+                ? CompletableFuture.supplyAsync(() -> BatchLoader.loadById(dynamoDbClient, roomsTableName, roomIds(records)))
+                        .thenApply(ListMeetingsHandler::toRoomsById)
+                : CompletableFuture.completedFuture(Map.of());
+        final CompletableFuture<Map<String, Person>> peopleById = resolvePeople
+                ? CompletableFuture.supplyAsync(() -> BatchLoader.loadById(dynamoDbClient, peopleTableName, personIds(records)))
+                        .thenApply(ListMeetingsHandler::toPeopleById)
+                : CompletableFuture.completedFuture(Map.of());
 
         final Map<String, Room> rooms = roomsById.join();
         final Map<String, Person> people = peopleById.join();
 
         return records.stream()
-                .map(record -> resolve(record, rooms, people))
-                .map(Meeting::toResponseMap)
+                .map(record -> toResponseMap(record, rooms, people, resolveRooms, resolvePeople))
                 .toList();
+    }
+
+    private static Set<String> roomIds(final List<MeetingRecord> records) {
+        return records.stream().map(MeetingRecord::roomId).collect(Collectors.toSet());
+    }
+
+    private static Set<String> personIds(final List<MeetingRecord> records) {
+        return records.stream()
+                .flatMap(record -> Stream.concat(Stream.of(record.organiserId()), record.attendeeIds().stream()))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Where a lookup was skipped the nested object is emitted as its id alone. That is a complete
+     * answer rather than a stub: GraphQL only serialises fields the query selected, and
+     * {@link SelectionSet} only reports "no lookup needed" when everything selected under that
+     * path can be answered from the id. Emitting a null name here for a name the client did ask
+     * for would null the Person, then the list, then the meeting - so the two must agree, which is
+     * why the selection test errs toward fetching.
+     */
+    private static Map<String, Object> toResponseMap(final MeetingRecord record, final Map<String, Room> roomsById,
+            final Map<String, Person> peopleById, final boolean roomsResolved, final boolean peopleResolved) {
+        final Map<String, Object> map = new HashMap<>();
+        map.put("id", record.id());
+        map.put("subject", record.subject());
+        map.put("startTime", record.startTime());
+        map.put("endTime", record.endTime());
+        map.put("room", roomsResolved ? roomsById.get(record.roomId()).toResponseMap() : idOnly(record.roomId()));
+        map.put("organiser", peopleResolved
+                ? resolvePerson(record.organiserId(), peopleById).toResponseMap()
+                : idOnly(record.organiserId()));
+        map.put("attendees", record.attendeeIds().stream()
+                .map(id -> peopleResolved ? resolvePerson(id, peopleById).toResponseMap() : idOnly(id))
+                .toList());
+        return map;
+    }
+
+    private static Map<String, Object> idOnly(final String id) {
+        final Map<String, Object> map = new HashMap<>();
+        map.put("id", id);
+        return map;
     }
 
     @SuppressWarnings("unchecked")
@@ -206,13 +250,6 @@ public class ListMeetingsHandler implements RequestHandler<Map<String, Object>, 
         final Map<String, Map<String, AttributeValue>> itemsById =
                 BatchLoader.loadById(dynamoDbClient, meetingsTableName, Set.copyOf(meetingIds));
         return itemsById.values().stream().map(MeetingRecord::fromItem).toList();
-    }
-
-    private static Meeting resolve(final MeetingRecord record, final Map<String, Room> roomsById, final Map<String, Person> peopleById) {
-        final Room room = roomsById.get(record.roomId());
-        final Person organiser = resolvePerson(record.organiserId(), peopleById);
-        final List<Person> attendees = record.attendeeIds().stream().map(id -> resolvePerson(id, peopleById)).toList();
-        return new Meeting(record.id(), room, organiser, attendees, record.subject(), record.startTime(), record.endTime());
     }
 
     /**
