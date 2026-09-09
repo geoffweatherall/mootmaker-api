@@ -39,86 +39,70 @@ resource "aws_dynamodb_table" "people" {
   }
 }
 
+# One item per calendar date, holding that day's meetings as a list. See
+# ../../../mootmaker/designs/graphql-schema-and-caching.md.
+#
+# Reading a day by primary key is what buys ConsistentRead, which removes the read-after-write class
+# of bug outright - the previous per-meeting items were queried through a GSI, and GSIs reject
+# consistent reads.
+#
+# Three kinds of item share the table, discriminated by pk prefix:
+#   DAY#2026-09-14     the day's meetings, plus a version attribute for optimistic locking
+#   PTR#<meetingId>    id -> date, the only secondary lookup structure kept; backs meeting(id:)
+#   CONFIG#retention   the stored retention boundary (below)
+#
+# Both GSIs are gone, and with them the constant bucket = "ALL" attribute that existed solely to give
+# one of them a partition key. A date range maps straight onto day keys, so neither had anything left
+# to answer. The meeting-participants join table went the same way: it existed to answer "every
+# meeting this person is in" with no date range, for account deletion alone, and that is now a scan
+# of at most 217 day items.
 resource "aws_dynamodb_table" "meetings" {
   name         = "${local.resource_prefix}-meetings"
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "id"
+  hash_key     = "pk"
 
   attribute {
-    name = "id"
+    name = "pk"
     type = "S"
-  }
-
-  # Every meeting now spans a single calendar day (see the SpansMultipleDays validation rule in
-  # CreateMeetingHandler), which is what makes both indexes below exact rather than approximate:
-  # a meeting can only overlap a window or a room/day if its own startTime falls in the matching
-  # range, there's no cross-midnight case to account for.
-
-  # bucket is a constant ("ALL") written on every item purely to give this GSI a hash key -
-  # Query.meetings' date-range filter (no personId) wants "every meeting whose startTime falls in
-  # [from, to)" with no other partitioning dimension, and DynamoDB requires a hash key on every
-  # GSI. A single constant partition is fine at this project's scale (see the README's cost
-  # model); it would need bucketing by month or similar to spread load at real scale.
-  attribute {
-    name = "bucket"
-    type = "S"
-  }
-
-  attribute {
-    name = "startTime"
-    type = "S"
-  }
-
-  global_secondary_index {
-    name            = "bucket-startTime-index"
-    hash_key        = "bucket"
-    range_key       = "startTime"
-    projection_type = "ALL"
-  }
-
-  # Lets CreateMeetingHandler's overlap check (roomHasOverlappingMeeting) query "this room's
-  # meetings on this day" via begins_with(startTime, datePrefix) instead of scanning every
-  # meeting ever created.
-  attribute {
-    name = "roomId"
-    type = "S"
-  }
-
-  global_secondary_index {
-    name            = "roomId-startTime-index"
-    hash_key        = "roomId"
-    range_key       = "startTime"
-    projection_type = "ALL"
   }
 }
 
-# Denormalised join index resolving "which meetings is this person organiser of or an attendee
-# on" - attendeeIds is a list on the meeting item, and DynamoDB keys must be scalars, so that
-# can't be answered with a GSI on the meetings table itself. One item is written here per
-# (meeting, participant) pair - the organiser plus every attendee - alongside the meeting item
-# itself, in a single TransactWriteItems call in CreateMeetingHandler, so the two can never drift
-# under normal operation. The meetings table remains the source of truth; this table is a derived
-# index that database-repair's RebuildMeetingParticipantsRepair can regenerate from it (needed
-# once when this table is first introduced against an environment that already has meetings, and
-# as a safety net against any drift).
-resource "aws_dynamodb_table" "meeting_participants" {
-  name         = "${local.resource_prefix}-meeting-participants"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "personId"
-  range_key    = "sortKey"
+# Captured once, at creation, and kept in state - so the seeded boundary below does not drift on
+# every plan the way timestamp() would.
+resource "time_static" "retention_seed" {}
 
-  attribute {
-    name = "personId"
-    type = "S"
-  }
+locals {
+  # The Monday on or before (creation date - 30 days). Monday alignment makes "is this week
+  # reachable" an exact comparison rather than a straddling judgement.
+  #
+  # 1970-01-01 was a Thursday, so (days-since-epoch + 3) % 7 is 0 exactly on Mondays.
+  retention_seed_day     = floor(time_static.retention_seed.unix / 86400) - 30
+  retention_monday_shift = (local.retention_seed_day + 3) % 7
+  earliest_retained_date = formatdate("YYYY-MM-DD",
+  timeadd("1970-01-01T00:00:00Z", "${(local.retention_seed_day - local.retention_monday_shift) * 24}h"))
+}
 
-  # startTime + "#" + meetingId. LocalDateTime's ISO-8601 string form (with the canonical
-  # fixed-width formatting CreateMeetingHandler stores rather than trusting client-supplied text -
-  # see its DATE_TIME_FORMAT) is lexicographically sortable, so a plain string range query on this
-  # sort key correctly answers "this person's meetings starting in [from, to)". Appending the
-  # meetingId keeps the key unique even if two of a person's meetings start at the same instant.
-  attribute {
-    name = "sortKey"
-    type = "S"
+# The stored retention boundary. Seeded here so it exists the moment the table does: without it every
+# booking fails, because the bookable window cannot be computed.
+#
+# It is seeded close to the real boundary rather than at some far-past date on purpose. The invariant
+# the whole cleanup ordering protects is that the advertised boundary is never MORE PERMISSIVE than
+# reality - a fresh environment advertising years of history it does not have breaks exactly that,
+# and clients would offer navigation into empty weeks.
+resource "aws_dynamodb_table_item" "retention_boundary" {
+  table_name = aws_dynamodb_table.meetings.name
+  hash_key   = aws_dynamodb_table.meetings.hash_key
+
+  item = jsonencode({
+    pk                   = { S = "CONFIG#retention" }
+    earliestRetainedDate = { S = local.earliest_retained_date }
+  })
+
+  # REQUIRED, not tidiness. The weekly cleanup job advances this value; without ignore_changes the
+  # next apply would reset it to the seed, walking the boundary BACKWARDS and resurrecting the very
+  # "advertised more permissive than reality" failure the advance-then-delete ordering exists to
+  # prevent - silently, and only on whichever apply happened to follow a cleanup run.
+  lifecycle {
+    ignore_changes = [item]
   }
 }
