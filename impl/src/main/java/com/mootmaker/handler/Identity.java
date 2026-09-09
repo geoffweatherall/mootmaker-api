@@ -20,7 +20,41 @@ final class Identity {
      */
     private static final String ADMIN_SCOPE_ENV_VAR = "COGNITO_ADMIN_SCOPE";
 
+    /** Set server-side by the PostConfirmation trigger; never client-writable. See {@link #personId}. */
+    static final String PERSON_ID_CLAIM = "custom:personId";
+
     private Identity() {
+    }
+
+    /**
+     * The caller's own Person id, taken from the {@code custom:personId} claim.
+     *
+     * <p>This is what removed the startup waterfall: the id arrives on the token, so nothing has to be
+     * looked up before a query can name the caller. It replaced a GSI query on {@code cognitoSub-index},
+     * which could not be read consistently - a GSI rejects {@code ConsistentRead}, so a Person written
+     * moments earlier might not have been visible.
+     *
+     * <p>Empty in two legitimate cases, and both must degrade rather than fail. A machine-to-machine
+     * {@code client_credentials} token has no user behind it at all, so it can never carry a custom
+     * attribute. And a confirmed user whose PostConfirmation trigger failed has no Person and no claim -
+     * that trigger deliberately swallows its own errors rather than blocking sign-up, so the state is
+     * reachable, and {@code CreateMissingPersonsRepair} is the fix.
+     *
+     * <p>The claim is safe to trust because the pool refuses to let a user write it: see
+     * {@code cognito.tf}'s {@code write_attributes}. Self-writing it would not be privilege escalation,
+     * it would be becoming another person outright.
+     */
+    static Optional<String> personId(final Map<String, Object> event) {
+        final Map<String, Object> identity = castToMap(event == null ? null : event.get("identity"));
+        if (identity == null) {
+            return Optional.empty();
+        }
+        final Map<String, Object> claims = castToMap(identity.get("claims"));
+        if (claims == null) {
+            return Optional.empty();
+        }
+        final Object personId = claims.get(PERSON_ID_CLAIM);
+        return personId instanceof String value && !value.isBlank() ? Optional.of(value) : Optional.empty();
     }
 
     /** Throws if the AppSync context has no authenticated identity; call before any handler logic. */

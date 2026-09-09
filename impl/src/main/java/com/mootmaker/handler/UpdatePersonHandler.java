@@ -22,7 +22,7 @@ import module java.base;
 /**
  * AppSync direct-Lambda resolver for {@code Mutation.updatePerson}. Allowed for the caller's own
  * linked Person (a self-rename, identified the same way {@link MyPersonHandler} does - matching
- * {@code identity.sub} against the target's {@code cognitoSub}) or, for any person, if the caller
+ * {@code identity.sub} against the target's linked accounts) or, for any person, if the caller
  * is admin (see {@link Identity#isAdmin}).
  *
  * <p>If the target person has a linked Cognito account, this also updates Cognito's own {@code
@@ -79,7 +79,7 @@ public class UpdatePersonHandler implements RequestHandler<Map<String, Object>, 
 
         final Map<String, Object> identity = castToMap(event.get("identity"));
         final String callerSub = (String) identity.get("sub");
-        final boolean isSelf = callerSub != null && callerSub.equals(current.get().cognitoSub());
+        final boolean isSelf = callerSub != null && current.get().cognitoSubs().contains(callerSub);
         if (!isSelf && !Identity.isAdmin(event)) {
             throw new IllegalStateException("Forbidden: can only update your own name unless you are admin");
         }
@@ -90,17 +90,19 @@ public class UpdatePersonHandler implements RequestHandler<Map<String, Object>, 
             return result;
         }
 
-        // Carries the existing cognitoSub forward - PutItem fully replaces the item, and
-        // PersonInput has no cognitoSub field, so building this from just (id, name) would
+        // Carries the existing linked accounts forward - PutItem fully replaces the item, and
+        // PersonInput has no linking field, so building this from just (id, name) would
         // silently unlink a real user's account from their Cognito login.
-        final Person updated = new Person(id, name, current.get().cognitoSub());
+        final Person updated = new Person(id, name, current.get().cognitoSubs(), null, null);
         dynamoDbClient.putItem(PutItemRequest.builder()
                 .tableName(tableName)
                 .item(updated.toItem())
                 .build());
 
-        if (updated.cognitoSub() != null) {
-            propagateNameToCognito(updated.cognitoSub(), name);
+        // Every linked account, not just one: a person who signs in two ways should not end up with
+        // the new name under one login and the old one under the other.
+        for (final String cognitoSub : updated.cognitoSubs()) {
+            propagateNameToCognito(cognitoSub, name);
         }
 
         result.put("person", updated.toResponseMap());
