@@ -45,13 +45,11 @@ data "aws_iam_policy_document" "lambda_dynamodb_access" {
       aws_dynamodb_table.rooms.arn,
       aws_dynamodb_table.people.arn,
       aws_dynamodb_table.meetings.arn,
-      # DynamoDB treats a table's GSIs as separate resources from the table itself, so querying
-      # them needs its own grant even though the handler already has access to the table: the
-      # people table's cognitoSub-index (see PostConfirmationCreatePersonHandler), and the
-      # meetings table's bucket-startTime-index and roomId-startTime-index (ListMeetingsHandler's
-      # filter and CreateMeetingHandler's overlap check, respectively).
-      "${aws_dynamodb_table.people.arn}/index/*",
-      "${aws_dynamodb_table.meetings.arn}/index/*",
+      # No "/index/*" grants: this project no longer has a single global secondary index. The
+      # meetings table's two went with day-keyed storage, and the people table's cognitoSub-index
+      # went with the custom:personId claim that replaced it. DynamoDB treats indexes as separate
+      # resources, so leaving the wildcards behind would grant access to indexes that do not exist
+      # - and would silently cover any added later without anyone deciding to.
     ]
   }
 }

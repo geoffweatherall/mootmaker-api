@@ -101,19 +101,34 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
             throw new IllegalStateException("Forbidden: this account cannot be deleted");
         }
 
-        cognitoClient.adminDeleteUser(AdminDeleteUserRequest.builder()
-                .userPoolId(userPoolId)
-                .username(cognitoSub)
-                .build());
+        final Optional<Person> person = Identity.personId(event)
+                .flatMap(new PersonRepository(dynamoDbClient, peopleTableName)::findById);
 
-        final Optional<Person> person = new PersonRepository(dynamoDbClient, peopleTableName).findByCognitoSub(cognitoSub);
+        // ORDER MATTERS, for the same reason the retention job advances its boundary before deleting.
+        // Meetings, then the Person, then the Cognito accounts LAST. The intermediate state this leaves
+        // - Person gone, login still works - is recoverable. The reverse is not: if Cognito went first
+        // and a day rewrite then lost a version conflict, the user could no longer sign in to retry and
+        // their meetings would be orphaned with no owner.
         person.ifPresent(this::cancelUpcomingMeetings);
         person.ifPresent(p -> dynamoDbClient.deleteItem(DeleteItemRequest.builder()
                 .tableName(peopleTableName)
                 .key(Map.of("id", AttributeValue.builder().s(p.id()).build()))
                 .build()));
 
-        LOGGER.info("Deleted account for cognitoSub '{}'", cognitoSub);
+        // Every linked account, not just the one that made the call - a person who signs in two ways
+        // must not be left with one login still working after deleting their account. Falls back to the
+        // calling sub when no Person is linked, so an account with no Person can still delete itself.
+        final List<String> linkedSubs = person.map(Person::cognitoSubs)
+                .filter(subs -> !subs.isEmpty())
+                .orElse(List.of(cognitoSub));
+        for (final String linkedSub : linkedSubs) {
+            cognitoClient.adminDeleteUser(AdminDeleteUserRequest.builder()
+                    .userPoolId(userPoolId)
+                    .username(linkedSub)
+                    .build());
+        }
+
+        LOGGER.info("Deleted account for cognitoSub '{}' ({} linked Cognito account(s))", cognitoSub, linkedSubs.size());
         return true;
     }
 

@@ -3,6 +3,7 @@ package com.mootmaker.handler;
 import com.mootmaker.concurrent.ConcurrencyUtils;
 import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.model.Day;
+import com.mootmaker.model.Person;
 import com.mootmaker.model.MeetingRecord;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminDeleteUserRequest;
@@ -85,20 +86,19 @@ final class DatabaseReset {
     }
 
     /**
-     * Non-production rule: a Person survives only if its {@code cognitoSub} is one of
+     * Non-production rule: a Person survives only if one of its {@code cognitoSubs} is among
      * {@code survivingSubs} - the reserved accounts' actual current subs, per
      * {@link #wipeCognitoPool}. Unlike {@link #deleteUnlinkedPeople}, this deletes a Person even if
-     * it has a {@code cognitoSub} set, as long as that Cognito user was just deleted (or never
-     * existed) - which is what closes the "stray Person" gap a dangling {@code cognitoSub} used to
-     * leave behind.
+     * it is linked, as long as those Cognito users were just deleted (or never existed) - which is
+     * what closes the "stray Person" gap a dangling link used to leave behind.
      */
     static int deletePeopleNotLinkedTo(final DynamoDbClient dynamoDbClient, final String peopleTableName,
             final Set<String> survivingSubs) {
         final List<Map<String, AttributeValue>> toDelete = scan(dynamoDbClient, peopleTableName).stream()
-                .filter(item -> {
-                    final AttributeValue cognitoSub = item.get("cognitoSub");
-                    return cognitoSub == null || !survivingSubs.contains(cognitoSub.s());
-                })
+                // ANY surviving sub keeps the person, now that one person can hold several. Keying
+                // off a single value would delete someone whose second sign-in method happened not to
+                // be the reserved one.
+                .filter(item -> Person.fromItem(item).cognitoSubs().stream().noneMatch(survivingSubs::contains))
                 .toList();
         ConcurrencyUtils.runInParallel(toDelete, item -> dynamoDbClient.deleteItem(DeleteItemRequest.builder()
                 .tableName(peopleTableName)
@@ -108,7 +108,7 @@ final class DatabaseReset {
     }
 
     /**
-     * Production-only fallback rule: deletes every person with no {@code cognitoSub} at all (guests
+     * Production-only fallback rule: deletes every person with no linked Cognito account at all (guests
      * added directly, or leftover sample data). A person linked to a real Cognito account is their
      * only link back to that account (nothing recreates it after the fact), so it's preserved -
      * exactly the original {@code Mutation.reset}/{@code database-reset} rule, kept here because the
@@ -117,7 +117,7 @@ final class DatabaseReset {
      */
     static int deleteUnlinkedPeople(final DynamoDbClient dynamoDbClient, final String peopleTableName) {
         final List<Map<String, AttributeValue>> unlinked = scan(dynamoDbClient, peopleTableName).stream()
-                .filter(item -> !item.containsKey("cognitoSub"))
+                .filter(item -> !Person.fromItem(item).isLinked())
                 .toList();
         ConcurrencyUtils.runInParallel(unlinked, item -> dynamoDbClient.deleteItem(DeleteItemRequest.builder()
                 .tableName(peopleTableName)

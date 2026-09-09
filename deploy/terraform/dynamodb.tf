@@ -9,6 +9,17 @@ resource "aws_dynamodb_table" "rooms" {
   }
 }
 
+# The cognitoSub-index GSI is gone from this configuration - the custom:personId claim replaced the
+# only query that used it, and the cognitoSubs list attribute serves the reverse direction.
+#
+# CAUTION for anyone reading this against a long-lived environment: deleting a global_secondary_index
+# block does NOT delete the index. That argument is Optional+Computed on aws_dynamodb_table, so an
+# absent block means "keep whatever is there" rather than "remove it" - verified here, where state
+# still holds cognitoSub-index, the configuration does not, and `terraform plan` reports no
+# differences at all. A table created from this configuration never gets the index; one that already
+# has it keeps it until the table is replaced. That is acceptable only because this design destroys
+# and rebuilds both long-lived environments anyway, and ephemeral ones are disposable. Nothing reads
+# it, and the IAM policy no longer grants access to it. Tracked as an issue rather than worked around.
 resource "aws_dynamodb_table" "people" {
   name         = "${local.resource_prefix}-people"
   billing_mode = "PAY_PER_REQUEST"
@@ -17,25 +28,6 @@ resource "aws_dynamodb_table" "people" {
   attribute {
     name = "id"
     type = "S"
-  }
-
-  # Populated only for people created by the PostConfirmation sign-up trigger (guests added
-  # directly have no Cognito account and so no cognitoSub). The index lets that trigger check
-  # "does a Person already exist for this sub" so a retried invocation doesn't create a
-  # duplicate, lets Query.myPerson resolve the signed-in caller's own Person (see
-  # MyPersonHandler), and will also let a future account-deletion flow find the Person linked
-  # to a given Cognito user. ALL projection (rather than KEYS_ONLY) so Query.myPerson can read
-  # the full item straight off the index without a second GetItem - the table is tiny, so the
-  # extra copy of each item's attributes costs effectively nothing.
-  attribute {
-    name = "cognitoSub"
-    type = "S"
-  }
-
-  global_secondary_index {
-    name            = "cognitoSub-index"
-    hash_key        = "cognitoSub"
-    projection_type = "ALL"
   }
 }
 

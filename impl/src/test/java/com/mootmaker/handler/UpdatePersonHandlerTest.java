@@ -65,7 +65,7 @@ class UpdatePersonHandlerTest {
 
         final Person persisted = Person.fromItem(dynamoDbClient.tables.get(TABLE_NAME).getFirst());
         assertEquals("Ada Lovelace", persisted.name());
-        assertEquals("cognito-sub-123", persisted.cognitoSub(), "cognitoSub must survive the rename");
+        assertEquals(List.of("cognito-sub-123"), persisted.cognitoSubs(), "linked accounts must survive the rename");
 
         assertEquals(1, cognitoClient.updateRequests.size());
         final var updateRequest = cognitoClient.updateRequests.getFirst();

@@ -32,6 +32,33 @@ class CreateMissingPersonsRepairTest {
         return user(username, sub, email, UserStatusType.CONFIRMED);
     }
 
+    /** A user whose claim was set but whose Person write never landed - the half-state the trigger's ordering allows. */
+    private static UserType confirmedUserWithClaim(final String username, final String sub, final String email,
+            final String personId) {
+        return confirmedUser(username, sub, email).toBuilder()
+                .attributes(
+                        AttributeType.builder().name("sub").value(sub).build(),
+                        AttributeType.builder().name("email").value(email).build(),
+                        AttributeType.builder().name("custom:personId").value(personId).build())
+                .build();
+    }
+
+    @Test
+    void recreatesThePersonWhenTheClaimPointsAtOneThatIsMissing() {
+        final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
+        cognitoClient.users.add(confirmedUserWithClaim("u1", "sub-1", "ada@example.com", "person-1"));
+        final FakeDynamoDbClient dynamoDbClient = new FakeDynamoDbClient();
+
+        final CreateMissingPersonsRepair.Result result =
+                CreateMissingPersonsRepair.run(cognitoClient, dynamoDbClient, USER_POOL_ID, TABLE_NAME, false);
+
+        // Recreated with EXACTLY the claimed id, not a fresh one - which is the whole reason the
+        // trigger writes the claim before the Person. A new id here would strand the token.
+        assertEquals(1, result.repaired());
+        assertEquals("person-1", Person.fromItem(dynamoDbClient.tables.get(TABLE_NAME).getFirst()).id());
+        assertTrue(cognitoClient.updateRequests.isEmpty(), "the claim is already correct, so it must not be rewritten");
+    }
+
     @Test
     void createsAPersonNamedAfterTheEmailLocalPartForAUserWithNoLinkedPerson() {
         final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
@@ -47,13 +74,14 @@ class CreateMissingPersonsRepairTest {
                 dynamoDbClient.tables.get(TABLE_NAME);
         assertEquals(1, created.size());
         assertEquals("ada.lovelace", created.getFirst().get("name").s());
-        assertEquals("sub-1", created.getFirst().get("cognitoSub").s());
+        assertEquals(List.of("sub-1"), Person.fromItem(created.getFirst()).cognitoSubs());
     }
 
     @Test
     void skipsAUserThatAlreadyHasALinkedPerson() {
         final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
-        cognitoClient.users.add(confirmedUser("u1", "sub-1", "ada@example.com"));
+        // Linked means the claim points at a Person that exists - both halves, not either.
+        cognitoClient.users.add(confirmedUserWithClaim("u1", "sub-1", "ada@example.com", "person-1"));
         final FakeDynamoDbClient dynamoDbClient = new FakeDynamoDbClient();
         dynamoDbClient.tables.put(TABLE_NAME, new ArrayList<>(List.of(new Person("person-1", "Ada", "sub-1").toItem())));
 

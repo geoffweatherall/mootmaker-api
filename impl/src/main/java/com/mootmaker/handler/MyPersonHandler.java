@@ -32,10 +32,11 @@ public class MyPersonHandler implements RequestHandler<Map<String, Object>, Obje
     public Object handleRequest(final Map<String, Object> event, final Context context) {
         Identity.requireAuthenticated(event);
 
-        final Map<String, Object> identity = castToMap(event.get("identity"));
-        final String cognitoSub = (String) identity.get("sub");
-
-        return new PersonRepository(dynamoDbClient, tableName).findByCognitoSub(cognitoSub)
+        // One ConsistentRead, and zero lookups to know WHICH person to read - the id is on the token.
+        // Null for a machine-to-machine caller, and for a confirmed user whose PostConfirmation trigger
+        // failed; both are legitimate, and the schema types this field nullable for exactly that reason.
+        return Identity.personId(event)
+                .flatMap(new PersonRepository(dynamoDbClient, tableName)::findById)
                 .map(Person::toResponseMap)
                 .orElse(null);
     }

@@ -18,7 +18,8 @@ import module java.base;
 
 /**
  * Cognito PostConfirmation trigger: creates a Person linked to the newly confirmed user via
- * {@code cognitoSub}, so a future account-deletion flow can find and remove it, and sets the new
+ * {@code cognitoSubs} so account deletion can find and remove it, sets the {@code custom:personId}
+ * claim that every later request resolves the caller by, and sets the new
  * user's {@code custom:class} attribute to {@code "standard"}. The client must never be trusted to
  * set its own class (it could otherwise self-promote to admin), so this is done server-side via
  * the Admin API - reusing this trigger, which already fires exactly once per confirmed sign-up
@@ -77,20 +78,37 @@ public class PostConfirmationCreatePersonHandler implements RequestHandler<Map<S
         final Map<String, Object> userAttributes = castToMap(request.get("userAttributes"));
         final String cognitoSub = (String) userAttributes.get("sub");
         final String name = (String) userAttributes.get("name");
+        final String userPoolId = (String) event.get("userPoolId");
 
         try {
-            if (new PersonRepository(dynamoDbClient, tableName).findByCognitoSub(cognitoSub).isPresent()) {
-                LOGGER.info("Person already exists for confirmed sign-up '{}', skipping creation", name);
+            // The claim IS the idempotency marker. A retried invocation sees the attribute already set
+            // and stops - which is what let cognitoSub-index be deleted, since checking "does a Person
+            // exist for this sub" was the only thing left querying it.
+            final Object existingPersonId = userAttributes.get(Identity.PERSON_ID_CLAIM);
+            if (existingPersonId instanceof String value && !value.isBlank()) {
+                LOGGER.info("Person already linked for confirmed sign-up '{}', skipping creation", name);
                 return;
             }
 
-            final Person person = new Person(UUID.randomUUID().toString(), name, cognitoSub);
-            dynamoDbClient.putItem(PutItemRequest.builder()
-                    .tableName(tableName)
-                    .item(person.toItem())
+            // CLAIM FIRST, then the Person, because the two orders fail differently and only one is
+            // recoverable. Writing the Person first and failing here leaves a Person with no claim,
+            // which nothing can find any more - CreateMissingPersonsRepair sees a user with no claim,
+            // creates a SECOND Person, and the duplicate is undetectable without the index we just
+            // deleted. This order leaves a claim pointing at a Person that does not exist yet: myPerson
+            // returns null, and the repair creates it with exactly that id. No duplicate is possible.
+            final String personId = UUID.randomUUID().toString();
+            cognitoClient.adminUpdateUserAttributes(AdminUpdateUserAttributesRequest.builder()
+                    .userPoolId(userPoolId)
+                    .username(cognitoSub)
+                    .userAttributes(AttributeType.builder().name(Identity.PERSON_ID_CLAIM).value(personId).build())
                     .build());
 
-            LOGGER.info("Created Person for confirmed sign-up '{}'", name);
+            dynamoDbClient.putItem(PutItemRequest.builder()
+                    .tableName(tableName)
+                    .item(new Person(personId, name, cognitoSub).toItem())
+                    .build());
+
+            LOGGER.info("Created Person '{}' for confirmed sign-up '{}'", personId, name);
         } catch (final RuntimeException e) {
             LOGGER.error("Failed to create Person for confirmed sign-up '{}'", name, e);
         }

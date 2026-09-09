@@ -4,7 +4,6 @@ import com.mootmaker.model.Person;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 import module java.base;
 
@@ -13,15 +12,13 @@ import module java.base;
  * {@link DayRepository} and {@link RoomRepository}: it owns its client and table name, and is
  * constructed once at initialisation so it lands in the SnapStart snapshot.
  *
- * <p>{@link #findByCognitoSub} is on borrowed time. Once {@code custom:personId} is a Cognito claim
- * the caller's id arrives in the token, so the forward lookup costs nothing and this GSI query - and
- * the {@code cognitoSub-index} behind it, the last {@code projection_type = "ALL"} duplicate in the
- * system - both go. The reverse direction, which account deletion needs, becomes a {@code cognitoSubs}
- * list attribute on the Person itself: free to read, because deletion already holds the item.
+ * <p>There is no lookup by Cognito sub any more. The caller's id arrives on the token as the
+ * {@code custom:personId} claim, so the forward direction costs nothing - and that removed the last
+ * reader of {@code cognitoSub-index}, the final {@code projection_type = "ALL"} duplicate in the
+ * system. The reverse direction, which only account deletion needs, is a {@code cognitoSubs} list on
+ * the Person itself: free to read, because deletion already holds the item.
  */
 public final class PersonRepository {
-
-    private static final String COGNITO_SUB_INDEX = "cognitoSub-index";
 
     private final DynamoDbClient dynamoDbClient;
     private final String tableName;
@@ -54,23 +51,5 @@ public final class PersonRepository {
                 .tableName(tableName)
                 .key(Map.of("id", AttributeValue.builder().s(id).build()))
                 .build());
-    }
-
-    /**
-     * Looks up the Person linked to a Cognito user via the {@code cognitoSub-index} GSI.
-     *
-     * <p>Note the consistency hazard this carries, and which the claim removes: a GSI rejects
-     * {@code ConsistentRead}, so a Person written moments ago may not be visible here yet.
-     */
-    public Optional<Person> findByCognitoSub(final String cognitoSub) {
-        final List<Map<String, AttributeValue>> items = dynamoDbClient.query(QueryRequest.builder()
-                        .tableName(tableName)
-                        .indexName(COGNITO_SUB_INDEX)
-                        .keyConditionExpression("cognitoSub = :cognitoSub")
-                        .expressionAttributeValues(Map.of(":cognitoSub", AttributeValue.builder().s(cognitoSub).build()))
-                        .limit(1)
-                        .build())
-                .items();
-        return items.isEmpty() ? Optional.empty() : Optional.of(Person.fromItem(items.getFirst()));
     }
 }
