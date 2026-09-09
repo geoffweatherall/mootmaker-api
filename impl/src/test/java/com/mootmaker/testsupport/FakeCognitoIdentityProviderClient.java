@@ -28,6 +28,8 @@ public class FakeCognitoIdentityProviderClient implements CognitoIdentityProvide
     /** Lets a test force multi-page pagination; defaults to returning every user in one page. */
     public int listUsersPageSize = Integer.MAX_VALUE;
     private RuntimeException failNextUpdateWith;
+    private String failUpdateOfAttribute;
+    private RuntimeException failUpdateOfException;
 
     @Override
     public String serviceName() {
@@ -38,12 +40,26 @@ public class FakeCognitoIdentityProviderClient implements CognitoIdentityProvide
     public void close() {
     }
 
+    /**
+     * Fails only the update that carries a given attribute. The trigger now issues two updates -
+     * custom:personId, then custom:class - so "fail the next one" can no longer name which failure
+     * is being exercised, and the two have very different consequences.
+     */
+    public void failUpdateOf(final String attributeName, final RuntimeException exception) {
+        this.failUpdateOfAttribute = attributeName;
+        this.failUpdateOfException = exception;
+    }
+
     public void failNextUpdateWith(final RuntimeException exception) {
         this.failNextUpdateWith = exception;
     }
 
     @Override
     public synchronized AdminUpdateUserAttributesResponse adminUpdateUserAttributes(final AdminUpdateUserAttributesRequest request) {
+        if (failUpdateOfAttribute != null
+                && request.userAttributes().stream().anyMatch(a -> a.name().equals(failUpdateOfAttribute))) {
+            throw failUpdateOfException;
+        }
         if (failNextUpdateWith != null) {
             throw failNextUpdateWith;
         }

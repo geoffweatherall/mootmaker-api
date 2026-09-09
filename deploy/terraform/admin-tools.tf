@@ -133,8 +133,6 @@ data "aws_iam_policy_document" "database_repair_access" {
     actions = ["dynamodb:Query", "dynamodb:PutItem"]
     resources = [
       aws_dynamodb_table.people.arn,
-      # cognitoSub-index is a separate resource from the table itself as far as IAM is concerned.
-      "${aws_dynamodb_table.people.arn}/index/*",
     ]
   }
 

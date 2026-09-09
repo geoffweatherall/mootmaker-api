@@ -16,9 +16,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UpdateMyPreferencesHandlerTest {
 
+    /**
+     * The caller is now identified by the {@code custom:personId} claim rather than by looking their
+     * sub up in an index. These fixtures pair {@code sub-N} with {@code person-N}, so the claim is
+     * derived rather than threaded through every call site - and {@code sub-unlinked} maps to a
+     * person id that deliberately does not exist, which is the NoLinkedPerson case.
+     */
     private static Map<String, Object> event(final String sub, final String dateFormat, final String timeFormat) {
         return Map.of(
-                "identity", Map.of("sub", sub),
+                "identity", Map.of(
+                        "sub", sub,
+                        "claims", Map.of("custom:personId", sub.replace("sub-", "person-"))),
                 "arguments", Map.of("preferences", Map.of("dateFormat", dateFormat, "timeFormat", timeFormat)));
     }
 
@@ -69,15 +77,18 @@ class UpdateMyPreferencesHandlerTest {
      * image of the hazard UpdatePersonHandler guards against in the other direction.
      */
     @Test
-    void carriesNameAndCognitoSubForwardUntouched() {
+    void carriesNameAndLinkedAccountsForwardUntouched() {
         final FakeDynamoDbClient fakeClient = clientWith(new Person("person-1", "Ada Lovelace", "sub-1"));
         final UpdateMyPreferencesHandler handler = new UpdateMyPreferencesHandler(fakeClient, "People");
 
         handler.handleRequest(event("sub-1", "British", "AmPm"), null);
 
         final Map<String, AttributeValue> stored = fakeClient.tables.get("People").getFirst();
+        // PutItem replaces the whole item, so anything the handler does not carry forward is lost.
+        // The linked accounts are the dangerous one: losing them would leave a Person that account
+        // deletion can no longer find a Cognito user for.
         assertEquals("Ada Lovelace", stored.get("name").s());
-        assertEquals("sub-1", stored.get("cognitoSub").s());
+        assertEquals(List.of("sub-1"), Person.fromItem(stored).cognitoSubs());
     }
 
     @Test

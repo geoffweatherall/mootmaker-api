@@ -25,6 +25,11 @@ class DeleteMyAccountHandlerTest {
     private static final String FUTURE = "2099-01-01T09:00:00";
     private static final String FUTURE_END = "2099-01-01T09:30:00";
 
+    /**
+     * The Person is now found by the {@code custom:personId} claim rather than by a sub lookup, so
+     * the fixtures pair {@code sub-x} with {@code person-x} and derive it. The sub still matters -
+     * it is the fallback target when no Person is linked at all.
+     */
     private static Map<String, Object> deleteEvent(final String callerSub, final String email) {
         final Map<String, Object> identity = new HashMap<>();
         identity.put("sub", callerSub);
@@ -32,6 +37,7 @@ class DeleteMyAccountHandlerTest {
         if (email != null) {
             claims.put("email", email);
         }
+        claims.put("custom:personId", callerSub.replace("sub-", "person-"));
         identity.put("claims", claims);
         final Map<String, Object> event = new HashMap<>();
         event.put("identity", identity);

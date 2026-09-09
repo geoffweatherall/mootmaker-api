@@ -65,6 +65,25 @@ resource "aws_cognito_user_pool" "this" {
     }
   }
 
+  # The caller's own Person id, read into the ID token as the custom:personId claim. Set
+  # server-side by PostConfirmationCreatePersonHandler and never client-writable (see
+  # write_attributes below) - and that exclusion is a sharper control than custom:class's.
+  # Self-writing your class escalates you to admin; self-writing your personId makes you BECOME
+  # another person: their preferences, their rename, bookings as them, and deleteMyAccount on
+  # their account. Immutable in practice, since a Person id never changes for the life of the
+  # person, but declared mutable because the trigger has to set it after confirmation.
+  schema {
+    name                = "personId"
+    attribute_data_type = "String"
+    mutable             = true
+    required            = false
+
+    string_attribute_constraints {
+      min_length = 36
+      max_length = 36
+    }
+  }
+
   # Creates the Person record for a user once their email is confirmed - see
   # PostConfirmationCreatePersonHandler for why this runs post-confirmation rather than
   # pre-sign-up (email isn't verified yet at that point).
@@ -103,10 +122,12 @@ resource "aws_cognito_user_pool_client" "webapp" {
   # permission - unlike standard attributes, which are readable by default. This list isn't
   # additive over Cognito's default, so it has to restate email/name too (already relied on by
   # AuthProvider's currentUserEmail()/currentUserName()) alongside the new custom:class.
-  read_attributes = ["email", "email_verified", "name", "custom:class"]
-  # Deliberately excludes custom:class: a user must never be able to set their own class by
-  # calling Cognito's UpdateUserAttributes from the browser SDK - only
-  # PostConfirmationCreatePersonHandler/UpdatePersonHandler may set it, via the Admin API.
+  read_attributes = ["email", "email_verified", "name", "custom:class", "custom:personId"]
+  # Deliberately excludes BOTH custom:class and custom:personId. A user must never set their own
+  # class by calling Cognito's UpdateUserAttributes from the browser SDK - only the Admin API may.
+  # custom:personId matters more: every resolver trusts it to identify the caller, so a user able
+  # to write it could point at anyone else's Person and act as them completely. That trust is only
+  # justified by this list.
   write_attributes = ["name"]
 }
 
@@ -169,6 +190,8 @@ resource "random_password" "e2e_user" {
   override_special = "!@#$%^&*()-_=+"
 }
 
+resource "random_uuid" "e2e_person_id" {}
+
 resource "aws_cognito_user" "e2e" {
   user_pool_id = aws_cognito_user_pool.this.id
   username     = "e2e-tests@example.com"
@@ -177,11 +200,27 @@ resource "aws_cognito_user" "e2e" {
   attributes = {
     email          = "e2e-tests@example.com"
     email_verified = "true"
+    # Created directly rather than through sign-up, so PostConfirmationCreatePersonHandler never
+    # runs and neither the Person nor this claim would otherwise exist. Until now the e2e user had
+    # no Person at all, which meant the identity the whole acceptance suite runs as exercised the
+    # "no linked Person" path rather than the one every real user takes.
+    "custom:personId" = random_uuid.e2e_person_id.result
     # Created directly rather than through sign-up, so it skips PostConfirmationCreatePersonHandler
     # (the same reason it has no Person - see below) and would otherwise have no class at all; set
     # explicitly here for parity with a real signed-up user, who always gets one.
     "custom:class" = "standard"
   }
+}
+
+resource "aws_dynamodb_table_item" "e2e_person" {
+  table_name = aws_dynamodb_table.people.name
+  hash_key   = aws_dynamodb_table.people.hash_key
+
+  item = jsonencode({
+    id          = { S = random_uuid.e2e_person_id.result }
+    name        = { S = "E2E Tester" }
+    cognitoSubs = { L = [{ S = aws_cognito_user.e2e.sub }] }
+  })
 }
 
 # Password for the demo user below: random (like random_password.e2e_user above) rather than a
@@ -221,9 +260,9 @@ resource "aws_cognito_user" "demo" {
 # The demo user above is created directly by Terraform rather than through the sign-up/confirm
 # API calls, so it never fires PostConfirmationCreatePersonHandler (see "Sign-up creates a linked
 # Person" in the README) and would otherwise have no Person - showing up nameless in the webapp,
-# and (if one existed anyway with no cognitoSub) getting deleted by the next database-reset run,
+# and (if one existed anyway with no link) getting deleted by the next database-reset run,
 # since reset only ever preserves people linked to a Cognito account. This writes one directly, in
-# the same shape as Person.toItem(), linked via cognitoSub to aws_cognito_user.demo's sub - which
+# the same shape as Person.toItem(), linked via cognitoSubs to aws_cognito_user.demo's sub - which
 # is also what protects it from database-reset's Cognito-wipe pass (see admin-tools.tf's
 # RESERVED_ACCOUNT_EMAILS), not just its DynamoDB-level survival rule.
 resource "random_uuid" "demo_person_id" {}
@@ -233,8 +272,8 @@ resource "aws_dynamodb_table_item" "demo_person" {
   hash_key   = aws_dynamodb_table.people.hash_key
 
   item = jsonencode({
-    id         = { S = random_uuid.demo_person_id.result }
-    name       = { S = "Demo Strater" }
-    cognitoSub = { S = aws_cognito_user.demo.sub }
+    id          = { S = random_uuid.demo_person_id.result }
+    name        = { S = "Demo Strater" }
+    cognitoSubs = { L = [{ S = aws_cognito_user.demo.sub }] }
   })
 }

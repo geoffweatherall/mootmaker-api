@@ -4,6 +4,7 @@ import com.mootmaker.concurrent.ConcurrencyUtils;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.model.Person;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminUpdateUserAttributesRequest;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AttributeType;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.ListUsersRequest;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.ListUsersResponse;
@@ -19,8 +20,8 @@ import module java.base;
  * {@link PostConfirmationCreatePersonHandler} on sign-up - but users created directly (e.g. the
  * demo user and e2e test user, both admin-created via Terraform rather than through sign-up) skip
  * that trigger entirely, and the trigger itself deliberately swallows its own failures rather than
- * retrying. This finds every confirmed Cognito user with no Person linked via {@code cognitoSub}
- * and creates one, named after the part of their email before the "@" - a reasonable one-off
+ * retrying. This finds every confirmed Cognito user whose {@code custom:personId} claim is
+ * missing, or points at a Person that no longer exists, and creates one, named after the part of their email before the "@" - a reasonable one-off
  * backfill default, <b>not</b> a re-implementation of the trigger's own behaviour (which uses the
  * Cognito {@code name} attribute, unavailable here for users - like the demo/e2e ones - who never
  * had one set).
@@ -41,32 +42,58 @@ final class CreateMissingPersonsRepair {
         final List<UserType> users = listConfirmedUsers(cognitoClient, userPoolId);
         System.out.println("Found " + users.size() + " confirmed Cognito user(s).");
 
-        // Each user's check-and-create is independent of every other user's (a different
-        // cognitoSub), so they run on the shared bounded thread pool rather than one at a time -
+        // Each user's check-and-create is independent of every other user's, so they run on the shared bounded thread pool rather than one at a time -
         // the DynamoDB SDK client is safe to share across threads.
         final AtomicInteger repaired = new AtomicInteger();
         final AtomicInteger alreadyLinked = new AtomicInteger();
         ConcurrencyUtils.runInParallel(users, user -> {
             final String cognitoSub = requireAttribute(user, "sub");
             final String email = requireAttribute(user, "email");
+            final PersonRepository people = new PersonRepository(dynamoDbClient, peopleTableName);
+            final Optional<String> claimedPersonId = optionalAttribute(user, Identity.PERSON_ID_CLAIM);
 
-            if (new PersonRepository(dynamoDbClient, peopleTableName).findByCognitoSub(cognitoSub).isPresent()) {
+            // Three states, and the middle one is the reason the trigger sets the claim before writing
+            // the Person: a claim pointing at a Person that does not exist is repairable EXACTLY, using
+            // the id already on the token. The alternative ordering leaves a Person nothing can find,
+            // and this repair would create a duplicate it has no way to detect.
+            if (claimedPersonId.isPresent() && people.findById(claimedPersonId.get()).isPresent()) {
                 alreadyLinked.incrementAndGet();
                 return;
             }
 
+            final String personId = claimedPersonId.orElseGet(() -> UUID.randomUUID().toString());
             final String name = emailLocalPart(email);
-            System.out.println("  " + email + " -> creating Person '" + name + "'" + (dryRun ? " (dry run)" : ""));
+            final String what = claimedPersonId.isPresent()
+                    ? "claim points at a missing Person, recreating it as '" + name + "'"
+                    : "creating Person '" + name + "'";
+            System.out.println("  " + email + " -> " + what + (dryRun ? " (dry run)" : ""));
+
             if (!dryRun) {
-                final Person person = new Person(UUID.randomUUID().toString(), name, cognitoSub);
+                if (claimedPersonId.isEmpty()) {
+                    // Claim first, matching the trigger, so a failure here cannot strand a Person.
+                    cognitoClient.adminUpdateUserAttributes(AdminUpdateUserAttributesRequest.builder()
+                            .userPoolId(userPoolId)
+                            .username(cognitoSub)
+                            .userAttributes(AttributeType.builder()
+                                    .name(Identity.PERSON_ID_CLAIM).value(personId).build())
+                            .build());
+                }
                 dynamoDbClient.putItem(PutItemRequest.builder()
                         .tableName(peopleTableName)
-                        .item(person.toItem())
+                        .item(new Person(personId, name, cognitoSub).toItem())
                         .build());
             }
             repaired.incrementAndGet();
         });
         return new Result(repaired.get(), alreadyLinked.get());
+    }
+
+    private static Optional<String> optionalAttribute(final UserType user, final String name) {
+        return user.attributes().stream()
+                .filter(attribute -> attribute.name().equals(name))
+                .map(AttributeType::value)
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst();
     }
 
     /** The part of an email address before the "@"; the email itself if there's no "@". */

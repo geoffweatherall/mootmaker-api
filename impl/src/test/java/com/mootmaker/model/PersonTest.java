@@ -53,7 +53,7 @@ class PersonTest {
 
     @Test
     void normalisesNullPreferencesPassedToTheConstructor() {
-        final Person person = new Person("person-1", "Ada Lovelace", "sub-1", null, null);
+        final Person person = new Person("person-1", "Ada Lovelace", List.of("sub-1"), null, null);
 
         assertEquals(DateFormat.Iso, person.dateFormat());
         assertEquals(TimeFormat.TwentyFourHour, person.timeFormat());
@@ -61,7 +61,7 @@ class PersonTest {
 
     @Test
     void roundTripsThroughAnItemWithoutLosingPreferences() {
-        final Person original = new Person("person-1", "Ada", "sub-1", DateFormat.Usa, TimeFormat.AmPm);
+        final Person original = new Person("person-1", "Ada", List.of("sub-1"), DateFormat.Usa, TimeFormat.AmPm);
 
         final Person restored = Person.fromItem(original.toItem());
 
@@ -70,7 +70,7 @@ class PersonTest {
 
     @Test
     void exposesPreferencesOverGraphQlAsTheirLiteralEnumNames() {
-        final Person person = new Person("person-1", "Ada", "sub-1", DateFormat.British, TimeFormat.AmPm);
+        final Person person = new Person("person-1", "Ada", List.of("sub-1"), DateFormat.British, TimeFormat.AmPm);
 
         final Map<String, Object> response = person.toResponseMap();
 
