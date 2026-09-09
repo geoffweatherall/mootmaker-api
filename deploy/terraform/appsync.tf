@@ -40,10 +40,43 @@ resource "aws_appsync_datasource" "resolvers" {
 }
 
 locals {
-  # $util.toJson($ctx) already includes $ctx.info (fieldName/parentTypeName), which
-  # ResolverDispatchHandler uses to route - so no per-resolver template is needed even though all
-  # 10 fields now share one Lambda.
-  direct_lambda_request_template  = "{\"version\":\"2018-05-29\",\"operation\":\"Invoke\",\"payload\":$util.toJson($ctx)}"
+  # Built field by field rather than as $util.toJson($ctx), for one reason that is not optional and
+  # one that is a bonus.
+  #
+  # The reason: $util.toJson($ctx) does NOT serialise info.selectionSetList. AWS documents that it
+  # and selectionSetGraphQL "are not serialized by default", and decoding a live $ctx from this very
+  # template confirmed it - the payload carried only fieldName, parentTypeName and variables. They
+  # appear only when referenced explicitly, as below. Selection-aware resolving (see SelectionSet)
+  # does not work at all without this, and fails SAFE without it: an absent selectionSetList makes
+  # every lookup happen, which is exactly the old behaviour.
+  #
+  # The bonus: $ctx also carries $ctx.request.headers, so the old template shipped every CloudFront
+  # request header to Lambda on every single call. Nothing ever read them.
+  #
+  # identity is emitted only when present. Building it unconditionally would hand Identity's
+  # defence-in-depth check (see requireAuthenticated) a non-null identity on an unauthenticated
+  # request, which is the one thing that check exists to catch.
+  direct_lambda_request_template = <<-EOT
+    {
+      "version": "2018-05-29",
+      "operation": "Invoke",
+      "payload": {
+        "info": {
+          "fieldName": $util.toJson($ctx.info.fieldName),
+          "parentTypeName": $util.toJson($ctx.info.parentTypeName),
+          "selectionSetList": $util.toJson($ctx.info.selectionSetList)
+        },
+        "arguments": $util.toJson($ctx.arguments)
+        #if( $ctx.identity )
+        ,"identity": {
+          "sub": $util.toJson($ctx.identity.sub),
+          "claims": $util.toJson($ctx.identity.claims)
+        }
+        #end
+      }
+    }
+  EOT
+
   direct_lambda_response_template = "$util.toJson($ctx.result)"
 }
 
