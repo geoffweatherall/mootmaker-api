@@ -190,7 +190,19 @@ resource "random_password" "e2e_user" {
   override_special = "!@#$%^&*()-_=+"
 }
 
-resource "random_uuid" "e2e_person_id" {}
+# DETERMINISTIC, not random, and that is load-bearing rather than tidiness.
+#
+# random_uuid's result is unknown at plan time, and putting an unknown value inside
+# aws_cognito_user.attributes makes the provider plan the whole map as null and then fail the apply
+# with "produced an invalid new value for .attributes: was null, but now ...". uuidv5 is computed
+# from its inputs, so it is known during planning and the map plans concretely.
+#
+# It also makes the id stable across a destroy-and-rebuild of an environment, which is a small gain
+# on its own: the demo and e2e Persons keep their identity when the environment is recreated.
+locals {
+  e2e_person_id  = uuidv5("dns", "e2e-person.${var.environment}.mootmaker")
+  demo_person_id = uuidv5("dns", "demo-person.${var.environment}.mootmaker")
+}
 
 resource "aws_cognito_user" "e2e" {
   user_pool_id = aws_cognito_user_pool.this.id
@@ -204,11 +216,27 @@ resource "aws_cognito_user" "e2e" {
     # runs and neither the Person nor this claim would otherwise exist. Until now the e2e user had
     # no Person at all, which meant the identity the whole acceptance suite runs as exercised the
     # "no linked Person" path rather than the one every real user takes.
-    "custom:personId" = random_uuid.e2e_person_id.result
+    "custom:personId" = local.e2e_person_id
     # Created directly rather than through sign-up, so it skips PostConfirmationCreatePersonHandler
     # (the same reason it has no Person - see below) and would otherwise have no class at all; set
     # explicitly here for parity with a real signed-up user, who always gets one.
     "custom:class" = "standard"
+  }
+  # Terraform sets these at CREATE and must never touch them again.
+  #
+  # aws_cognito_user cannot hold custom:* attributes across an update. State stores them with the
+  # "custom:" prefix stripped, so every plan computes "delete the old key, add the new one" - and
+  # since Cognito resolves both names to the same attribute, the add and the delete cancel. Measured
+  # on a FRESH environment: the create is correct, the very next apply of an unchanged configuration
+  # wipes both users' custom attributes entirely. On a long-lived environment it alternates, fixing
+  # one user and wiping the other on each run.
+  #
+  # ignore_changes only suppresses updates, never creation, so the attributes are still set exactly
+  # once, correctly, when the user is made. The cost is that a genuine change to these values needs
+  # the user replaced rather than updated - acceptable for two Terraform-managed fixtures, and the
+  # alternative is silent wrongness. See mootmaker-api#39.
+  lifecycle {
+    ignore_changes = [attributes]
   }
 }
 
@@ -217,7 +245,7 @@ resource "aws_dynamodb_table_item" "e2e_person" {
   hash_key   = aws_dynamodb_table.people.hash_key
 
   item = jsonencode({
-    id          = { S = random_uuid.e2e_person_id.result }
+    id          = { S = local.e2e_person_id }
     name        = { S = "E2E Tester" }
     cognitoSubs = { L = [{ S = aws_cognito_user.e2e.sub }] }
   })
@@ -254,6 +282,27 @@ resource "aws_cognito_user" "demo" {
     # The demo user is the one always-present admin, so there's something to sign in as and
     # exercise room/person maintenance without needing a real sign-up first.
     "custom:class" = "admin"
+    # Created directly rather than through sign-up, so PostConfirmationCreatePersonHandler never
+    # runs and this claim would otherwise never be set - leaving the demo login with a Person it
+    # cannot resolve, and myPerson returning null for the account the signed-out home page hands
+    # every visitor.
+    "custom:personId" = local.demo_person_id
+  }
+  # Terraform sets these at CREATE and must never touch them again.
+  #
+  # aws_cognito_user cannot hold custom:* attributes across an update. State stores them with the
+  # "custom:" prefix stripped, so every plan computes "delete the old key, add the new one" - and
+  # since Cognito resolves both names to the same attribute, the add and the delete cancel. Measured
+  # on a FRESH environment: the create is correct, the very next apply of an unchanged configuration
+  # wipes both users' custom attributes entirely. On a long-lived environment it alternates, fixing
+  # one user and wiping the other on each run.
+  #
+  # ignore_changes only suppresses updates, never creation, so the attributes are still set exactly
+  # once, correctly, when the user is made. The cost is that a genuine change to these values needs
+  # the user replaced rather than updated - acceptable for two Terraform-managed fixtures, and the
+  # alternative is silent wrongness. See mootmaker-api#39.
+  lifecycle {
+    ignore_changes = [attributes]
   }
 }
 
@@ -265,14 +314,12 @@ resource "aws_cognito_user" "demo" {
 # the same shape as Person.toItem(), linked via cognitoSubs to aws_cognito_user.demo's sub - which
 # is also what protects it from database-reset's Cognito-wipe pass (see admin-tools.tf's
 # RESERVED_ACCOUNT_EMAILS), not just its DynamoDB-level survival rule.
-resource "random_uuid" "demo_person_id" {}
-
 resource "aws_dynamodb_table_item" "demo_person" {
   table_name = aws_dynamodb_table.people.name
   hash_key   = aws_dynamodb_table.people.hash_key
 
   item = jsonencode({
-    id          = { S = random_uuid.demo_person_id.result }
+    id          = { S = local.demo_person_id }
     name        = { S = "Demo Strater" }
     cognitoSubs = { L = [{ S = aws_cognito_user.demo.sub }] }
   })
