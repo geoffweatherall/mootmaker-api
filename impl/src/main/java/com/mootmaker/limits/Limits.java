@@ -87,6 +87,24 @@ public final class Limits {
      */
     public static final int MAX_MEETINGS_PER_RESPONSE = 2_000;
 
+    /**
+     * How many meetings one {@code createMeetings} call may carry.
+     *
+     * <p>Not in the original design, and it exists for a specific reason: the day item and the
+     * {@code PTR#} pointer for every meeting it gains are written in ONE {@code TransactWriteItems},
+     * and DynamoDB caps that at 100 items. One day item plus 99 pointers is exactly 100. Without this
+     * limit a bulk create of 320 - which the day cap permits - would fail at the transaction rather
+     * than at validation, and the alternatives (chunking, or writing pointers outside the
+     * transaction) both give up the atomicity that makes a pointer unable to outlive its day.
+     *
+     * <p>Well clear of real use: mootmaker-demo-data creates roughly 20 meetings a day. A client
+     * wanting more makes more calls.
+     */
+    public static final int MAX_MEETINGS_PER_BULK_CREATE = 99;
+
+    /** DynamoDB's cap on items in a single transaction. */
+    public static final int DYNAMODB_MAX_TRANSACT_ITEMS = 100;
+
     /** How far ahead a meeting may be booked. With retention, bounds the table at 217 day items. */
     public static final int BOOKING_HORIZON_DAYS = 180;
 
@@ -199,6 +217,11 @@ public final class Limits {
         require((long) budget.maxDates() * budget.maxMeetingsPerDay() > budget.maxMeetingsPerResponse(),
                 "maxDates x maxMeetingsPerDay no longer exceeds maxMeetingsPerResponse, so the dynamic "
                         + "response cap is unreachable and should be reconsidered rather than quietly kept.");
+
+        require(1 + MAX_MEETINGS_PER_BULK_CREATE <= DYNAMODB_MAX_TRANSACT_ITEMS,
+                "one day item plus MAX_MEETINGS_PER_BULK_CREATE pointers exceeds DynamoDB's "
+                        + DYNAMODB_MAX_TRANSACT_ITEMS + "-item transaction cap, so a full bulk create would "
+                        + "fail at the write rather than at validation.");
 
         final long subscriptionBudget = (long) (APPSYNC_MAX_SUBSCRIPTION_BYTES * RESPONSE_SAFETY_FRACTION);
         require((long) budget.maxDates() * DATE_JSON_BYTES <= subscriptionBudget,
