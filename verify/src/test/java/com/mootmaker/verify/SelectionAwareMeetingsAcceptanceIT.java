@@ -38,8 +38,8 @@ class SelectionAwareMeetingsAcceptanceIT {
     private static final String CREATE_MEETING_MUTATION =
             "mutation CreateMeeting($meeting: MeetingInput!) { createMeeting(meeting: $meeting) { meeting { id } errors } }";
 
-    private static final String START_TIME = "2026-08-04T09:00:00";
-    private static final String END_TIME = "2026-08-04T09:30:00";
+    private static final String START_TIME = BookableDates.at("09:00:00");
+    private static final String END_TIME = BookableDates.at("09:30:00");
 
     private static GraphQlClient client;
     private static Faker faker;

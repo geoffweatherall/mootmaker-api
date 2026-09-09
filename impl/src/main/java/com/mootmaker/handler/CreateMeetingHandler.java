@@ -81,6 +81,20 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
     Meeting create(final Map<String, Object> meetingInput, final Boundaries boundaries) {
         final Validated validated = validateRequest(meetingInput, boundaries);
 
+        // Day-state rules are evaluated HERE as well as inside the write, and the duplication is
+        // deliberate. This pass exists so a caller learns everything wrong with their request at
+        // once - a missing organiser AND an unavailable room, not the first of them. The pass inside
+        // the write exists so the answer is correct under contention. Reporting and correctness are
+        // different jobs; one check cannot do both, because the reporting one has to run even when
+        // other rules have already failed.
+        final List<String> errors = new ArrayList<>(validated.errors());
+        if (validated.canInspectDay()) {
+            errors.addAll(dayStateErrors(days.read(validated.date()).meetings(), validated));
+        }
+        if (!errors.isEmpty()) {
+            throw new MeetingRejected(errors);
+        }
+
         final MeetingRecord record = new MeetingRecord(UUID.randomUUID().toString(), validated.roomId(),
                 validated.organiserId(), validated.attendeeIds(), validated.subject(),
                 validated.startTime().format(MeetingRecord.DATE_TIME_FORMAT),
@@ -89,17 +103,11 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
         try {
             days.mutate(record.date(), day -> {
                 // Re-run on every attempt, against freshly-read state. This is the whole point of
-                // mutate taking a function rather than a value.
-                final List<String> errors = new ArrayList<>();
-                if (day.meetings().size() >= Limits.MAX_MEETINGS_PER_DAY) {
-                    errors.add(MeetingError.DayIsFull.name());
-                }
-                if (!RoomAvailability.isFree(day.meetings(), record.roomId(),
-                        validated.startTime(), validated.endTime())) {
-                    errors.add(MeetingError.TimeRangeUnavailable.name());
-                }
-                if (!errors.isEmpty()) {
-                    throw new MeetingRejected(errors);
+                // mutate taking a function rather than a value: a booking that loses a version
+                // conflict must answer "is the room still free" about the day as it NOW is.
+                final List<String> conflicts = dayStateErrors(day.meetings(), validated);
+                if (!conflicts.isEmpty()) {
+                    throw new MeetingRejected(conflicts);
                 }
                 return day.withMeetings(Stream.concat(day.meetings().stream(), Stream.of(record)).toList());
             });
@@ -115,8 +123,35 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
                 record.subject(), record.startTime(), record.endTime());
     }
 
-    private record Validated(String roomId, String organiserId, List<String> attendeeIds, String subject,
-            LocalDateTime startTime, LocalDateTime endTime, Room room, Person organiser, List<Person> attendees) {
+    /**
+     * The request after checking, valid or not. Carries the errors rather than throwing them so the
+     * day-state pass can add its own before anything is reported.
+     */
+    private record Validated(List<String> errors, String roomId, String organiserId, List<String> attendeeIds,
+            String subject, LocalDateTime startTime, LocalDateTime endTime, Room room, Person organiser,
+            List<Person> attendees) {
+
+        /** Enough of the request survived to ask the day a question. */
+        boolean canInspectDay() {
+            return startTime != null && endTime != null && startTime.toLocalDate().equals(endTime.toLocalDate());
+        }
+
+        String date() {
+            return startTime.toLocalDate().toString();
+        }
+    }
+
+    /** The rules that depend on what the day already holds. */
+    private static List<String> dayStateErrors(final List<MeetingRecord> meetingsThatDay, final Validated validated) {
+        final List<String> errors = new ArrayList<>();
+        if (meetingsThatDay.size() >= Limits.MAX_MEETINGS_PER_DAY) {
+            errors.add(MeetingError.DayIsFull.name());
+        }
+        if (validated.roomId() != null && !validated.roomId().isBlank()
+                && !RoomAvailability.isFree(meetingsThatDay, validated.roomId(), validated.startTime(), validated.endTime())) {
+            errors.add(MeetingError.TimeRangeUnavailable.name());
+        }
+        return errors;
     }
 
     /** Everything checkable without reading the day. Collects every broken rule rather than stopping at the first. */
@@ -203,10 +238,8 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
             }
         }
 
-        if (!errors.isEmpty()) {
-            throw new MeetingRejected(errors);
-        }
-        return new Validated(roomId, organiserId, safeAttendeeIds, subject, startTime, endTime, room, organiser, attendees);
+        return new Validated(errors, roomId, organiserId, safeAttendeeIds, subject, startTime, endTime,
+                room, organiser, attendees);
     }
 
     private static Map<String, Object> created(final Meeting meeting) {

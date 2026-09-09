@@ -65,7 +65,7 @@ class CreateMeetingValidationAcceptanceIT {
         // :20 is on a 5-minute boundary but not a 15-minute one - specifically proves the rule is
         // 15 minutes, not just "not a multiple of 5".
         final JsonNode payload = createMeetingPayload(roomId, organiserId, List.of(attendeeId),
-                "2026-09-01T10:20:00", "2026-09-01T10:45:00");
+                BookableDates.at("10:20:00"), BookableDates.at("10:45:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.StartMissaligned.name())));
@@ -76,7 +76,7 @@ class CreateMeetingValidationAcceptanceIT {
         LOG.info("Checking endTime not aligned to a 15 minute boundary is rejected");
         // :20 is on a 5-minute boundary but not a 15-minute one - see startTimeNotOnFifteenMinuteBoundaryIsRejected.
         final JsonNode payload = createMeetingPayload(roomId, organiserId, List.of(attendeeId),
-                "2026-09-01T10:00:00", "2026-09-01T10:20:00");
+                BookableDates.at("10:00:00"), BookableDates.at("10:20:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.EndMissaligned.name())));
@@ -86,7 +86,7 @@ class CreateMeetingValidationAcceptanceIT {
     void startTimeWithNonZeroSecondsIsRejected() {
         LOG.info("Checking startTime with non-zero seconds is rejected even though the minute is on a 15 minute boundary");
         final JsonNode payload = createMeetingPayload(roomId, organiserId, List.of(attendeeId),
-                "2026-09-01T10:00:30", "2026-09-01T10:30:00");
+                BookableDates.at("10:00:30"), BookableDates.at("10:30:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.StartMissaligned.name())));
@@ -96,7 +96,7 @@ class CreateMeetingValidationAcceptanceIT {
     void blankRoomIdIsRejected() {
         LOG.info("Checking a blank roomId is rejected");
         final JsonNode payload = createMeetingPayload("", organiserId, List.of(attendeeId),
-                "2026-09-01T10:00:00", "2026-09-01T10:30:00");
+                BookableDates.at("10:00:00"), BookableDates.at("10:30:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.RoomRequired.name())));
@@ -107,7 +107,7 @@ class CreateMeetingValidationAcceptanceIT {
     void blankSubjectIsRejected() {
         LOG.info("Checking a blank subject is rejected");
         final JsonNode payload = createMeetingPayload(roomId, organiserId, List.of(attendeeId), "",
-                "2026-09-01T10:00:00", "2026-09-01T10:30:00");
+                BookableDates.at("10:00:00"), BookableDates.at("10:30:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.SubjectRequired.name())));
@@ -117,7 +117,7 @@ class CreateMeetingValidationAcceptanceIT {
     void blankOrganiserIdIsRejected() {
         LOG.info("Checking a blank organiserId is rejected");
         final JsonNode payload = createMeetingPayload(roomId, "", List.of(attendeeId),
-                "2026-09-01T10:00:00", "2026-09-01T10:30:00");
+                BookableDates.at("10:00:00"), BookableDates.at("10:30:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.OrganiserRequired.name())));
@@ -128,7 +128,7 @@ class CreateMeetingValidationAcceptanceIT {
     void organiserAlsoListedAsAttendeeIsRejected() {
         LOG.info("Checking an organiserId that also appears in attendeeIds is rejected");
         final JsonNode payload = createMeetingPayload(roomId, organiserId, List.of(organiserId, attendeeId),
-                "2026-09-01T10:00:00", "2026-09-01T10:30:00");
+                BookableDates.at("10:00:00"), BookableDates.at("10:30:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.OrganiserIsAttendee.name())));
@@ -147,7 +147,7 @@ class CreateMeetingValidationAcceptanceIT {
             attendeeIds.add(createPerson(faker.name().fullName()));
         }
         final JsonNode payload = createMeetingPayload(roomId, organiserId, attendeeIds,
-                "2026-09-01T10:00:00", "2026-09-01T10:30:00");
+                BookableDates.at("10:00:00"), BookableDates.at("10:30:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.OrganiserIsAttendee.name())));
@@ -163,7 +163,7 @@ class CreateMeetingValidationAcceptanceIT {
         }
         // organiser + ROOM_CAPACITY attendees = ROOM_CAPACITY + 1 people, one more than the room holds.
         final JsonNode payload = createMeetingPayload(roomId, organiserId, attendeeIds,
-                "2026-09-01T10:00:00", "2026-09-01T10:30:00");
+                BookableDates.at("10:00:00"), BookableDates.at("10:30:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.InsufficientCapacity.name())));
@@ -171,78 +171,78 @@ class CreateMeetingValidationAcceptanceIT {
 
     @Test
     void identicalTimeRangeOverlapIsRejected() {
-        createExistingMeeting("2026-09-01T10:00:00", "2026-09-01T11:00:00");
+        createExistingMeeting(BookableDates.at("10:00:00"), BookableDates.at("11:00:00"));
 
         LOG.info("Checking an identical time range for the same room is rejected");
-        assertOverlapRejected("2026-09-01T10:00:00", "2026-09-01T11:00:00");
+        assertOverlapRejected(BookableDates.at("10:00:00"), BookableDates.at("11:00:00"));
     }
 
     @Test
     void newMeetingFullyContainingExistingMeetingIsRejected() {
         // Existing meeting is a short window nested inside the new, larger request.
-        createExistingMeeting("2026-09-01T10:15:00", "2026-09-01T10:45:00");
+        createExistingMeeting(BookableDates.at("10:15:00"), BookableDates.at("10:45:00"));
 
         LOG.info("Checking a new meeting that fully contains a smaller existing meeting is rejected");
-        assertOverlapRejected("2026-09-01T10:00:00", "2026-09-01T11:00:00");
+        assertOverlapRejected(BookableDates.at("10:00:00"), BookableDates.at("11:00:00"));
     }
 
     @Test
     void newMeetingFullyContainedWithinExistingMeetingIsRejected() {
         // Existing meeting is a large window; the new request is a short window nested inside it.
-        createExistingMeeting("2026-09-01T10:00:00", "2026-09-01T11:00:00");
+        createExistingMeeting(BookableDates.at("10:00:00"), BookableDates.at("11:00:00"));
 
         LOG.info("Checking a new meeting fully contained within a larger existing meeting is rejected");
-        assertOverlapRejected("2026-09-01T10:15:00", "2026-09-01T10:45:00");
+        assertOverlapRejected(BookableDates.at("10:15:00"), BookableDates.at("10:45:00"));
     }
 
     @Test
     void newMeetingOverlappingStartOfExistingMeetingIsRejected() {
-        createExistingMeeting("2026-09-01T10:30:00", "2026-09-01T11:00:00");
+        createExistingMeeting(BookableDates.at("10:30:00"), BookableDates.at("11:00:00"));
 
         LOG.info("Checking a new meeting that starts before and ends during an existing meeting is rejected");
-        assertOverlapRejected("2026-09-01T10:00:00", "2026-09-01T10:45:00");
+        assertOverlapRejected(BookableDates.at("10:00:00"), BookableDates.at("10:45:00"));
     }
 
     @Test
     void newMeetingOverlappingEndOfExistingMeetingIsRejected() {
-        createExistingMeeting("2026-09-01T10:00:00", "2026-09-01T10:30:00");
+        createExistingMeeting(BookableDates.at("10:00:00"), BookableDates.at("10:30:00"));
 
         LOG.info("Checking a new meeting that starts during and ends after an existing meeting is rejected");
-        assertOverlapRejected("2026-09-01T10:15:00", "2026-09-01T11:00:00");
+        assertOverlapRejected(BookableDates.at("10:15:00"), BookableDates.at("11:00:00"));
     }
 
     @Test
     void meetingImmediatelyAfterExistingMeetingIsAllowed() {
-        createExistingMeeting("2026-09-01T10:00:00", "2026-09-01T10:30:00");
+        createExistingMeeting(BookableDates.at("10:00:00"), BookableDates.at("10:30:00"));
 
         LOG.info("Checking a new meeting starting exactly when an existing meeting ends is allowed (back-to-back)");
-        assertOverlapAllowed("2026-09-01T10:30:00", "2026-09-01T11:00:00");
+        assertOverlapAllowed(BookableDates.at("10:30:00"), BookableDates.at("11:00:00"));
     }
 
     @Test
     void meetingImmediatelyBeforeExistingMeetingIsAllowed() {
-        createExistingMeeting("2026-09-01T10:30:00", "2026-09-01T11:00:00");
+        createExistingMeeting(BookableDates.at("10:30:00"), BookableDates.at("11:00:00"));
 
         LOG.info("Checking a new meeting ending exactly when an existing meeting starts is allowed (back-to-back)");
-        assertOverlapAllowed("2026-09-01T10:00:00", "2026-09-01T10:30:00");
+        assertOverlapAllowed(BookableDates.at("10:00:00"), BookableDates.at("10:30:00"));
     }
 
     @Test
     void nonOverlappingMeetingForSameRoomIsAllowed() {
-        createExistingMeeting("2026-09-01T10:00:00", "2026-09-01T10:30:00");
+        createExistingMeeting(BookableDates.at("10:00:00"), BookableDates.at("10:30:00"));
 
         LOG.info("Checking a clearly separate time range for the same room is allowed");
-        assertOverlapAllowed("2026-09-01T10:45:00", "2026-09-01T11:00:00");
+        assertOverlapAllowed(BookableDates.at("10:45:00"), BookableDates.at("11:00:00"));
     }
 
     @Test
     void overlappingTimeRangeForDifferentRoomIsAllowed() {
-        createExistingMeeting("2026-09-01T10:00:00", "2026-09-01T11:00:00");
+        createExistingMeeting(BookableDates.at("10:00:00"), BookableDates.at("11:00:00"));
 
         LOG.info("Checking the identical time range is allowed when booked against a different room");
         final String otherRoomId = createRoom(faker.address().city() + " Room", ROOM_CAPACITY);
         final JsonNode payload = createMeetingPayload(otherRoomId, organiserId, List.of(attendeeId),
-                "2026-09-01T10:00:00", "2026-09-01T11:00:00");
+                BookableDates.at("10:00:00"), BookableDates.at("11:00:00"));
 
         assertThat(errorsOf(payload), is(empty()));
         assertThat(meetingOf(payload).isNull(), is(false));
@@ -252,7 +252,7 @@ class CreateMeetingValidationAcceptanceIT {
     void multipleValidationErrorsAreAllReturnedTogetherInOneRequest() {
         LOG.info("Checking that unrelated validation failures (missing organiser, insufficient capacity, "
                 + "unavailable time range) are all reported together rather than stopping at the first one");
-        createExistingMeeting("2026-09-01T10:00:00", "2026-09-01T11:00:00");
+        createExistingMeeting(BookableDates.at("10:00:00"), BookableDates.at("11:00:00"));
 
         final List<String> tooManyAttendees = new ArrayList<>();
         for (int i = 0; i < ROOM_CAPACITY; i++) {
@@ -261,7 +261,7 @@ class CreateMeetingValidationAcceptanceIT {
 
         // organiserId does not exist; attendee count exceeds room capacity; time range overlaps the existing meeting.
         final JsonNode payload = createMeetingPayload(roomId, "does-not-exist", tooManyAttendees,
-                "2026-09-01T10:30:00", "2026-09-01T11:30:00");
+                BookableDates.at("10:30:00"), BookableDates.at("11:30:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
         assertThat(errorsOf(payload), containsInAnyOrder(

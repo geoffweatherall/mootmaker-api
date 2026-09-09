@@ -7,6 +7,7 @@ import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
 import com.mootmaker.model.Room;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
@@ -310,6 +311,29 @@ class CreateMeetingHandlerTest {
         @SuppressWarnings("unchecked")
         final List<String> errors = (List<String>) result.get("errors");
         assertTrue(errors.contains(MeetingError.InsufficientCapacity.name()));
+        assertNull(result.get("meeting"));
+    }
+
+    @Test
+    @DisplayName("reports request errors AND day-state errors together, rather than stopping at the first kind")
+    void reportsRequestAndDayStateErrorsTogether() {
+        final MeetingRecord existing = new MeetingRecord("existing-meeting", "room-1", "organiser-1", List.of(),
+                "Existing meeting", "2026-07-01T14:00:00", "2026-07-01T15:00:00");
+        fakeClient.tables.put("Meetings", new ArrayList<>(DayFixtures.dayItems(existing)));
+
+        // A missing organiser is a request-level rule; an unavailable room is a day-state one. They are
+        // checked in different places, and an earlier version of this handler threw on the first set -
+        // so the caller learned about the organiser, fixed it, and only then discovered the room was
+        // gone. Two round trips to be told two things that were both true the first time.
+        final Map<String, Object> event = meetingArguments("room-1", "", List.of("attendee-1"),
+                "2026-07-01T14:30:00", "2026-07-01T15:30:00");
+
+        final Map<String, Object> result = invoke(event);
+
+        @SuppressWarnings("unchecked")
+        final List<String> errors = (List<String>) result.get("errors");
+        assertTrue(errors.contains(MeetingError.OrganiserRequired.name()), errors.toString());
+        assertTrue(errors.contains(MeetingError.TimeRangeUnavailable.name()), errors.toString());
         assertNull(result.get("meeting"));
     }
 
