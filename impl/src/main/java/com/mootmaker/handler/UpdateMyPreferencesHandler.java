@@ -51,7 +51,7 @@ public class UpdateMyPreferencesHandler implements RequestHandler<Map<String, Ob
         final String callerSub = (String) identity.get("sub");
 
         final Map<String, Object> result = new HashMap<>();
-        final Optional<Person> current = PersonRepository.findByCognitoSub(dynamoDbClient, tableName, callerSub);
+        final Optional<Person> current = new PersonRepository(dynamoDbClient, tableName).findByCognitoSub(callerSub);
         if (current.isEmpty()) {
             result.put("person", null);
             result.put("errors", List.of(PreferencesError.NoLinkedPerson.name()));

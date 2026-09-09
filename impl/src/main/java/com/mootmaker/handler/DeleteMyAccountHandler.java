@@ -109,7 +109,7 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
                 .username(cognitoSub)
                 .build());
 
-        final Optional<Person> person = PersonRepository.findByCognitoSub(dynamoDbClient, peopleTableName, cognitoSub);
+        final Optional<Person> person = new PersonRepository(dynamoDbClient, peopleTableName).findByCognitoSub(cognitoSub);
         person.ifPresent(this::cancelUpcomingMeetings);
         person.ifPresent(p -> dynamoDbClient.deleteItem(DeleteItemRequest.builder()
                 .tableName(peopleTableName)

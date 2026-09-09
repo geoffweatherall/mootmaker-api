@@ -50,7 +50,7 @@ final class CreateMissingPersonsRepair {
             final String cognitoSub = requireAttribute(user, "sub");
             final String email = requireAttribute(user, "email");
 
-            if (PersonRepository.findByCognitoSub(dynamoDbClient, peopleTableName, cognitoSub).isPresent()) {
+            if (new PersonRepository(dynamoDbClient, peopleTableName).findByCognitoSub(cognitoSub).isPresent()) {
                 alreadyLinked.incrementAndGet();
                 return;
             }

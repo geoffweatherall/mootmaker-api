@@ -4,6 +4,8 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.BatchLoader;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
+import com.mootmaker.dynamo.PersonRepository;
+import com.mootmaker.dynamo.RoomRepository;
 import com.mootmaker.model.MeetingParticipant;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
@@ -25,9 +27,11 @@ public class ListMeetingsHandler implements RequestHandler<Map<String, Object>, 
 
     private final DynamoDbClient dynamoDbClient;
     private final String meetingsTableName;
-    private final String roomsTableName;
-    private final String peopleTableName;
     private final String meetingParticipantsTableName;
+    // Constructed once here rather than per request, so they are swept into the SnapStart snapshot
+    // along with the DynamoDB client they share.
+    private final RoomRepository rooms;
+    private final PersonRepository people;
 
     public ListMeetingsHandler() {
         this(DynamoDbClientProvider.client(),
@@ -41,9 +45,9 @@ public class ListMeetingsHandler implements RequestHandler<Map<String, Object>, 
             final String peopleTableName, final String meetingParticipantsTableName) {
         this.dynamoDbClient = dynamoDbClient;
         this.meetingsTableName = meetingsTableName;
-        this.roomsTableName = roomsTableName;
-        this.peopleTableName = peopleTableName;
         this.meetingParticipantsTableName = meetingParticipantsTableName;
+        this.rooms = new RoomRepository(dynamoDbClient, roomsTableName);
+        this.people = new PersonRepository(dynamoDbClient, peopleTableName);
     }
 
     /** null fromStartTime/toEndTime means no range filter; same for personId. Never partially null. */
@@ -65,14 +69,12 @@ public class ListMeetingsHandler implements RequestHandler<Map<String, Object>, 
         final List<MeetingRecord> records = fetchMeetingRecords(parseFilter(event));
 
         // Rooms and people live in separate tables, so the two lookups run concurrently; within each,
-        // BatchLoader deduplicates ids and fans out over BatchGetItem so no room or person is fetched twice.
+        // the repository deduplicates ids and fans out over BatchGetItem so nothing is fetched twice.
         final CompletableFuture<Map<String, Room>> roomsById = resolveRooms
-                ? CompletableFuture.supplyAsync(() -> BatchLoader.loadById(dynamoDbClient, roomsTableName, roomIds(records)))
-                        .thenApply(ListMeetingsHandler::toRoomsById)
+                ? CompletableFuture.supplyAsync(() -> rooms.loadByIds(roomIds(records)))
                 : CompletableFuture.completedFuture(Map.of());
         final CompletableFuture<Map<String, Person>> peopleById = resolvePeople
-                ? CompletableFuture.supplyAsync(() -> BatchLoader.loadById(dynamoDbClient, peopleTableName, personIds(records)))
-                        .thenApply(ListMeetingsHandler::toPeopleById)
+                ? CompletableFuture.supplyAsync(() -> people.loadByIds(personIds(records)))
                 : CompletableFuture.completedFuture(Map.of());
 
         final Map<String, Room> rooms = roomsById.join();
@@ -263,13 +265,4 @@ public class ListMeetingsHandler implements RequestHandler<Map<String, Object>, 
         return peopleById.getOrDefault(personId, new Person(personId, "Deleted user"));
     }
 
-    private static Map<String, Room> toRoomsById(final Map<String, Map<String, AttributeValue>> itemsById) {
-        return itemsById.entrySet().stream()
-                .collect(Collectors.toMap(Map.Entry::getKey, entry -> Room.fromItem(entry.getValue())));
-    }
-
-    private static Map<String, Person> toPeopleById(final Map<String, Map<String, AttributeValue>> itemsById) {
-        return itemsById.entrySet().stream()
-                .collect(Collectors.toMap(Map.Entry::getKey, entry -> Person.fromItem(entry.getValue())));
-    }
 }
