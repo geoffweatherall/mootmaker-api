@@ -79,7 +79,7 @@ public class PostConfirmationCreatePersonHandler implements RequestHandler<Map<S
         final String name = (String) userAttributes.get("name");
 
         try {
-            if (PersonRepository.findByCognitoSub(dynamoDbClient, tableName, cognitoSub).isPresent()) {
+            if (new PersonRepository(dynamoDbClient, tableName).findByCognitoSub(cognitoSub).isPresent()) {
                 LOGGER.info("Person already exists for confirmed sign-up '{}', skipping creation", name);
                 return;
             }

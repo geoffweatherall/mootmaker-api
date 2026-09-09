@@ -1,5 +1,7 @@
 package com.mootmaker.handler;
 
+import com.mootmaker.testsupport.FakeDynamoDbClient;
+import com.mootmaker.testsupport.FakeCognitoIdentityProviderClient;
 import com.mootmaker.model.Person;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AttributeType;

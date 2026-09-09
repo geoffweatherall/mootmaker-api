@@ -1,6 +1,8 @@
 package com.mootmaker.handler;
 
-import com.mootmaker.model.MeetingParticipant;
+import com.mootmaker.testsupport.DayFixtures;
+import com.mootmaker.testsupport.FakeDynamoDbClient;
+import com.mootmaker.testsupport.FakeCognitoIdentityProviderClient;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
 import org.junit.jupiter.api.Test;
@@ -18,7 +20,6 @@ class DatabaseResetTest {
     private static final String ROOMS_TABLE = "Rooms";
     private static final String PEOPLE_TABLE = "People";
     private static final String MEETINGS_TABLE = "Meetings";
-    private static final String PARTICIPANTS_TABLE = "MeetingParticipants";
     private static final String USER_POOL_ID = "pool-1";
 
     private static Map<String, AttributeValue> room(final String id) {
@@ -78,25 +79,32 @@ class DatabaseResetTest {
     }
 
     @Test
-    void deleteAllMeetingsAndParticipantsRemovesEveryMeetingAndItsParticipantRows() {
+    void deleteAllMeetingsRemovesEveryDayAndPointerButKeepsTheRetentionBoundary() {
         final FakeDynamoDbClient dynamoDbClient = new FakeDynamoDbClient();
         final MeetingRecord meeting = meeting("meeting-1", "organiser-1", List.of("attendee-1"));
-        dynamoDbClient.tables.put(MEETINGS_TABLE, new ArrayList<>(List.of(meeting.toItem())));
-        dynamoDbClient.tables.put(PARTICIPANTS_TABLE, new ArrayList<>(
-                MeetingParticipant.allFor(meeting).stream().map(MeetingParticipant::toItem).toList()));
+        dynamoDbClient.tables.put(MEETINGS_TABLE, new ArrayList<>(DayFixtures.dayItems(meeting)));
 
-        final int deleted = DatabaseReset.deleteAllMeetingsAndParticipants(dynamoDbClient, MEETINGS_TABLE, PARTICIPANTS_TABLE);
+        final int deleted = DatabaseReset.deleteAllMeetings(dynamoDbClient, MEETINGS_TABLE);
 
-        assertEquals(1, deleted);
-        assertTrue(dynamoDbClient.tables.get(MEETINGS_TABLE).isEmpty());
-        assertTrue(dynamoDbClient.tables.get(PARTICIPANTS_TABLE).isEmpty());
+        assertEquals(1, deleted, "the count is meetings removed, not items");
+        assertTrue(DayFixtures.meetingsIn(dynamoDbClient, MEETINGS_TABLE).isEmpty());
+        assertTrue(dynamoDbClient.tables.get(MEETINGS_TABLE).stream()
+                        .noneMatch(item -> item.get("pk").s().startsWith("PTR#")),
+                "pointers must go with their days");
+
+        // The one thing a reset must NOT remove. It is configuration seeded by Terraform, and without
+        // it every subsequent booking fails because the bookable window cannot be computed - leaving an
+        // environment that looks reset and refuses every write.
+        assertEquals(1, dynamoDbClient.tables.get(MEETINGS_TABLE).size(),
+                "only the retention config should remain");
+        assertEquals("CONFIG#retention", dynamoDbClient.tables.get(MEETINGS_TABLE).getFirst().get("pk").s());
     }
 
     @Test
-    void deleteAllMeetingsAndParticipantsSucceedsWhenTablesAreAlreadyEmpty() {
+    void deleteAllMeetingsSucceedsWhenTheTableIsAlreadyEmpty() {
         final FakeDynamoDbClient dynamoDbClient = new FakeDynamoDbClient();
 
-        final int deleted = DatabaseReset.deleteAllMeetingsAndParticipants(dynamoDbClient, MEETINGS_TABLE, PARTICIPANTS_TABLE);
+        final int deleted = DatabaseReset.deleteAllMeetings(dynamoDbClient, MEETINGS_TABLE);
 
         assertEquals(0, deleted);
     }

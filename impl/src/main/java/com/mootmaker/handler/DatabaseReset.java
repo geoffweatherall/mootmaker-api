@@ -1,7 +1,8 @@
 package com.mootmaker.handler;
 
 import com.mootmaker.concurrent.ConcurrencyUtils;
-import com.mootmaker.model.MeetingParticipant;
+import com.mootmaker.dynamo.DayRepository;
+import com.mootmaker.model.Day;
 import com.mootmaker.model.MeetingRecord;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminDeleteUserRequest;
@@ -126,31 +127,34 @@ final class DatabaseReset {
     }
 
     /**
-     * meeting-participants is a derived index of the meetings table (see {@link MeetingParticipant}),
-     * not a source of truth, so every meeting's participant rows are deleted alongside it here -
-     * their keys are computed from the meeting item already being read, rather than needing a
-     * separate scan of the participants table.
+     * Deletes every day item and every {@code id -> date} pointer from the meetings table.
+     *
+     * <p><b>The {@code CONFIG#retention} item is deliberately preserved.</b> It is configuration
+     * seeded by Terraform when the table is created, not data - and it is load-bearing: without it
+     * every subsequent booking fails, because the bookable window cannot be computed. A reset that
+     * wiped the whole table would leave an environment that looks fine and refuses every write.
+     *
+     * <p>Pointers go with their days here rather than being left to dangle. Nothing would break if
+     * they were orphaned - {@code meeting(id:)} resolves a pointer, reads the day, finds nothing and
+     * answers not-found - but leaving rows behind after a reset would make "the table is empty" false
+     * in a way that a later test would eventually trip over.
      */
-    static int deleteAllMeetingsAndParticipants(final DynamoDbClient dynamoDbClient, final String meetingsTableName,
-            final String meetingParticipantsTableName) {
-        final List<MeetingRecord> meetings = scan(dynamoDbClient, meetingsTableName).stream()
-                .map(MeetingRecord::fromItem)
+    static int deleteAllMeetings(final DynamoDbClient dynamoDbClient, final String meetingsTableName) {
+        final List<Map<String, AttributeValue>> toDelete = scan(dynamoDbClient, meetingsTableName).stream()
+                .filter(item -> item.containsKey("pk"))
+                .filter(item -> !DayRepository.RETENTION_CONFIG_PK.equals(item.get("pk").s()))
                 .toList();
-        ConcurrencyUtils.runInParallel(meetings, meeting -> {
-            for (final MeetingParticipant participant : MeetingParticipant.allFor(meeting)) {
-                dynamoDbClient.deleteItem(DeleteItemRequest.builder()
-                        .tableName(meetingParticipantsTableName)
-                        .key(Map.of(
-                                "personId", AttributeValue.builder().s(participant.personId()).build(),
-                                "sortKey", AttributeValue.builder().s(participant.sortKey()).build()))
-                        .build());
-            }
-            dynamoDbClient.deleteItem(DeleteItemRequest.builder()
-                    .tableName(meetingsTableName)
-                    .key(Map.of("id", AttributeValue.builder().s(meeting.id()).build()))
-                    .build());
-        });
-        return meetings.size();
+
+        final int meetingsRemoved = toDelete.stream()
+                .filter(item -> item.get("pk").s().startsWith(Day.PK_PREFIX))
+                .mapToInt(item -> item.get("meetings").l().size())
+                .sum();
+
+        ConcurrencyUtils.runInParallel(toDelete, item -> dynamoDbClient.deleteItem(DeleteItemRequest.builder()
+                .tableName(meetingsTableName)
+                .key(Map.of("pk", item.get("pk")))
+                .build()));
+        return meetingsRemoved;
     }
 
     private static List<UserType> listAllUsers(final CognitoIdentityProviderClient cognitoClient, final String userPoolId) {

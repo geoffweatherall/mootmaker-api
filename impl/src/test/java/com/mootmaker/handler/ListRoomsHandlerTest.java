@@ -1,5 +1,6 @@
 package com.mootmaker.handler;
 
+import com.mootmaker.testsupport.FakeDynamoDbClient;
 import com.mootmaker.model.Room;
 import org.junit.jupiter.api.Test;
 

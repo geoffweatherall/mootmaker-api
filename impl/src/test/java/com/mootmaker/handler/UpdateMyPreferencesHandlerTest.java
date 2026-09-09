@@ -1,5 +1,6 @@
 package com.mootmaker.handler;
 
+import com.mootmaker.testsupport.FakeDynamoDbClient;
 import com.mootmaker.model.DateFormat;
 import com.mootmaker.model.Person;
 import com.mootmaker.model.TimeFormat;

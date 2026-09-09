@@ -2,6 +2,7 @@ package com.mootmaker.handler;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.mootmaker.limits.Limits;
 
 import module java.base;
 
@@ -12,16 +13,25 @@ import module java.base;
  * instead of each field independently paying its own SnapStart restore. Purely a switchboard: all
  * business logic still lives in the per-field handler classes below, unchanged.
  *
- * <p>AppSync's {@code $context.info} ({@code fieldName}, {@code parentTypeName}) is already
- * present in every request today via the shared pass-through request template
- * ({@code $util.toJson($ctx)}), so no resolver/template changes were needed to add routing - this
- * class is the only new piece.
+ * <p>Routes on AppSync's {@code $context.info} ({@code fieldName}, {@code parentTypeName}), which the
+ * shared request template in {@code appsync.tf} serialises explicitly. It used to be a pass-through
+ * ({@code $util.toJson($ctx)}) that included those for free; it now names every field it sends,
+ * because {@code selectionSetList} is not serialised unless it is asked for by name.
+ *
+ * <p>The constructor runs {@link Limits#assertConsistent()} before anything else - a statement before
+ * {@code this(...)}, which Java 25's flexible constructor bodies allow. That placement is deliberate:
+ * SnapStart executes init when a version is published, so inconsistent limits fail the deploy.
  */
 public class ResolverDispatchHandler implements RequestHandler<Map<String, Object>, Object> {
 
     private final Map<String, RequestHandler<Map<String, Object>, Object>> handlersByRoutingKey;
 
     public ResolverDispatchHandler() {
+        // Layer 1 of the item-size guarantee, and it runs HERE for a reason: SnapStart executes init
+        // when a Lambda version is published, so a set of limits that cannot hold its guarantees fails
+        // the deploy rather than someone's booking. Without this the guarantee is a comment.
+        Limits.assertConsistent();
+
         // Constructed eagerly (one new XxxHandler() per entry) rather than looked up/instantiated
         // per-request, so every operation is exercised during Lambda INIT and swept into the
         // SnapStart snapshot - matching DynamoDbClientProvider's own priming strategy. This does

@@ -57,8 +57,8 @@ class CreateMeetingAcceptanceIT {
         final String attendeeId = attendeeResult.get("createPerson").get("id").asText();
 
         final String subject = faker.company().catchPhrase();
-        final String startTime = "2026-08-01T10:00:00";
-        final String endTime = "2026-08-01T10:30:00";
+        final String startTime = BookableDates.at("10:00:00");
+        final String endTime = BookableDates.at("10:30:00");
         LOG.info("Creating meeting for room '{}' from {} to {}", roomName, startTime, endTime);
         final JsonNode createMeetingResult = client.execute(
                 "mutation CreateMeeting($meeting: MeetingInput!) { createMeeting(meeting: $meeting) { meeting { "

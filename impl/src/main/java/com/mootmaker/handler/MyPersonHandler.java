@@ -35,7 +35,7 @@ public class MyPersonHandler implements RequestHandler<Map<String, Object>, Obje
         final Map<String, Object> identity = castToMap(event.get("identity"));
         final String cognitoSub = (String) identity.get("sub");
 
-        return PersonRepository.findByCognitoSub(dynamoDbClient, tableName, cognitoSub)
+        return new PersonRepository(dynamoDbClient, tableName).findByCognitoSub(cognitoSub)
                 .map(Person::toResponseMap)
                 .orElse(null);
     }

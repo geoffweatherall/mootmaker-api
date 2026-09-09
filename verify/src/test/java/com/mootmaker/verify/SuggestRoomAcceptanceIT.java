@@ -86,8 +86,8 @@ class SuggestRoomAcceptanceIT {
 
         final String organiserId = createPerson(faker.name().fullName());
 
-        final String startTime = "2026-08-02T10:00:00";
-        final String endTime = "2026-08-02T10:30:00";
+        final String startTime = BookableDates.at("10:00:00");
+        final String endTime = BookableDates.at("10:30:00");
 
         LOG.info("Suggesting rooms for 3 people - expecting both, smallest surplus first");
         final JsonNode bothRooms = suggestRoom(startTime, endTime, 3);

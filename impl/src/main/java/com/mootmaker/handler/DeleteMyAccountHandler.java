@@ -3,10 +3,10 @@ package com.mootmaker.handler;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.cognito.CognitoIdentityProviderClientProvider;
-import com.mootmaker.dynamo.BatchLoader;
+import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.PersonRepository;
-import com.mootmaker.model.MeetingParticipant;
+import com.mootmaker.model.Day;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
 import org.slf4j.Logger;
@@ -62,8 +62,7 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
     private final DynamoDbClient dynamoDbClient;
     private final CognitoIdentityProviderClient cognitoClient;
     private final String peopleTableName;
-    private final String meetingsTableName;
-    private final String meetingParticipantsTableName;
+    private final DayRepository days;
     private final String userPoolId;
     private final Set<String> reservedAccountEmails;
 
@@ -71,19 +70,17 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
         this(DynamoDbClientProvider.client(), CognitoIdentityProviderClientProvider.client(),
                 System.getenv().getOrDefault("PEOPLE_TABLE_NAME", "People"),
                 System.getenv().getOrDefault("MEETINGS_TABLE_NAME", "Meetings"),
-                System.getenv().getOrDefault("MEETING_PARTICIPANTS_TABLE_NAME", "MeetingParticipants"),
                 System.getenv("COGNITO_USER_POOL_ID"),
                 parseReservedEmails(System.getenv("RESERVED_ACCOUNT_EMAILS")));
     }
 
     DeleteMyAccountHandler(final DynamoDbClient dynamoDbClient, final CognitoIdentityProviderClient cognitoClient,
-            final String peopleTableName, final String meetingsTableName, final String meetingParticipantsTableName,
+            final String peopleTableName, final String meetingsTableName,
             final String userPoolId, final Set<String> reservedAccountEmails) {
         this.dynamoDbClient = dynamoDbClient;
         this.cognitoClient = cognitoClient;
         this.peopleTableName = peopleTableName;
-        this.meetingsTableName = meetingsTableName;
-        this.meetingParticipantsTableName = meetingParticipantsTableName;
+        this.days = new DayRepository(dynamoDbClient, meetingsTableName);
         this.userPoolId = userPoolId;
         this.reservedAccountEmails = reservedAccountEmails;
     }
@@ -109,7 +106,7 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
                 .username(cognitoSub)
                 .build());
 
-        final Optional<Person> person = PersonRepository.findByCognitoSub(dynamoDbClient, peopleTableName, cognitoSub);
+        final Optional<Person> person = new PersonRepository(dynamoDbClient, peopleTableName).findByCognitoSub(cognitoSub);
         person.ifPresent(this::cancelUpcomingMeetings);
         person.ifPresent(p -> dynamoDbClient.deleteItem(DeleteItemRequest.builder()
                 .tableName(peopleTableName)
@@ -120,86 +117,56 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
         return true;
     }
 
+    /**
+     * Cancels every upcoming meeting this person organises, and removes them as an attendee from every
+     * other upcoming one. Past meetings are left untouched, as before.
+     *
+     * <p>Found by <b>scanning day items</b>, which is what replaced the {@code meeting-participants}
+     * join table. That table existed to answer one question - "every meeting this person is in, with no
+     * date range" - for this one rare operation, at the cost of a row per participant per meeting kept
+     * consistent on every write. The booking horizon and retention bound the table at 217 day items, so
+     * a scan is both trivial and, unlike a computed range of horizon dates, exact: it cannot miss a day
+     * the arithmetic got wrong.
+     *
+     * <p>Each affected day goes through {@code mutate}, so the filtering re-runs against freshly-read
+     * state and the {@code PTR#} pointers of cancelled meetings are removed in the same transaction as
+     * the day - the repository diffs the meeting ids, so no caller has to remember to.
+     */
     private void cancelUpcomingMeetings(final Person person) {
         final String now = LocalDateTime.now().format(MeetingRecord.DATE_TIME_FORMAT);
-        final List<String> meetingIds = queryParticipantMeetingIds(person.id());
-        final Map<String, Map<String, AttributeValue>> itemsById =
-                BatchLoader.loadById(dynamoDbClient, meetingsTableName, Set.copyOf(meetingIds));
+        final List<String> affectedDates = days.scanDays().stream()
+                .filter(day -> day.meetings().stream().anyMatch(meeting -> isUpcomingAndInvolves(meeting, person.id(), now)))
+                .map(Day::date)
+                .toList();
 
-        for (final Map<String, AttributeValue> item : itemsById.values()) {
-            final MeetingRecord meeting = MeetingRecord.fromItem(item);
-            if (meeting.startTime().compareTo(now) < 0) {
-                continue; // past meeting - left untouched, see class javadoc
-            }
-            if (meeting.organiserId().equals(person.id())) {
-                cancelMeeting(meeting);
-            } else {
-                removeAttendee(meeting, person.id());
-            }
+        for (final String date : affectedDates) {
+            days.mutate(date, day -> day.withMeetings(day.meetings().stream()
+                    .filter(meeting -> !isUpcomingOrganisedBy(meeting, person.id(), now))
+                    .map(meeting -> isUpcoming(meeting, now) ? withoutAttendee(meeting, person.id()) : meeting)
+                    .toList()));
         }
     }
 
-    /** Deletes the meeting and every one of its meeting-participants rows in one transaction. */
-    private void cancelMeeting(final MeetingRecord meeting) {
-        final List<TransactWriteItem> transactItems = new ArrayList<>();
-        transactItems.add(TransactWriteItem.builder()
-                .delete(Delete.builder()
-                        .tableName(meetingsTableName)
-                        .key(Map.of("id", AttributeValue.builder().s(meeting.id()).build()))
-                        .build())
-                .build());
-        for (final MeetingParticipant participant : MeetingParticipant.allFor(meeting)) {
-            transactItems.add(TransactWriteItem.builder()
-                    .delete(Delete.builder()
-                            .tableName(meetingParticipantsTableName)
-                            .key(participantKey(participant))
-                            .build())
-                    .build());
+    private static boolean isUpcoming(final MeetingRecord meeting, final String now) {
+        return meeting.startTime().compareTo(now) >= 0;
+    }
+
+    private static boolean isUpcomingOrganisedBy(final MeetingRecord meeting, final String personId, final String now) {
+        return isUpcoming(meeting, now) && meeting.organiserId().equals(personId);
+    }
+
+    private static boolean isUpcomingAndInvolves(final MeetingRecord meeting, final String personId, final String now) {
+        return isUpcoming(meeting, now)
+                && (meeting.organiserId().equals(personId) || meeting.attendeeIds().contains(personId));
+    }
+
+    private static MeetingRecord withoutAttendee(final MeetingRecord meeting, final String personId) {
+        if (!meeting.attendeeIds().contains(personId)) {
+            return meeting;
         }
-        dynamoDbClient.transactWriteItems(TransactWriteItemsRequest.builder().transactItems(transactItems).build());
-    }
-
-    /** Removes personId from the meeting's attendee list and deletes just their own participant row. */
-    private void removeAttendee(final MeetingRecord meeting, final String personId) {
-        final List<String> remainingAttendeeIds = meeting.attendeeIds().stream()
-                .filter(attendeeId -> !attendeeId.equals(personId))
-                .toList();
-        final MeetingRecord updated = new MeetingRecord(meeting.id(), meeting.roomId(), meeting.organiserId(),
-                remainingAttendeeIds, meeting.subject(), meeting.startTime(), meeting.endTime());
-        final MeetingParticipant ownParticipantRow =
-                new MeetingParticipant(personId, meeting.id(), meeting.startTime(), meeting.endTime());
-
-        dynamoDbClient.transactWriteItems(TransactWriteItemsRequest.builder()
-                .transactItems(List.of(
-                        TransactWriteItem.builder()
-                                .put(Put.builder().tableName(meetingsTableName).item(updated.toItem()).build())
-                                .build(),
-                        TransactWriteItem.builder()
-                                .delete(Delete.builder()
-                                        .tableName(meetingParticipantsTableName)
-                                        .key(participantKey(ownParticipantRow))
-                                        .build())
-                                .build()))
-                .build());
-    }
-
-    private static Map<String, AttributeValue> participantKey(final MeetingParticipant participant) {
-        return Map.of(
-                "personId", AttributeValue.builder().s(participant.personId()).build(),
-                "sortKey", AttributeValue.builder().s(participant.sortKey()).build());
-    }
-
-    private List<String> queryParticipantMeetingIds(final String personId) {
-        final QueryResponse response = dynamoDbClient.query(QueryRequest.builder()
-                .tableName(meetingParticipantsTableName)
-                .keyConditionExpression("personId = :personId")
-                .expressionAttributeValues(Map.of(":personId", AttributeValue.builder().s(personId).build()))
-                .build());
-        return response.items().stream()
-                .map(MeetingParticipant::fromItem)
-                .map(MeetingParticipant::meetingId)
-                .distinct()
-                .toList();
+        return new MeetingRecord(meeting.id(), meeting.roomId(), meeting.organiserId(),
+                meeting.attendeeIds().stream().filter(id -> !id.equals(personId)).toList(),
+                meeting.subject(), meeting.startTime(), meeting.endTime());
     }
 
     private static Set<String> parseReservedEmails(final String csv) {

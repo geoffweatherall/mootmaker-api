@@ -45,7 +45,6 @@ data "aws_iam_policy_document" "lambda_dynamodb_access" {
       aws_dynamodb_table.rooms.arn,
       aws_dynamodb_table.people.arn,
       aws_dynamodb_table.meetings.arn,
-      aws_dynamodb_table.meeting_participants.arn,
       # DynamoDB treats a table's GSIs as separate resources from the table itself, so querying
       # them needs its own grant even though the handler already has access to the table: the
       # people table's cognitoSub-index (see PostConfirmationCreatePersonHandler), and the

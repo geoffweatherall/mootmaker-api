@@ -3,7 +3,9 @@ package com.mootmaker.handler;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
+import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.dynamo.RoomAvailability;
+import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Room;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
@@ -24,7 +26,7 @@ public class SuggestRoomHandler implements RequestHandler<Map<String, Object>, O
 
     private final DynamoDbClient dynamoDbClient;
     private final String roomsTableName;
-    private final String meetingsTableName;
+    private final DayRepository days;
 
     public SuggestRoomHandler() {
         this(DynamoDbClientProvider.client(),
@@ -35,7 +37,7 @@ public class SuggestRoomHandler implements RequestHandler<Map<String, Object>, O
     SuggestRoomHandler(final DynamoDbClient dynamoDbClient, final String roomsTableName, final String meetingsTableName) {
         this.dynamoDbClient = dynamoDbClient;
         this.roomsTableName = roomsTableName;
-        this.meetingsTableName = meetingsTableName;
+        this.days = new DayRepository(dynamoDbClient, meetingsTableName);
     }
 
     @Override
@@ -62,8 +64,13 @@ public class SuggestRoomHandler implements RequestHandler<Map<String, Object>, O
                 .sorted(Comparator.comparingInt(Room::capacity).thenComparing(Room::name))
                 .toList();
 
+        // One read of the day, then every candidate is checked against it in memory. This used to be
+        // one GSI query PER CANDIDATE ROOM - the day item collapses that into a single lookup, which
+        // is the same collapse that let both meetings GSIs be deleted.
+        final List<MeetingRecord> meetingsThatDay = days.read(startTime.toLocalDate().toString()).meetings();
+
         return candidates.stream()
-                .filter(candidate -> !RoomAvailability.hasOverlappingMeeting(dynamoDbClient, meetingsTableName, candidate.id(), startTime, endTime))
+                .filter(candidate -> RoomAvailability.isFree(meetingsThatDay, candidate.id(), startTime, endTime))
                 .map(Room::toResponseMap)
                 .toList();
     }

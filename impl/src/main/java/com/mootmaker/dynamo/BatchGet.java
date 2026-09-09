@@ -5,36 +5,45 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.BatchGetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.BatchGetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.KeysAndAttributes;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 
 import module java.base;
 
 /**
- * Looks up a set of ids in a single table keyed by {@code id}, deduplicating repeated ids and
- * batching requests via {@code BatchGetItem} (max 100 keys per request, so more than 100 distinct
- * ids are split into chunks fetched in parallel). Used to resolve the room/organiser/attendee ids
- * stored on a {@link com.mootmaker.model.MeetingRecord} back into full {@code Room}/{@code
- * Person} items without looking up the same id twice.
+ * The DynamoDB mechanics shared by {@link RoomRepository} and {@code PersonRepository} - both are
+ * small tables keyed by a plain {@code id}, and neither has invariants of its own worth guarding the
+ * way a day item does. Package-private on purpose: this is plumbing for the repositories, not a
+ * general-purpose helper for handlers to reach for. That distinction is what the old {@code
+ * BatchLoader} lost by being public and parameterised by table name.
  */
-public final class BatchLoader {
+final class BatchGet {
 
     private static final int BATCH_GET_ITEM_LIMIT = 100;
 
-    private BatchLoader() {
+    private BatchGet() {
     }
 
-    public static Map<String, Map<String, AttributeValue>> loadById(
+    static Map<String, Map<String, AttributeValue>> byId(
             final DynamoDbClient dynamoDbClient, final String tableName, final Set<String> ids) {
         if (ids.isEmpty()) {
             return Map.of();
         }
-        final List<List<String>> chunks = chunk(List.copyOf(ids), BATCH_GET_ITEM_LIMIT);
-        return chunks.stream()
+        return chunk(List.copyOf(ids)).stream()
                 .map(chunkIds -> CompletableFuture.supplyAsync(() -> fetchChunk(dynamoDbClient, tableName, chunkIds)))
                 .toList()
                 .stream()
                 .map(CompletableFuture::join)
                 .flatMap(List::stream)
-                .collect(Collectors.toMap(item -> item.get("id").s(), Function.identity()));
+                .collect(Collectors.toMap(item -> item.get("id").s(), Function.identity(), (first, _) -> first));
+    }
+
+    static List<Map<String, AttributeValue>> scan(final DynamoDbClient dynamoDbClient, final String tableName) {
+        return dynamoDbClient.scan(ScanRequest.builder().tableName(tableName).consistentRead(true).build()).items();
+    }
+
+    static void put(final DynamoDbClient dynamoDbClient, final String tableName, final Map<String, AttributeValue> item) {
+        dynamoDbClient.putItem(PutItemRequest.builder().tableName(tableName).item(item).build());
     }
 
     private static List<Map<String, AttributeValue>> fetchChunk(
@@ -53,10 +62,10 @@ public final class BatchLoader {
         return items;
     }
 
-    private static <T> List<List<T>> chunk(final List<T> items, final int size) {
+    private static <T> List<List<T>> chunk(final List<T> items) {
         final List<List<T>> chunks = new ArrayList<>();
-        for (int i = 0; i < items.size(); i += size) {
-            chunks.add(items.subList(i, Math.min(i + size, items.size())));
+        for (int i = 0; i < items.size(); i += BATCH_GET_ITEM_LIMIT) {
+            chunks.add(items.subList(i, Math.min(i + BATCH_GET_ITEM_LIMIT, items.size())));
         }
         return chunks;
     }

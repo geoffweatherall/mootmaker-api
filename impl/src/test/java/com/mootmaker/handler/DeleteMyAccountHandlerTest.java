@@ -1,6 +1,8 @@
 package com.mootmaker.handler;
 
-import com.mootmaker.model.MeetingParticipant;
+import com.mootmaker.testsupport.DayFixtures;
+import com.mootmaker.testsupport.FakeDynamoDbClient;
+import com.mootmaker.testsupport.FakeCognitoIdentityProviderClient;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
 import org.junit.jupiter.api.Test;
@@ -17,7 +19,6 @@ class DeleteMyAccountHandlerTest {
     private static final String USER_POOL_ID = "pool-1";
     private static final String PEOPLE_TABLE = "People";
     private static final String MEETINGS_TABLE = "Meetings";
-    private static final String PARTICIPANTS_TABLE = "MeetingParticipants";
 
     private static final String PAST = "2020-01-01T09:00:00";
     private static final String PAST_END = "2020-01-01T09:30:00";
@@ -38,18 +39,23 @@ class DeleteMyAccountHandlerTest {
     }
 
     private void putMeetingAndParticipants(final FakeDynamoDbClient client, final MeetingRecord meeting) {
-        client.tables.computeIfAbsent(MEETINGS_TABLE, _ -> new ArrayList<>()).add(meeting.toItem());
-        for (final MeetingParticipant participant : MeetingParticipant.allFor(meeting)) {
-            client.tables.computeIfAbsent(PARTICIPANTS_TABLE, _ -> new ArrayList<>()).add(participant.toItem());
-        }
+        DayFixtures.addMeeting(client, MEETINGS_TABLE, meeting);
     }
 
     private List<MeetingRecord> meetingsRemaining(final FakeDynamoDbClient client) {
-        return client.tables.getOrDefault(MEETINGS_TABLE, List.of()).stream().map(MeetingRecord::fromItem).toList();
+        return DayFixtures.meetingsIn(client, MEETINGS_TABLE);
     }
 
-    private List<MeetingParticipant> participantsRemaining(final FakeDynamoDbClient client) {
-        return client.tables.getOrDefault(PARTICIPANTS_TABLE, List.of()).stream().map(MeetingParticipant::fromItem).toList();
+    /**
+     * There is no participants table any more, so "was this person's row removed" is asked of the
+     * meetings themselves. That is a better question than the old one: it checks the fact users care
+     * about - who is on the meeting - rather than the state of a derived index that no longer exists.
+     */
+    private List<String> participantIdsRemaining(final FakeDynamoDbClient client) {
+        return meetingsRemaining(client).stream()
+                .flatMap(meeting -> Stream.concat(Stream.of(meeting.organiserId()), meeting.attendeeIds().stream()))
+                .distinct()
+                .toList();
     }
 
     @Test
@@ -58,7 +64,7 @@ class DeleteMyAccountHandlerTest {
         dynamoDbClient.tables.put(PEOPLE_TABLE, new ArrayList<>(List.of(new Person("person-a", "Ada", "sub-a").toItem())));
         final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
         final DeleteMyAccountHandler handler = new DeleteMyAccountHandler(dynamoDbClient, cognitoClient,
-                PEOPLE_TABLE, MEETINGS_TABLE, PARTICIPANTS_TABLE, USER_POOL_ID, Set.of());
+                PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of());
 
         final Object result = handler.handleRequest(deleteEvent("sub-a", "ada@example.com"), null);
 
@@ -77,12 +83,12 @@ class DeleteMyAccountHandlerTest {
                 new MeetingRecord("meeting-1", "room-1", "person-a", List.of("person-b"), "Standup", FUTURE, FUTURE_END));
         final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
         final DeleteMyAccountHandler handler = new DeleteMyAccountHandler(dynamoDbClient, cognitoClient,
-                PEOPLE_TABLE, MEETINGS_TABLE, PARTICIPANTS_TABLE, USER_POOL_ID, Set.of());
+                PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of());
 
         handler.handleRequest(deleteEvent("sub-a", "ada@example.com"), null);
 
         assertTrue(meetingsRemaining(dynamoDbClient).isEmpty(), "the organised meeting should be deleted entirely");
-        assertTrue(participantsRemaining(dynamoDbClient).isEmpty(), "every participant row for that meeting should be gone");
+        assertTrue(participantIdsRemaining(dynamoDbClient).isEmpty(), "nobody should be left on any meeting");
     }
 
     @Test
@@ -93,7 +99,7 @@ class DeleteMyAccountHandlerTest {
                 new MeetingRecord("meeting-2", "room-1", "person-b", List.of("person-a", "person-c"), "Planning", FUTURE, FUTURE_END));
         final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
         final DeleteMyAccountHandler handler = new DeleteMyAccountHandler(dynamoDbClient, cognitoClient,
-                PEOPLE_TABLE, MEETINGS_TABLE, PARTICIPANTS_TABLE, USER_POOL_ID, Set.of());
+                PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of());
 
         handler.handleRequest(deleteEvent("sub-a", "ada@example.com"), null);
 
@@ -101,12 +107,10 @@ class DeleteMyAccountHandlerTest {
         assertEquals(1, remainingMeetings.size(), "the meeting itself must survive - the caller only attended it");
         assertEquals(List.of("person-c"), remainingMeetings.getFirst().attendeeIds());
 
-        final List<String> remainingParticipantIds = participantsRemaining(dynamoDbClient).stream()
-                .map(MeetingParticipant::personId)
-                .toList();
-        assertFalse(remainingParticipantIds.contains("person-a"), "the caller's own participant row must be gone");
-        assertTrue(remainingParticipantIds.contains("person-b"), "the organiser's participant row must survive");
-        assertTrue(remainingParticipantIds.contains("person-c"), "the other attendee's participant row must survive");
+        final List<String> remainingParticipantIds = participantIdsRemaining(dynamoDbClient);
+        assertFalse(remainingParticipantIds.contains("person-a"), "the caller must be off the meeting");
+        assertTrue(remainingParticipantIds.contains("person-b"), "the organiser must remain");
+        assertTrue(remainingParticipantIds.contains("person-c"), "the other attendee must remain");
     }
 
     @Test
@@ -119,12 +123,13 @@ class DeleteMyAccountHandlerTest {
                 new MeetingRecord("meeting-4", "room-1", "person-b", List.of("person-a"), "Old planning", PAST, PAST_END));
         final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
         final DeleteMyAccountHandler handler = new DeleteMyAccountHandler(dynamoDbClient, cognitoClient,
-                PEOPLE_TABLE, MEETINGS_TABLE, PARTICIPANTS_TABLE, USER_POOL_ID, Set.of());
+                PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of());
 
         handler.handleRequest(deleteEvent("sub-a", "ada@example.com"), null);
 
         assertEquals(2, meetingsRemaining(dynamoDbClient).size(), "past meetings must not be touched at all");
-        assertEquals(4, participantsRemaining(dynamoDbClient).size(), "past meetings' participant rows must not be touched either");
+        assertEquals(List.of("person-a", "person-b"), participantIdsRemaining(dynamoDbClient).stream().sorted().toList(),
+                "past meetings must keep everyone who was on them");
     }
 
     @Test
@@ -133,7 +138,7 @@ class DeleteMyAccountHandlerTest {
         dynamoDbClient.tables.put(PEOPLE_TABLE, new ArrayList<>(List.of(new Person("demo-person", "Demo Strater", "sub-demo").toItem())));
         final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
         final DeleteMyAccountHandler handler = new DeleteMyAccountHandler(dynamoDbClient, cognitoClient,
-                PEOPLE_TABLE, MEETINGS_TABLE, PARTICIPANTS_TABLE, USER_POOL_ID, Set.of("demo@mootmaker.com"));
+                PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of("demo@mootmaker.com"));
 
         final Map<String, Object> event = deleteEvent("sub-demo", "demo@mootmaker.com");
         assertThrows(IllegalStateException.class, () -> handler.handleRequest(event, null));
@@ -147,7 +152,7 @@ class DeleteMyAccountHandlerTest {
         final FakeDynamoDbClient dynamoDbClient = new FakeDynamoDbClient();
         final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
         final DeleteMyAccountHandler handler = new DeleteMyAccountHandler(dynamoDbClient, cognitoClient,
-                PEOPLE_TABLE, MEETINGS_TABLE, PARTICIPANTS_TABLE, USER_POOL_ID, Set.of());
+                PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of());
 
         assertThrows(IllegalStateException.class, () -> handler.handleRequest(new HashMap<>(), null));
         assertTrue(cognitoClient.deleteRequests.isEmpty());

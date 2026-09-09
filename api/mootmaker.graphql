@@ -185,6 +185,16 @@ enum MeetingError {
     SubjectRequired
     "organiserId also appears in attendeeIds - the organiser is already counted as one of the meeting's people and cannot additionally be listed as an attendee."
     OrganiserIsAttendee
+    "The day already holds the maximum number of meetings. The DAY is full, not the room - physical capacity exceeds the day limit, so a booking can be refused while a room stands free."
+    DayIsFull
+    "More attendees than one meeting may carry."
+    TooManyAttendees
+    "Subject is longer than the limit, which is measured in UTF-8 bytes of NFC-normalised text - so emoji count for more than one character each."
+    SubjectTooLong
+    "Outside the window meetings may be booked in: further ahead than the booking horizon, or earlier than the retention boundary."
+    OutsideBookableRange
+    "More meetings in one call than may be created together."
+    TooManyMeetingsInOneCall
 }
 
 

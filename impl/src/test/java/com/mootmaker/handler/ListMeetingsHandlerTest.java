@@ -1,6 +1,7 @@
 package com.mootmaker.handler;
 
-import com.mootmaker.model.MeetingParticipant;
+import com.mootmaker.testsupport.DayFixtures;
+import com.mootmaker.testsupport.FakeDynamoDbClient;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
 import com.mootmaker.model.Room;
@@ -50,9 +51,9 @@ class ListMeetingsHandlerTest {
                 new Person("p2", "Alan Turing").toItem()));
         final MeetingRecord record = new MeetingRecord(
                 "1", "r1", "p1", List.of("p2"), "Weekly sync", "2026-07-01T14:30:00", "2026-07-01T15:00:00");
-        fakeClient.tables.put("Meetings", List.of(record.toItem()));
+        fakeClient.tables.put("Meetings", DayFixtures.dayItems(record));
 
-        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People", "MeetingParticipants");
+        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People");
 
         final List<Map<String, Object>> result = invoke(handler, AUTHENTICATED_EVENT);
 
@@ -85,9 +86,9 @@ class ListMeetingsHandlerTest {
         fakeClient.tables.put("People", List.of());
         final MeetingRecord record = new MeetingRecord(
                 "1", "r1", "p1", List.of("p2"), "Old sync", "2020-07-01T14:30:00", "2020-07-01T15:00:00");
-        fakeClient.tables.put("Meetings", List.of(record.toItem()));
+        fakeClient.tables.put("Meetings", DayFixtures.dayItems(record));
 
-        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People", "MeetingParticipants");
+        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People");
 
         final List<Map<String, Object>> result = invoke(handler, AUTHENTICATED_EVENT);
 
@@ -110,13 +111,13 @@ class ListMeetingsHandlerTest {
         fakeClient.tables.put("People", List.of(
                 new Person("p1", "Ada Lovelace").toItem(),
                 new Person("p2", "Alan Turing").toItem()));
-        fakeClient.tables.put("Meetings", List.of(
+        fakeClient.tables.put("Meetings", DayFixtures.dayItems(
                 new MeetingRecord("1", "r1", "p1", List.of("p2"), "Weekly sync",
-                        "2026-07-01T14:30:00", "2026-07-01T15:00:00").toItem(),
+                        "2026-07-01T14:30:00", "2026-07-01T15:00:00"),
                 new MeetingRecord("2", "r1", "p2", List.of("p1"), "Follow-up",
-                        "2026-07-01T15:00:00", "2026-07-01T15:30:00").toItem()));
+                        "2026-07-01T15:00:00", "2026-07-01T15:30:00")));
 
-        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People", "MeetingParticipants");
+        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People");
 
         final List<Map<String, Object>> result = invoke(handler, AUTHENTICATED_EVENT);
 
@@ -132,7 +133,7 @@ class ListMeetingsHandlerTest {
     @Test
     void returnsEmptyListWhenTableIsEmpty() {
         final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
-        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People", "MeetingParticipants");
+        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People");
 
         final List<Map<String, Object>> result = invoke(handler, AUTHENTICATED_EVENT);
 
@@ -142,7 +143,7 @@ class ListMeetingsHandlerTest {
     @Test
     void rejectsUnauthenticatedRequests() {
         final ListMeetingsHandler handler =
-                new ListMeetingsHandler(new FakeDynamoDbClient(), "Meetings", "Rooms", "People", "MeetingParticipants");
+                new ListMeetingsHandler(new FakeDynamoDbClient(), "Meetings", "Rooms", "People");
 
         assertThrows(IllegalStateException.class, () -> handler.handleRequest(Map.of(), null));
     }
@@ -151,13 +152,13 @@ class ListMeetingsHandlerTest {
     void filtersByDateRangeExcludingMeetingsOnOtherDays() {
         final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
         seedRoomsAndPeople(fakeClient);
-        fakeClient.tables.put("Meetings", new ArrayList<>(List.of(
+        fakeClient.tables.put("Meetings", new ArrayList<>(DayFixtures.dayItems(
                 new MeetingRecord("day1", "r1", "p1", List.of(), "Day 1 meeting",
-                        "2026-07-01T09:00:00", "2026-07-01T10:00:00").toItem(),
+                        "2026-07-01T09:00:00", "2026-07-01T10:00:00"),
                 new MeetingRecord("day2", "r1", "p1", List.of(), "Day 2 meeting",
-                        "2026-07-02T09:00:00", "2026-07-02T10:00:00").toItem())));
+                        "2026-07-02T09:00:00", "2026-07-02T10:00:00"))));
 
-        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People", "MeetingParticipants");
+        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People");
         final Map<String, Object> event = eventWithFilter(rangeFilter("2026-07-01T00:00:00", "2026-07-02T00:00:00"));
 
         final List<Map<String, Object>> result = invoke(handler, event);
@@ -169,11 +170,11 @@ class ListMeetingsHandlerTest {
     void dateRangeFilterIncludesAMeetingThatStartedBeforeTheWindowButIsStillOngoing() {
         final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
         seedRoomsAndPeople(fakeClient);
-        fakeClient.tables.put("Meetings", new ArrayList<>(List.of(
+        fakeClient.tables.put("Meetings", new ArrayList<>(DayFixtures.dayItems(
                 new MeetingRecord("early-start", "r1", "p1", List.of(), "Runs into the window",
-                        "2026-07-01T09:00:00", "2026-07-01T10:00:00").toItem())));
+                        "2026-07-01T09:00:00", "2026-07-01T10:00:00"))));
 
-        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People", "MeetingParticipants");
+        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People");
         final Map<String, Object> event = eventWithFilter(rangeFilter("2026-07-01T09:30:00", "2026-07-01T11:00:00"));
 
         final List<Map<String, Object>> result = invoke(handler, event);
@@ -185,11 +186,11 @@ class ListMeetingsHandlerTest {
     void dateRangeFilterExcludesAMeetingStartingExactlyAtToEndTime() {
         final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
         seedRoomsAndPeople(fakeClient);
-        fakeClient.tables.put("Meetings", new ArrayList<>(List.of(
+        fakeClient.tables.put("Meetings", new ArrayList<>(DayFixtures.dayItems(
                 new MeetingRecord("next-day", "r1", "p1", List.of(), "Starts right on the boundary",
-                        "2026-07-02T00:00:00", "2026-07-02T00:30:00").toItem())));
+                        "2026-07-02T00:00:00", "2026-07-02T00:30:00"))));
 
-        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People", "MeetingParticipants");
+        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People");
         final Map<String, Object> event = eventWithFilter(rangeFilter("2026-07-01T00:00:00", "2026-07-02T00:00:00"));
 
         final List<Map<String, Object>> result = invoke(handler, event);
@@ -201,21 +202,15 @@ class ListMeetingsHandlerTest {
     void filtersByPersonIdMatchingOrganiserOrAttendee() {
         final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
         seedRoomsAndPeople(fakeClient);
-        fakeClient.tables.put("Meetings", new ArrayList<>(List.of(
+        fakeClient.tables.put("Meetings", new ArrayList<>(DayFixtures.dayItems(
                 new MeetingRecord("organised-by-p1", "r1", "p1", List.of("p2"), "P1 organises",
-                        "2026-07-01T09:00:00", "2026-07-01T10:00:00").toItem(),
+                        "2026-07-01T09:00:00", "2026-07-01T10:00:00"),
                 new MeetingRecord("attended-by-p1", "r1", "p2", List.of("p1"), "P1 attends",
-                        "2026-07-01T11:00:00", "2026-07-01T12:00:00").toItem(),
+                        "2026-07-01T11:00:00", "2026-07-01T12:00:00"),
                 new MeetingRecord("no-p1", "r1", "p2", List.of(), "P1 not involved",
-                        "2026-07-01T13:00:00", "2026-07-01T14:00:00").toItem())));
-        seedParticipants(fakeClient,
-                new MeetingParticipant("p1", "organised-by-p1", "2026-07-01T09:00:00", "2026-07-01T10:00:00"),
-                new MeetingParticipant("p2", "organised-by-p1", "2026-07-01T09:00:00", "2026-07-01T10:00:00"),
-                new MeetingParticipant("p2", "attended-by-p1", "2026-07-01T11:00:00", "2026-07-01T12:00:00"),
-                new MeetingParticipant("p1", "attended-by-p1", "2026-07-01T11:00:00", "2026-07-01T12:00:00"),
-                new MeetingParticipant("p2", "no-p1", "2026-07-01T13:00:00", "2026-07-01T14:00:00"));
+                        "2026-07-01T13:00:00", "2026-07-01T14:00:00"))));
 
-        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People", "MeetingParticipants");
+        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People");
         final Map<String, Object> filter = new HashMap<>();
         filter.put("personId", "p1");
         final Map<String, Object> event = eventWithFilter(filter);
@@ -229,14 +224,11 @@ class ListMeetingsHandlerTest {
     void filtersByPersonIdAndDateRangeTogether() {
         final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
         seedRoomsAndPeople(fakeClient);
-        fakeClient.tables.put("Meetings", new ArrayList<>(List.of(
-                new MeetingRecord("p1-day1", "r1", "p1", List.of(), "Day 1", "2026-07-01T09:00:00", "2026-07-01T10:00:00").toItem(),
-                new MeetingRecord("p1-day2", "r1", "p1", List.of(), "Day 2", "2026-07-02T09:00:00", "2026-07-02T10:00:00").toItem())));
-        seedParticipants(fakeClient,
-                new MeetingParticipant("p1", "p1-day1", "2026-07-01T09:00:00", "2026-07-01T10:00:00"),
-                new MeetingParticipant("p1", "p1-day2", "2026-07-02T09:00:00", "2026-07-02T10:00:00"));
+        fakeClient.tables.put("Meetings", new ArrayList<>(DayFixtures.dayItems(
+                new MeetingRecord("p1-day1", "r1", "p1", List.of(), "Day 1", "2026-07-01T09:00:00", "2026-07-01T10:00:00"),
+                new MeetingRecord("p1-day2", "r1", "p1", List.of(), "Day 2", "2026-07-02T09:00:00", "2026-07-02T10:00:00"))));
 
-        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People", "MeetingParticipants");
+        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People");
         final Map<String, Object> filter = rangeFilter("2026-07-01T00:00:00", "2026-07-02T00:00:00");
         filter.put("personId", "p1");
         final Map<String, Object> event = eventWithFilter(filter);
@@ -249,7 +241,7 @@ class ListMeetingsHandlerTest {
     @Test
     void rejectsWhenOnlyOneOfFromStartTimeOrToEndTimeIsSupplied() {
         final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
-        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People", "MeetingParticipants");
+        final ListMeetingsHandler handler = new ListMeetingsHandler(fakeClient, "Meetings", "Rooms", "People");
         final Map<String, Object> filter = new HashMap<>();
         filter.put("fromStartTime", "2026-07-01T00:00:00");
         final Map<String, Object> event = eventWithFilter(filter);
@@ -264,8 +256,4 @@ class ListMeetingsHandlerTest {
                 new Person("p2", "Alan Turing").toItem())));
     }
 
-    private static void seedParticipants(final FakeDynamoDbClient fakeClient, final MeetingParticipant... participants) {
-        fakeClient.tables.put("MeetingParticipants",
-                Arrays.stream(participants).map(MeetingParticipant::toItem).collect(Collectors.toCollection(ArrayList::new)));
-    }
 }

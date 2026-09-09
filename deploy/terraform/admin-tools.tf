@@ -40,7 +40,6 @@ data "aws_iam_policy_document" "database_reset_access" {
       aws_dynamodb_table.rooms.arn,
       aws_dynamodb_table.people.arn,
       aws_dynamodb_table.meetings.arn,
-      aws_dynamodb_table.meeting_participants.arn,
     ]
   }
 
@@ -148,7 +147,7 @@ data "aws_iam_policy_document" "database_repair_access" {
   statement {
     sid       = "DatabaseRepairMeetingParticipantsTableAccess"
     actions   = ["dynamodb:Scan", "dynamodb:PutItem", "dynamodb:DeleteItem"]
-    resources = [aws_dynamodb_table.meeting_participants.arn]
+    resources = [aws_dynamodb_table.meetings.arn]
   }
 }
 
@@ -173,10 +172,9 @@ resource "aws_lambda_function" "database_repair" {
 
   environment {
     variables = {
-      COGNITO_USER_POOL_ID            = aws_cognito_user_pool.this.id
-      PEOPLE_TABLE_NAME               = aws_dynamodb_table.people.name
-      MEETINGS_TABLE_NAME             = aws_dynamodb_table.meetings.name
-      MEETING_PARTICIPANTS_TABLE_NAME = aws_dynamodb_table.meeting_participants.name
+      COGNITO_USER_POOL_ID = aws_cognito_user_pool.this.id
+      PEOPLE_TABLE_NAME    = aws_dynamodb_table.people.name
+      MEETINGS_TABLE_NAME  = aws_dynamodb_table.meetings.name
     }
   }
 
