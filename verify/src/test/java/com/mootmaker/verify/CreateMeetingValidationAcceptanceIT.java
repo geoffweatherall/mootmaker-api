@@ -68,7 +68,7 @@ class CreateMeetingValidationAcceptanceIT {
                 BookableDates.at("10:20:00"), BookableDates.at("10:45:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
-        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.StartMissaligned.name())));
+        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.StartMisaligned.name())));
     }
 
     @Test
@@ -79,7 +79,7 @@ class CreateMeetingValidationAcceptanceIT {
                 BookableDates.at("10:00:00"), BookableDates.at("10:20:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
-        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.EndMissaligned.name())));
+        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.EndMisaligned.name())));
     }
 
     @Test
@@ -89,7 +89,7 @@ class CreateMeetingValidationAcceptanceIT {
                 BookableDates.at("10:00:30"), BookableDates.at("10:30:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
-        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.StartMissaligned.name())));
+        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.StartMisaligned.name())));
     }
 
     @Test

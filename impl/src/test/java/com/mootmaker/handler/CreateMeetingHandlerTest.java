@@ -171,7 +171,7 @@ class CreateMeetingHandlerTest {
 
         @SuppressWarnings("unchecked")
         final List<String> errors = (List<String>) result.get("errors");
-        assertTrue(errors.contains(MeetingError.StartMissaligned.name()));
+        assertTrue(errors.contains(MeetingError.StartMisaligned.name()));
         assertNull(result.get("meeting"));
         assertTrue(DayFixtures.meetingsIn(fakeClient, "Meetings").isEmpty());
     }

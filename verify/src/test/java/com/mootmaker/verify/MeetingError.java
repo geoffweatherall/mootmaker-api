@@ -5,8 +5,8 @@ package com.mootmaker.verify;
  * value names exactly, since that's the literal string AppSync returns over the wire.
  */
 enum MeetingError {
-    StartMissaligned,
-    EndMissaligned,
+    StartMisaligned,
+    EndMisaligned,
     InsufficientCapacity,
     TimeRangeUnavailable,
     RoomRequired,

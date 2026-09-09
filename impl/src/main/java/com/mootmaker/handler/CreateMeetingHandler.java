@@ -171,9 +171,9 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
         }
 
         final LocalDateTime startTime =
-                parseOnFifteenMinuteBoundary((String) meetingInput.get("startTime"), MeetingError.StartMissaligned, errors);
+                parseOnFifteenMinuteBoundary((String) meetingInput.get("startTime"), MeetingError.StartMisaligned, errors);
         final LocalDateTime endTime =
-                parseOnFifteenMinuteBoundary((String) meetingInput.get("endTime"), MeetingError.EndMissaligned, errors);
+                parseOnFifteenMinuteBoundary((String) meetingInput.get("endTime"), MeetingError.EndMisaligned, errors);
 
         if (startTime != null && endTime != null) {
             if (!startTime.toLocalDate().equals(endTime.toLocalDate())) {
