@@ -12,7 +12,7 @@ import module java.base;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 
-/** Acceptance test for creating a meeting and reading it back via the {@code meetings} query. */
+/** Acceptance test for creating a meeting and reading it back through {@code Query.workspace}. */
 class CreateMeetingAcceptanceIT {
 
     private static final Logger LOG = LoggerFactory.getLogger(CreateMeetingAcceptanceIT.class);
@@ -20,7 +20,7 @@ class CreateMeetingAcceptanceIT {
     private static final String CREATE_ROOM_MUTATION =
             "mutation CreateRoom($room: RoomInput!) { createRoom(room: $room) { room { id name capacity } errors } }";
     private static final String CREATE_PERSON_MUTATION =
-            "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { id name } }";
+            "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { person { id name } errors } }";
     private static final String MEETING_FIELDS =
             "id room { id name capacity } organiser { id name } attendees { id name } subject startTime endTime";
 
@@ -48,13 +48,13 @@ class CreateMeetingAcceptanceIT {
         LOG.info("Creating organiser '{}'", organiserName);
         final JsonNode organiserResult = client.execute(CREATE_PERSON_MUTATION,
                 Map.of("person", Map.of("name", organiserName)));
-        final String organiserId = organiserResult.get("createPerson").get("id").asText();
+        final String organiserId = organiserResult.get("createPerson").get("person").get("id").asText();
 
         final String attendeeName = faker.name().fullName();
         LOG.info("Creating attendee '{}'", attendeeName);
         final JsonNode attendeeResult = client.execute(CREATE_PERSON_MUTATION,
                 Map.of("person", Map.of("name", attendeeName)));
-        final String attendeeId = attendeeResult.get("createPerson").get("id").asText();
+        final String attendeeId = attendeeResult.get("createPerson").get("person").get("id").asText();
 
         final String subject = faker.company().catchPhrase();
         final String startTime = BookableDates.at("10:00:00");
@@ -84,9 +84,14 @@ class CreateMeetingAcceptanceIT {
         assertThat(createdMeeting.get("startTime").asText(), equalTo(startTime));
         assertThat(createdMeeting.get("endTime").asText(), equalTo(endTime));
 
-        LOG.info("Querying meetings to check the created meeting is returned");
-        final JsonNode meetingsResult = client.execute("query { meetings { " + MEETING_FIELDS + " } }");
-        final JsonNode meetings = meetingsResult.get("meetings");
+        LOG.info("Reading the day back through the composite entry point to check the meeting is returned");
+        final JsonNode workspace = client.execute(
+                "query Workspace($dates: [String!]) { workspace(dates: $dates) { days { date meetings { "
+                        + MEETING_FIELDS + " } } } }",
+                Map.of("dates", List.of(BookableDates.day().toString()))).get("workspace");
+        final JsonNode days = workspace.get("days");
+        assertThat("one date asked for, so one day back - never sparse", days.size(), equalTo(1));
+        final JsonNode meetings = days.get(0).get("meetings");
 
         assertThat(meetings.size(), equalTo(1));
         assertThat(meetings.get(0).get("id").asText(), equalTo(meetingId));

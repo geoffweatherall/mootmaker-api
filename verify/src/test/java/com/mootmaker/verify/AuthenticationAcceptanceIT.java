@@ -25,9 +25,9 @@ class AuthenticationAcceptanceIT {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private static final String ROOMS_QUERY = "{\"query\":\"query { rooms { id name capacity } }\"}";
+    private static final String ROOMS_QUERY = "{\"query\":\"query { workspace { rooms { id name capacity } } }\"}";
     private static final String CREATE_PERSON_MUTATION =
-            "{\"query\":\"mutation { createPerson(person: { name: \\\"Intruder\\\" }) { id name } }\"}";
+            "{\"query\":\"mutation { createPerson(person: { name: \\\"Intruder\\\" }) { person { id name } errors } }\"}";
 
     private static URI endpoint;
     private static HttpClient httpClient;
@@ -81,9 +81,9 @@ class AuthenticationAcceptanceIT {
     @Test
     void validTokenIsAccepted() {
         LOG.info("Checking the same rooms query succeeds with a valid client_credentials token");
-        final JsonNode data = GraphQlClient.fromEnvironment().execute("query { rooms { id name capacity } }");
+        final JsonNode data = GraphQlClient.fromEnvironment().execute("query { workspace { rooms { id name capacity } } }");
 
-        assertThat(data.get("rooms").isArray(), is(true));
+        assertThat(data.get("workspace").get("rooms").isArray(), is(true));
     }
 
     private static void assertUnauthorized(final HttpResponse<String> response) {

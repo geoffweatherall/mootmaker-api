@@ -21,7 +21,7 @@ class SuggestRoomAcceptanceIT {
     private static final String CREATE_ROOM_MUTATION =
             "mutation CreateRoom($room: RoomInput!) { createRoom(room: $room) { room { id name capacity } errors } }";
     private static final String CREATE_PERSON_MUTATION =
-            "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { id name } }";
+            "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { person { id name } errors } }";
     private static final String CREATE_MEETING_MUTATION =
             "mutation CreateMeeting($meeting: MeetingInput!) { createMeeting(meeting: $meeting) { meeting { id } errors } }";
     private static final String SUGGEST_ROOM_QUERY =
@@ -45,7 +45,7 @@ class SuggestRoomAcceptanceIT {
 
     private String createPerson(final String name) {
         final JsonNode result = client.execute(CREATE_PERSON_MUTATION, Map.of("person", Map.of("name", name)));
-        return result.get("createPerson").get("id").asText();
+        return result.get("createPerson").get("person").get("id").asText();
     }
 
     private void bookMeeting(final String roomId, final String organiserId, final String startTime, final String endTime) {

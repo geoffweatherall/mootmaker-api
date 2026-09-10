@@ -35,17 +35,17 @@ class CreatePersonAcceptanceIT {
         final String personName = faker.name().fullName();
         LOG.info("Creating person '{}'", personName);
         final JsonNode createResult = client.execute(
-                "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { id name } }",
+                "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { person { id name } errors } }",
                 Map.of("person", Map.of("name", personName)));
 
-        final String createdId = createResult.get("createPerson").get("id").asText();
+        final String createdId = createResult.get("createPerson").get("person").get("id").asText();
         LOG.info("Created person with id '{}'", createdId);
-        assertThat(createResult.get("createPerson").get("name").asText(), equalTo(personName));
+        assertThat(createResult.get("createPerson").get("person").get("name").asText(), equalTo(personName));
 
         LOG.info("Querying people to check the created person is returned");
-        final JsonNode peopleResult = client.execute("query { people { id name } }");
+        final JsonNode peopleResult = client.execute("query { workspace { people { id name } } }");
         final List<String> peopleIds = new ArrayList<>();
-        peopleResult.get("people").forEach(person -> peopleIds.add(person.get("id").asText()));
+        peopleResult.get("workspace").get("people").forEach(person -> peopleIds.add(person.get("id").asText()));
 
         // Not an exact-size check: reset only clears people with no linked Cognito account, so a
         // shared environment may legitimately still have other (real, signed-up) people present.

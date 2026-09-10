@@ -51,8 +51,8 @@ class CreateRoomAcceptanceIT {
         assertThat(createdRoom.get("capacity").asInt(), equalTo(capacity));
 
         LOG.info("Querying rooms to check the created room is returned");
-        final JsonNode roomsResult = client.execute("query { rooms { id name capacity } }");
-        final JsonNode rooms = roomsResult.get("rooms");
+        final JsonNode roomsResult = client.execute("query { workspace { rooms { id name capacity } } }");
+        final JsonNode rooms = roomsResult.get("workspace").get("rooms");
 
         assertThat(rooms.size(), equalTo(1));
         assertThat(rooms.get(0).get("id").asText(), equalTo(createdId));
@@ -80,8 +80,8 @@ class CreateRoomAcceptanceIT {
         LOG.info("Checking a blank room name does not create a room");
         client.execute(CREATE_ROOM_MUTATION, Map.of("room", Map.of("name", "   ", "capacity", 5)));
 
-        final JsonNode roomsResult = client.execute("query { rooms { id } }");
-        assertThat(roomsResult.get("rooms").size(), equalTo(0));
+        final JsonNode roomsResult = client.execute("query { workspace { rooms { id } } }");
+        assertThat(roomsResult.get("workspace").get("rooms").size(), equalTo(0));
     }
 
     @Test

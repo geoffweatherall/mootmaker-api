@@ -34,7 +34,7 @@ class SelectionAwareMeetingsAcceptanceIT {
     private static final String CREATE_ROOM_MUTATION =
             "mutation CreateRoom($room: RoomInput!) { createRoom(room: $room) { room { id name capacity } errors } }";
     private static final String CREATE_PERSON_MUTATION =
-            "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { id name } }";
+            "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { person { id name } errors } }";
     private static final String CREATE_MEETING_MUTATION =
             "mutation CreateMeeting($meeting: MeetingInput!) { createMeeting(meeting: $meeting) { meeting { id } errors } }";
 
@@ -85,15 +85,20 @@ class SelectionAwareMeetingsAcceptanceIT {
 
     private static String createPerson(final String name) {
         final JsonNode result = client.execute(CREATE_PERSON_MUTATION, Map.of("person", Map.of("name", name)));
-        return result.get("createPerson").get("id").asText();
+        return result.get("createPerson").get("person").get("id").asText();
     }
 
-    /** Runs a meetings query over the one day this test seeded, and returns the single meeting. */
+    /**
+     * Reads the one day this test seeded through the composite entry point, and returns its single
+     * meeting. The old {@code meetings(filter:)} field is gone: a date range is a list of day keys now.
+     */
     private JsonNode theMeeting(final String meetingSelection) {
-        final String query = "query Meetings($filter: MeetingsFilter) { meetings(filter: $filter) { " + meetingSelection + " } }";
-        final JsonNode meetings = client.execute(query, Map.of("filter", Map.of(
-                "fromStartTime", START_TIME,
-                "toEndTime", END_TIME))).get("meetings");
+        final String query = "query Workspace($dates: [String!]) { workspace(dates: $dates) {"
+                + " days { date meetings { " + meetingSelection + " } } } }";
+        final JsonNode days = client.execute(query, Map.of("dates", List.of(BookableDates.day().toString())))
+                .get("workspace").get("days");
+        assertThat("one date was asked for, so exactly one day must come back", days.size(), equalTo(1));
+        final JsonNode meetings = days.get(0).get("meetings");
         assertThat("expected exactly the one seeded meeting", meetings.size(), equalTo(1));
         return meetings.get(0);
     }
@@ -141,12 +146,12 @@ class SelectionAwareMeetingsAcceptanceIT {
     @Test
     @DisplayName("a fragment resolves the same as an inline selection")
     void returnsResolvedNamesFromAFragment() {
-        final String query = "query Meetings($filter: MeetingsFilter) {"
-                + " meetings(filter: $filter) { id room { ...RoomFields } } }"
+        final String query = "query Workspace($dates: [String!]) {"
+                + " workspace(dates: $dates) { days { meetings { id room { ...RoomFields } } } } }"
                 + " fragment RoomFields on Room { id name capacity }";
-        final JsonNode meetings = client.execute(query, Map.of("filter", Map.of(
-                "fromStartTime", START_TIME,
-                "toEndTime", END_TIME))).get("meetings");
+        final JsonNode days = client.execute(query, Map.of("dates", List.of(BookableDates.day().toString())))
+                .get("workspace").get("days");
+        final JsonNode meetings = days.get(0).get("meetings");
         assertThat(meetings.size(), equalTo(1));
         assertThat(meetings.get(0).get("room").get("name").asText(), equalTo(roomName));
     }
