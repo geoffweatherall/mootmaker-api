@@ -20,11 +20,20 @@ locals {
     COGNITO_ADMIN_SCOPE = "${aws_cognito_resource_server.api.identifier}/admin"
   })
 
-  # The two Terraform-managed reserved accounts - DeleteMyAccountHandler refuses to let either
-  # self-delete, and database-reset (see admin-tools.tf) preserves exactly these two, and nothing
-  # else, when it wipes the Cognito pool. One local so both consumers can never disagree about
-  # which accounts are reserved.
-  reserved_account_emails = "${aws_cognito_user.demo.username},${aws_cognito_user.e2e.username}"
+  # The Terraform-managed reserved accounts - DeleteMyAccountHandler refuses to let any of them
+  # self-delete, and database-reset (see admin-tools.tf) preserves exactly these, and nothing else,
+  # when it wipes the Cognito pool. One local so both consumers can never disagree about which
+  # accounts are reserved.
+  #
+  # The personless account is spliced in through a splat rather than named directly, because it is
+  # not created in production (see cognito.tf) - the splat is simply empty there. Leaving it out was
+  # a real bug for exactly one acceptance run: Terraform created the account, the suite's own reset
+  # deleted it as an unrecognised user seconds later, and all six tests that sign in as it failed
+  # with "Incorrect username or password" rather than anything about a missing account.
+  reserved_account_emails = join(",", concat(
+    [aws_cognito_user.demo.username, aws_cognito_user.e2e.username],
+    aws_cognito_user.no_person[*].username,
+  ))
 
   # ResolverDispatchHandler (see impl/src/main/java/com/mootmaker/handler/ResolverDispatchHandler.java)
   # is the single entry point for every AppSync direct-Lambda resolver, so it needs the union of

@@ -45,6 +45,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Its own job rather than a step on unit-tests: the schema is published to consumers who never
+  # build this repository's Java, so a schema fault should be legible on its own and should not
+  # queue behind a Maven build to be discovered.
+  schema-parses:
+    name: schema-parses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # --no-save: this repository has no package.json to record a dependency in, and does not want
+      # one. graphql is a tool this check borrows, not something the API depends on.
+      - name: Check the schema parses with standard GraphQL tooling
+        run: |
+          npm install --no-save graphql@16
+          node api/check-schema-parses.mjs api/mootmaker.graphql
+
   unit-tests:
     name: unit-tests
     runs-on: ubuntu-latest

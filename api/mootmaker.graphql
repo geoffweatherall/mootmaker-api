@@ -1,3 +1,16 @@
+# AppSync knows these directives implicitly and accepts a schema that never declares them - but
+# nothing else does. This file is published as @mootmaker/schema and as a Maven artifact, so every
+# consumer parses it with standard GraphQL tooling, and graphql-js `buildSchema` rejects an unknown
+# directive outright rather than ignoring it. Without these three lines the webapp's own
+# deploy-time schema-drift check dies with `Unknown directive "@aws_iam"`, and so would any other
+# client generating types from the published package.
+#
+# Verified that AppSync accepts the explicit declarations rather than rejecting them as redefined
+# built-ins, because that was the risk worth checking before relying on it.
+directive @aws_iam on FIELD_DEFINITION | OBJECT
+directive @aws_cognito_user_pools(cognito_groups: [String!]) on FIELD_DEFINITION | OBJECT
+directive @aws_subscribe(mutations: [String!]!) on FIELD_DEFINITION
+
 schema {
  query: Query
  mutation: Mutation
