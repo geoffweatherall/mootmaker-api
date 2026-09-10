@@ -5,8 +5,8 @@ package com.mootmaker.model;
  * value names exactly, since AppSync serializes/validates enum values as these literal strings.
  */
 public enum MeetingError {
-    StartMissaligned,
-    EndMissaligned,
+    StartMisaligned,
+    EndMisaligned,
     SpansMultipleDays,
     EndBeforeStart,
     InsufficientCapacity,

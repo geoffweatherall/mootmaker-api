@@ -53,6 +53,22 @@ final class SelectionSet {
     }
 
     /**
+     * True when the query asked for {@code path} at all - either the field itself or anything under
+     * it. Distinct from {@link #needsLookup}: that asks "is what they selected here free?", this asks
+     * "did they select this at all?". A composite field uses both - {@code selects} decides whether to
+     * fetch a branch, {@code needsLookup} decides how far to resolve inside it.
+     *
+     * <p>Absent selection information means yes, for the same reason it means "fetch" below.
+     */
+    boolean selects(final String path) {
+        if (paths.isEmpty()) {
+            return true;
+        }
+        final String nested = path + "/";
+        return paths.stream().anyMatch(candidate -> candidate.equals(path) || candidate.startsWith(nested));
+    }
+
+    /**
      * True when resolving {@code prefix} needs a lookup - i.e. the query selected something under
      * it that is not free. False when the prefix was not selected at all, or only its id was.
      */

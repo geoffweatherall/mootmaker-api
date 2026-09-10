@@ -29,7 +29,7 @@ class CreateMeetingValidationAcceptanceIT {
     private static final String CREATE_ROOM_MUTATION =
             "mutation CreateRoom($room: RoomInput!) { createRoom(room: $room) { room { id } errors } }";
     private static final String CREATE_PERSON_MUTATION =
-            "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { id } }";
+            "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { person { id } errors } }";
     private static final String CREATE_MEETING_MUTATION =
             "mutation CreateMeeting($meeting: MeetingInput!) { createMeeting(meeting: $meeting) { meeting { id } errors } }";
 
@@ -68,7 +68,7 @@ class CreateMeetingValidationAcceptanceIT {
                 BookableDates.at("10:20:00"), BookableDates.at("10:45:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
-        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.StartMissaligned.name())));
+        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.StartMisaligned.name())));
     }
 
     @Test
@@ -79,7 +79,7 @@ class CreateMeetingValidationAcceptanceIT {
                 BookableDates.at("10:00:00"), BookableDates.at("10:20:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
-        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.EndMissaligned.name())));
+        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.EndMisaligned.name())));
     }
 
     @Test
@@ -89,7 +89,7 @@ class CreateMeetingValidationAcceptanceIT {
                 BookableDates.at("10:00:30"), BookableDates.at("10:30:00"));
 
         assertThat(meetingOf(payload).isNull(), is(true));
-        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.StartMissaligned.name())));
+        assertThat(errorsOf(payload), hasItem(equalTo(MeetingError.StartMisaligned.name())));
     }
 
     @Test
@@ -297,7 +297,7 @@ class CreateMeetingValidationAcceptanceIT {
 
     private String createPerson(final String name) {
         final JsonNode result = client.execute(CREATE_PERSON_MUTATION, Map.of("person", Map.of("name", name)));
-        return result.get("createPerson").get("id").asText();
+        return result.get("createPerson").get("person").get("id").asText();
     }
 
     private JsonNode createMeetingPayload(final String roomId, final String organiserId, final List<String> attendeeIds,

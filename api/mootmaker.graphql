@@ -4,25 +4,44 @@ schema {
 }
 
 type Query {
- "Every Person, in no particular order - real signed-up users and generated demo people alike, with nothing in the response distinguishing them. Returns the whole table with no pagination, so a caller that needs an order must impose its own."
- people: [Person!]!
- "Every room, in no particular order. Returns the whole table with no pagination."
- rooms: [Room!]!
- "Meetings matching the filter, in no particular order, each with its room, organiser and attendees resolved. Omitting the filter entirely returns every meeting ever stored, which is rarely what a client wants - pass a time range."
- meetings(filter: MeetingsFilter): [Meeting!]!
- "The Person linked to the signed-in caller's own Cognito account, or null if none exists (e.g. the account predates automatic Person creation on sign-up, or was created without going through the confirm-sign-up flow)."
- myPerson: Person
- "Finds every room with capacity >= requiredCapacity that has no meeting overlapping [startTime, endTime), ranked smallest surplus capacity first (rooms of equal capacity break ties by name, so the order is predictable). requiredCapacity is the full headcount (organiser + attendees) - the caller computes it, this does not look up organiser/attendee ids. Best-effort: invalid or missing startTime, endTime, or requiredCapacity just returns an empty list rather than a structured error list, since this only feeds a suggestion button, not the authoritative createMeeting validation."
- suggestRoom(startTime: String!, endTime: String!, requiredCapacity: Int!): [Room!]!
+    "Everything a screen needs, in one invocation. Sub-fields that are not selected are not fetched: `workspace { days { ... } }` does no people or rooms lookup at all, and `days { meetings { room { id } } }` does none either, because the ids are already on the stored meeting. `dates` is optional - omitting it means no days are wanted, which is how a reference-data-only refresh asks for just rooms and people. At most 42 dates, which covers the calendar's whole span with a week to spare."
+    workspace(dates: [String!]): Workspace!
+
+    "Finds every room with capacity >= requiredCapacity that has no meeting overlapping [startTime, endTime), ranked smallest surplus capacity first (rooms of equal capacity break ties by name, so the order is predictable). requiredCapacity is the full headcount (organiser + attendees) - the caller computes it, this does not look up organiser/attendee ids. A user action rather than screen state, so it stays a root field: it has its own arguments and is never part of a page's initial load. Best-effort: invalid or missing arguments return an empty list rather than a structured error list, since this only feeds a suggestion button, not the authoritative createMeeting validation."
+    suggestRoom(startTime: String!, endTime: String!, requiredCapacity: Int!): [Room!]!
+
+    "The one lookup that is not a date range, and the reason an id -> date pointer is written alongside every meeting: it resolves in two reads rather than the full-table scan this used to need. Returns null for an id that never existed AND for one whose day has passed out of retention - deliberately the same answer, so callers handle one case, and so nothing confirms that a given id was once valid."
+    meeting(id: ID!): Meeting
 }
 
-"Filters for Query.meetings. All fields are optional and combine with AND; omitting the input (or all fields) returns every meeting, unchanged from the default behaviour."
-input MeetingsFilter {
-    "Restricts to meetings whose time range overlaps [fromStartTime, toEndTime) - i.e. startTime < toEndTime and endTime > fromStartTime, the same overlap rule createMeeting already enforces. Both are ISO-8601 local date-times (java.time.LocalDateTime semantics, no time-zone offset) and must be supplied together."
-    fromStartTime: String
-    toEndTime: String
-    "Restricts to meetings where this person is the organiser or one of the attendees."
-    personId: ID
+"Everything one screen needs, behind a single field, so a page load is one request and one resolver invocation."
+type Workspace {
+    "The signed-in caller's own Person, or null if none is linked. Resolved from the caller's `custom:personId` claim, so it costs no lookup to know WHICH person to read - which is what removed the old myPerson -> meetings waterfall. Null for a machine-to-machine token, which has no user behind it at all, and for a confirmed user whose Person creation failed."
+    me: Person
+    "Every person, in no particular order. Small and slow-moving; fetching it once at page load is what lets every later `attendees { id }` resolve from the client's cache with no further round trip."
+    people: [Person!]!
+    "Every room, in no particular order. Same reasoning as `people`."
+    rooms: [Room!]!
+    "One entry per requested date, in the same order, including dates that hold no meetings. Never sparse - a returned empty day means empty, not unfetched, which is what lets a day-keyed client cache tell those two apart."
+    days: [Day!]!
+    "The window meetings may be viewed and booked in."
+    boundaries: Boundaries!
+}
+
+"A single date's meetings: the unit of storage, of fetching, and of client-side cache identity."
+type Day {
+    "ISO-8601 calendar date, e.g. \"2026-09-14\"."
+    date: String!
+    "Every meeting starting on this date, in no particular order. At most 320."
+    meetings: [Meeting!]!
+}
+
+"What the server will and will not accept, so no client has to work either boundary out for itself. Computing them client-side would put two authorities on one fact - the server's clock and the browser's - and a user in another time zone would then ask for a day the server already considers expired."
+type Boundaries {
+    "The earliest date still retained, always a Monday. Stored rather than computed from the clock, and advanced before anything is deleted, so it is never more permissive than what actually exists. Clients bound their back-navigation by it, and writes before it are rejected."
+    earliestRetainedDate: String!
+    "The latest date a meeting may be booked on, computed per request from the server's today. Clients bound their forward-navigation by it, and writes after it are rejected."
+    latestBookableDate: String!
 }
 
 type Mutation {
@@ -31,10 +50,13 @@ type Mutation {
  "Admin only."
  updateRoom(id: ID!, room: RoomInput!): UpdateRoomResult!
  "Admin only."
- createPerson(person: PersonInput!): Person!
+ createPerson(person: PersonInput!): CreatePersonResult!
  "Allowed for the caller's own linked Person (self-rename), or for anyone if the caller is admin."
  updatePerson(id: ID!, person: PersonInput!): UpdatePersonResult!
+ "Returns both the created meeting and its whole updated Day. A caller picks by selection: `{ meeting { id } }` for a small response, or `{ day { date meetings { ... } } }` to have a day-keyed client cache absorb the new state with no update logic at all. Selecting the day is usually free rather than wasteful - the page that creates a meeting normally navigates straight to that date."
  createMeeting(meeting: MeetingInput!): CreateMeetingResult!
+ "Day-scoped bulk creation: one operation, one item write. At most 99 meetings per call, because the day item and one id -> date pointer per new meeting are written in a single transaction and DynamoDB caps that at 100 items."
+ createMeetings(date: String!, meetings: [MeetingInput!]!): CreateMeetingsResult!
  "Sets the signed-in caller's own date/time display preferences. Self-only - requires a linked Person, and there is no admin override, unlike updatePerson. Purely presentational: does not change the ISO-8601 format this API uses for every date/time it accepts and returns."
  updateMyPreferences(preferences: PreferencesInput!): UpdateMyPreferencesResult!
  "Deletes the signed-in caller's own account: cancels every upcoming meeting they organise, removes them from every upcoming meeting they only attend, deletes their linked Person, then deletes their Cognito user entirely. Past meetings are left untouched. Irreversible. Not available for reserved system accounts (e.g. the demo user), which reject with an error."
@@ -53,7 +75,10 @@ input RoomInput {
    capacity: Int!
 }
 
+"Room and person mutations return the whole collection alongside the changed entity. A normalising client cache updates an entity by id everywhere it is referenced, but returning one room does NOT add it to a cached `rooms` list - that is a separate cache field. Returning the list makes the mutation self-sufficient, and both collections are small enough that it costs nothing."
 type CreateRoomResult {
+    "Every room after the change, so a client can replace its cached list wholesale rather than merging."
+    rooms: [Room!]!
     "Populated when the room passed all validation rules and was created."
     room: Room
     "Non-empty when the room was rejected; one entry per validation rule broken."
@@ -61,6 +86,8 @@ type CreateRoomResult {
 }
 
 type UpdateRoomResult {
+    "Every room after the change. See CreateRoomResult."
+    rooms: [Room!]!
     "Populated when the room passed all validation rules and was updated."
     room: Room
     "Non-empty when the update was rejected; one entry per validation rule broken."
@@ -124,7 +151,18 @@ enum PreferencesError {
     NoLinkedPerson
 }
 
+type CreatePersonResult {
+    "Every person after the change. See CreateRoomResult."
+    people: [Person!]!
+    "Populated when the person passed all validation rules and was created."
+    person: Person
+    "Non-empty when the person was rejected; one entry per validation rule broken."
+    errors: [PersonError!]!
+}
+
 type UpdatePersonResult {
+    "Every person after the change. See CreateRoomResult."
+    people: [Person!]!
     "Populated when the update passed all validation rules and was applied."
     person: Person
     "Non-empty when the update was rejected; one entry per validation rule broken."
@@ -164,13 +202,29 @@ input MeetingInput {
 type CreateMeetingResult {
     "Populated when the meeting passed all validation rules and was created."
     meeting: Meeting
+    "The affected day in full, after the write. Because a day is a cache entity keyed by its date, returning it lets a client absorb the new state with no update function - and it removes the read-after-write hazard by construction, since the response IS the new state rather than something to re-read."
+    day: Day
     "Non-empty when the meeting was rejected; one entry per validation rule broken."
     errors: [MeetingError!]!
 }
 
+type CreateMeetingsResult {
+    "The day after every meeting in the call was applied. Whole-day replacement is the natural cache update for a whole-day write."
+    day: Day
+    "One entry per rejected input, identified by its index in the `meetings` argument. Empty when every meeting was created."
+    failures: [MeetingFailure!]!
+}
+
+"Which input failed, and why. Indexed rather than echoing the input back, so a large bulk call's response stays small."
+type MeetingFailure {
+    "Index into the `meetings` argument of the call."
+    index: Int!
+    errors: [MeetingError!]!
+}
+
 enum MeetingError {
-    StartMissaligned
-    EndMissaligned
+    StartMisaligned
+    EndMisaligned
     "startTime and endTime fall on different calendar dates - a meeting cannot span midnight."
     SpansMultipleDays
     "endTime is not strictly after startTime (earlier than, or equal to, startTime), on the same calendar date."

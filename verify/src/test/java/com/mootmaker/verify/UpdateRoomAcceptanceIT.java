@@ -63,8 +63,8 @@ class UpdateRoomAcceptanceIT {
         assertThat(updateRoomPayload.get("room").get("capacity").asInt(), equalTo(12));
 
         LOG.info("Querying rooms to check the update is reflected");
-        final JsonNode roomsResult = client.execute("query { rooms { id name capacity } }");
-        final JsonNode room = roomsResult.get("rooms").get(0);
+        final JsonNode roomsResult = client.execute("query { workspace { rooms { id name capacity } } }");
+        final JsonNode room = roomsResult.get("workspace").get("rooms").get(0);
         assertThat(room.get("id").asText(), equalTo(roomId));
         assertThat(room.get("name").asText(), equalTo(newName));
         assertThat(room.get("capacity").asInt(), equalTo(12));

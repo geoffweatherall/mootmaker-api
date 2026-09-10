@@ -27,7 +27,7 @@ class UpdatePersonAcceptanceIT {
     private static final Logger LOG = LoggerFactory.getLogger(UpdatePersonAcceptanceIT.class);
 
     private static final String CREATE_PERSON_MUTATION =
-            "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { id name } }";
+            "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { person { id name } errors } }";
     private static final String UPDATE_PERSON_MUTATION =
             "mutation UpdatePerson($id: ID!, $person: PersonInput!) { updatePerson(id: $id, person: $person) { person { id name } errors } }";
 
@@ -42,7 +42,7 @@ class UpdatePersonAcceptanceIT {
 
     private static String createPerson(final String name) {
         final JsonNode result = client.execute(CREATE_PERSON_MUTATION, Map.of("person", Map.of("name", name)));
-        return result.get("createPerson").get("id").asText();
+        return result.get("createPerson").get("person").get("id").asText();
     }
 
     @Test
@@ -64,9 +64,9 @@ class UpdatePersonAcceptanceIT {
         assertThat(updatePersonPayload.get("person").get("name").asText(), equalTo(newName));
 
         LOG.info("Querying people to check the rename is reflected");
-        final JsonNode peopleResult = client.execute("query { people { id name } }");
+        final JsonNode peopleResult = client.execute("query { workspace { people { id name } } }");
         final List<String> names = new ArrayList<>();
-        peopleResult.get("people").forEach(person -> {
+        peopleResult.get("workspace").get("people").forEach(person -> {
             if (person.get("id").asText().equals(personId)) {
                 names.add(person.get("name").asText());
             }

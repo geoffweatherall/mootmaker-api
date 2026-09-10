@@ -4,6 +4,7 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.cognito.CognitoIdentityProviderClientProvider;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
+import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.model.Person;
 import com.mootmaker.model.PersonError;
 import org.slf4j.Logger;
@@ -73,6 +74,11 @@ public class UpdatePersonHandler implements RequestHandler<Map<String, Object>, 
         if (current.isEmpty()) {
             errors.add(PersonError.PersonNotFound.name());
             result.put("person", null);
+            // The whole collection, on success and on failure alike. A normalising client cache updates
+        // an entity by id everywhere it is referenced, but returning one room does NOT add it to a
+        // cached list - that is a separate cache field - so the list is what makes this mutation
+        // self-sufficient. Both collections are small enough that sending them costs nothing.
+        result.put("people", allPeople());
             result.put("errors", errors);
             return result;
         }
@@ -86,6 +92,7 @@ public class UpdatePersonHandler implements RequestHandler<Map<String, Object>, 
 
         if (!errors.isEmpty()) {
             result.put("person", null);
+            result.put("people", allPeople());
             result.put("errors", errors);
             return result;
         }
@@ -106,6 +113,7 @@ public class UpdatePersonHandler implements RequestHandler<Map<String, Object>, 
         }
 
         result.put("person", updated.toResponseMap());
+        result.put("people", allPeople());
         result.put("errors", errors);
         return result;
     }
@@ -141,5 +149,10 @@ public class UpdatePersonHandler implements RequestHandler<Map<String, Object>, 
     @SuppressWarnings("unchecked")
     private static Map<String, Object> castToMap(final Object value) {
         return (Map<String, Object>) value;
+    }
+
+    /** Every peopl after the change - see the schema's note on Person mutation results. */
+    private List<Map<String, Object>> allPeople() {
+        return new PersonRepository(dynamoDbClient, tableName).listAll().stream().map(Person::toResponseMap).toList();
     }
 }

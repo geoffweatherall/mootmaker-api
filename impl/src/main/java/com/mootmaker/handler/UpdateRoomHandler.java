@@ -3,6 +3,7 @@ package com.mootmaker.handler;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
+import com.mootmaker.dynamo.RoomRepository;
 import com.mootmaker.model.Room;
 import com.mootmaker.model.RoomError;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
@@ -56,6 +57,11 @@ public class UpdateRoomHandler implements RequestHandler<Map<String, Object>, Ob
         final Map<String, Object> result = new HashMap<>();
         if (!errors.isEmpty()) {
             result.put("room", null);
+            // The whole collection, on success and on failure alike. A normalising client cache updates
+        // an entity by id everywhere it is referenced, but returning one room does NOT add it to a
+        // cached list - that is a separate cache field - so the list is what makes this mutation
+        // self-sufficient. Both collections are small enough that sending them costs nothing.
+        result.put("rooms", allRooms());
             result.put("errors", errors);
             return result;
         }
@@ -67,6 +73,7 @@ public class UpdateRoomHandler implements RequestHandler<Map<String, Object>, Ob
                 .build());
 
         result.put("room", room.toResponseMap());
+        result.put("rooms", allRooms());
         result.put("errors", errors);
         return result;
     }
@@ -82,5 +89,10 @@ public class UpdateRoomHandler implements RequestHandler<Map<String, Object>, Ob
     @SuppressWarnings("unchecked")
     private static Map<String, Object> castToMap(final Object value) {
         return (Map<String, Object>) value;
+    }
+
+    /** Every room after the change - see the schema's note on Room mutation results. */
+    private List<Map<String, Object>> allRooms() {
+        return new RoomRepository(dynamoDbClient, tableName).listAll().stream().map(Room::toResponseMap).toList();
     }
 }
