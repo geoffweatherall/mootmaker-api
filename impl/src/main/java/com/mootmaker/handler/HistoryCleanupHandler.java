@@ -61,7 +61,7 @@ public class HistoryCleanupHandler implements RequestHandler<Map<String, Object>
     @Override
     public Map<String, Object> handleRequest(final Map<String, Object> event, final Context context) {
         final boolean dryRun = event != null && Boolean.TRUE.equals(event.get("dryRun"));
-        final String target = targetBoundary();
+        final String target = targetBoundary(asOf(event));
 
         final Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("dryRun", dryRun);
@@ -89,6 +89,26 @@ public class HistoryCleanupHandler implements RequestHandler<Map<String, Object>
     }
 
     /**
+     * The date to treat as today, overridable by payload for tests.
+     *
+     * <p>The override is deliberately <b>the clock, not the boundary</b>. An acceptance test cannot
+     * otherwise observe a deletion at all: writes are bounded at the retention boundary, so it cannot
+     * seed a day behind it, and the boundary only moves when the calendar does - on most days a real
+     * run is correctly a no-op. Overriding the boundary directly would bypass the very logic most
+     * likely to be wrong; overriding today still makes the job compute its own boundary, which is
+     * what the design asked for.
+     *
+     * <p>Absent means the real clock, so a scheduled run is unaffected and cannot be steered by an
+     * unexpected payload - EventBridge sends {@code {}} explicitly for exactly that reason.
+     */
+    private LocalDate asOf(final Map<String, Object> event) {
+        final Object supplied = event == null ? null : event.get("today");
+        return supplied instanceof String date && !date.isBlank()
+                ? LocalDate.parse(date)
+                : LocalDate.now(clock);
+    }
+
+    /**
      * The Monday on or before (today - retention days).
      *
      * <p>Monday alignment makes "is this week reachable" an exact comparison rather than a straddling
@@ -98,8 +118,8 @@ public class HistoryCleanupHandler implements RequestHandler<Map<String, Object>
      * <p>Computed from today rather than from the stored boundary, which is what makes a missed run
      * catch up rather than fall permanently behind by however long it was down.
      */
-    private String targetBoundary() {
-        final LocalDate earliest = LocalDate.now(clock).minusDays(Limits.RETENTION_DAYS_MINIMUM);
+    private String targetBoundary(final LocalDate today) {
+        final LocalDate earliest = today.minusDays(Limits.RETENTION_DAYS_MINIMUM);
         return earliest.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString();
     }
 }
