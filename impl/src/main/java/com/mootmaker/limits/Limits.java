@@ -114,6 +114,9 @@ public final class Limits {
      */
     public static final int RETENTION_DAYS_WORST_CASE = 37;
 
+    /** The promise: history is kept for at LEAST this long. Monday alignment can only keep more. */
+    public static final int RETENTION_DAYS_MINIMUM = 30;
+
     // ── The byte model. Estimates of DynamoDB's and AppSync's accounting, held honest by layer 3. ──
 
     /** Attribute names and fixed-width values of one stored meeting, excluding attendees and subject. */
