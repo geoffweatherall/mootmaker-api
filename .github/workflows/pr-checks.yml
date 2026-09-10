@@ -14,7 +14,16 @@ name: PR checks
 
 on:
   pull_request:
-    branches: [main]
+    # No `branches:` filter, deliberately. That filter matches the PR's BASE, so restricting it to
+    # main silently exempts every stacked pull request from this gate - a PR based on another PR is
+    # not based on main, so no run fires at all. That is what happened to #49 through #52: each was
+    # based on the one below it, none of them ran these checks, and they only got tested at all
+    # because they were merged down into #48, which does target main.
+    #
+    # 'edited' below is the same family of problem and neither line fixes the other. Without the
+    # types, a retargeted PR never re-runs; without removing this filter, a stacked PR never runs in
+    # the first place.
+    #
     # 'edited' is here for STACKED PRs, and is not optional. The default activity types are
     # opened/synchronize/reopened; retargeting a PR's base branch is none of those, it is 'edited'.
     # So when PR B is stacked on PR A and A merges, GitHub retargets B to main and fires no run -
