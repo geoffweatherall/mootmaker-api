@@ -324,3 +324,57 @@ resource "aws_dynamodb_table_item" "demo_person" {
     cognitoSubs = { L = [{ S = aws_cognito_user.demo.sub }] }
   })
 }
+
+# Password for the personless user below. Same shape as random_password.e2e_user: this account is
+# never typed by hand, so there is no reason to make it readable.
+resource "random_password" "no_person_user" {
+  # Counted on the same condition as the user itself, so production generates no password for an
+  # account production does not have.
+  count = var.environment == "production" ? 0 : 1
+
+  length           = 24
+  min_lower        = 1
+  min_upper        = 1
+  min_numeric      = 1
+  min_special      = 1
+  override_special = "!@#$%^&*()-_=+"
+}
+
+# A signed-in account with NO linked Person, which is a real state the app must handle and which
+# nothing else in this configuration produces any more.
+#
+# It used to exist by accident: the e2e user was created directly rather than through sign-up, so
+# PostConfirmationCreatePersonHandler never ran and it had no Person at all. That was fixed
+# deliberately (see aws_cognito_user.e2e above) because it meant the WHOLE acceptance suite ran as a
+# degraded identity rather than the one every real user takes. Correct fix - but it silently removed
+# the only fixture five acceptance tests had for the degraded path itself (D.24, G.67, I.76, N.105,
+# and the blank-organiser case), leaving behaviour the app still implements with no coverage at all.
+#
+# So: an account that is personless ON PURPOSE, named so nobody mistakes it for a broken one.
+#
+# NOT created in production. Everywhere else this is a test fixture; in the production pool it would
+# be a real account a real person could sign into and find half the app disabled. The demo user is
+# deliberately not gated this way because being able to try the app IS the point of production - the
+# opposite is true here.
+resource "aws_cognito_user" "no_person" {
+  count = var.environment == "production" ? 0 : 1
+
+  user_pool_id = aws_cognito_user_pool.this.id
+  username     = "no-person-tests@example.com"
+  password     = random_password.no_person_user[count.index].result
+
+  attributes = {
+    email          = "no-person-tests@example.com"
+    email_verified = "true"
+    # custom:class, but deliberately NO custom:personId - the absence of that claim is the entire
+    # point of this account. A standard (non-admin) class, because the degraded-path screens these
+    # tests assert on are the ones an ordinary user sees.
+    "custom:class" = "standard"
+  }
+  # See aws_cognito_user.e2e above: aws_cognito_user cannot carry custom:* attributes across an
+  # update, so a second apply of an unchanged configuration wipes them. ignore_changes suppresses
+  # updates without suppressing creation. mootmaker-api#39.
+  lifecycle {
+    ignore_changes = [attributes]
+  }
+}

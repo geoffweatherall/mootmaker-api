@@ -18,6 +18,9 @@
 #   E2E_USER_PASSWORD          Password for that user
 #   DEMO_USER_EMAIL            Pre-confirmed, publicly-known demo user shown on the webapp home page
 #   DEMO_USER_PASSWORD         Password for that user (not a secret - it's shown in the webapp UI)
+#   NO_PERSON_USER_EMAIL       Pre-confirmed user with NO linked Person, for the degraded-path
+#                              acceptance tests. Unset in production, where it is not created.
+#   NO_PERSON_USER_PASSWORD    Password for that user
 #   AWS_REGION                 Region this environment is deployed into
 #
 # Must be SOURCED, not executed, so the exports persist in your shell:
@@ -65,6 +68,19 @@ _authenticate_read_output() {
   export "${var_name}=${value}"
 }
 
+# Same, but an empty or missing output is not an error - the variable is simply left unset.
+#
+# For fixtures that deliberately do not exist in every environment. The personless test account is
+# not created in production (see cognito.tf), so its outputs are empty there, and a suite that needs
+# it skips rather than failing everything that does not.
+_authenticate_read_optional_output() {
+  local var_name="$1" output_name="$2" value
+  if value="$(TF_DATA_DIR="${_authenticate_tf_data_dir}" terraform -chdir="${_authenticate_terraform_dir}" output -raw "${output_name}" 2>/dev/null)" && [[ -n "${value}" ]]; then
+    export "${var_name}=${value}"
+  fi
+  return 0
+}
+
 if [[ -z "${_authenticate_failed}" ]]; then
   _authenticate_read_output GRAPHQL_API_URL graphql_api_url &&
     _authenticate_read_output COGNITO_USER_POOL_ID cognito_user_pool_id &&
@@ -77,14 +93,16 @@ if [[ -z "${_authenticate_failed}" ]]; then
     _authenticate_read_output E2E_USER_PASSWORD e2e_user_password &&
     _authenticate_read_output DEMO_USER_EMAIL demo_user_email &&
     _authenticate_read_output DEMO_USER_PASSWORD demo_user_password &&
-    _authenticate_read_output AWS_REGION aws_region
+    _authenticate_read_output AWS_REGION aws_region &&
+    _authenticate_read_optional_output NO_PERSON_USER_EMAIL no_person_user_email &&
+    _authenticate_read_optional_output NO_PERSON_USER_PASSWORD no_person_user_password
 fi
 
 if [[ -z "${_authenticate_failed}" ]]; then
   echo "Exported GRAPHQL_API_URL, the COGNITO_*/E2E_*/DEMO_* authentication variables, and AWS_REGION for '${_authenticate_environment}'."
 fi
 
-unset -f _authenticate_read_output
+unset -f _authenticate_read_output _authenticate_read_optional_output
 unset _authenticate_script_dir _authenticate_terraform_dir _authenticate_tf_data_dir _authenticate_environment
 
 [[ -z "${_authenticate_failed}" ]] || { unset _authenticate_failed; return 1; }

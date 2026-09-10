@@ -67,3 +67,14 @@ output "graphql_api_id" {
   description = "AppSync API id. Needed by deploy/import-log-groups.sh, because AppSync's log group is named /aws/appsync/apis/<id> and that id is only knowable from deployed state."
   value       = aws_appsync_graphql_api.this.id
 }
+
+output "no_person_user_email" {
+  description = "Email of the pre-confirmed account with no linked Person, which the acceptance suite uses to exercise the degraded-path screens. Empty in production, where the account is deliberately not created."
+  value       = one(aws_cognito_user.no_person[*].username)
+}
+
+output "no_person_user_password" {
+  description = "Password of the pre-confirmed account with no linked Person. Empty in production, where the account is deliberately not created."
+  value       = one(random_password.no_person_user[*].result)
+  sensitive   = true
+}
