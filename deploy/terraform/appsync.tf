@@ -89,7 +89,26 @@ locals {
     }
   EOT
 
-  direct_lambda_response_template = "$util.toJson($ctx.result)"
+  # $ctx.error is checked FIRST, and that check is the whole point of this not being a one-liner.
+  #
+  # Without it, a resolver that throws produces a null $ctx.result, and the only thing the client
+  # ever sees is AppSync's own nullability complaint:
+  #
+  #     Cannot return null for non-nullable type: 'Workspace' within parent 'Query' (/workspace)
+  #
+  # The handler's actual message - "Too many dates requested: 51 exceeds the limit of 42." - is
+  # dropped entirely. Every server-side limit, every bad request, and every genuine internal fault
+  # arrives at the client as the same sentence, which names the schema rather than the problem.
+  #
+  # Note this does NOT affect the ordinary validation path: MeetingError, RoomError and PersonError
+  # come back in typed `errors` arrays as normal RETURN values, not exceptions, and were always
+  # visible. What was invisible is exactly the class of failure a developer most needs to read.
+  direct_lambda_response_template = <<-EOT
+    #if($ctx.error)
+      $util.error($ctx.error.message, $ctx.error.type)
+    #end
+    $util.toJson($ctx.result)
+  EOT
 }
 
 # One resolver for the composite entry point, replacing the four that served Query.rooms,
