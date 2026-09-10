@@ -18,5 +18,7 @@ source ./authenticate.sh "$1"
 # deploy/terraform/admin-tools.tf) - computed rather than looked up via a Terraform output, the
 # same reasoning that applies everywhere else this pattern is used.
 export DATABASE_RESET_FUNCTION_NAME="$1-mootmaker-database-reset"
+# Computed the same deterministic way Terraform names it, so neither project reads the other's state.
+export HISTORY_CLEANUP_FUNCTION_NAME="$1-mootmaker-history-cleanup"
 
 mvn -f verify/pom.xml clean verify

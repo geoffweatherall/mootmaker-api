@@ -10,6 +10,7 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 import software.amazon.awssdk.services.dynamodb.model.Delete;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.Put;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
@@ -204,6 +205,56 @@ public final class DayRepository {
                         .build())
                 .item();
         return item == null || item.isEmpty() ? Optional.empty() : Optional.of(item.get("date").s());
+    }
+
+    /**
+     * Moves the retention boundary forward, and refuses to move it back.
+     *
+     * <p>Monotonic on purpose. The boundary is what clients are told about how far back history goes,
+     * so moving it backwards would advertise data that has already been deleted - the exact failure
+     * the advance-then-delete ordering exists to prevent. A caller passing an earlier date is a bug,
+     * and one that would be very hard to see from the outside, so it fails loudly here.
+     */
+    public void advanceBoundaryTo(final String monday) {
+        final Boundaries current = boundaries();
+        if (monday.compareTo(current.earliestRetainedDate()) < 0) {
+            throw new IllegalArgumentException("Refusing to move the retention boundary backwards, from "
+                    + current.earliestRetainedDate() + " to " + monday
+                    + " - it would advertise history that may already be deleted.");
+        }
+        dynamoDbClient.putItem(PutItemRequest.builder()
+                .tableName(tableName)
+                .item(Map.of(
+                        "pk", AttributeValue.builder().s(RETENTION_CONFIG_PK).build(),
+                        "earliestRetainedDate", AttributeValue.builder().s(monday).build()))
+                .build());
+    }
+
+    /**
+     * Deletes every day strictly before {@code boundary}, each with its pointers, transactionally.
+     *
+     * <p>Strictly before: a day falling exactly ON the boundary is retained, because the boundary is
+     * the earliest date still kept rather than the first one removed. That off-by-one is the whole
+     * difference between honouring the retention promise and breaking it by a day.
+     *
+     * @return the dates deleted, so a caller can report or broadcast them
+     */
+    public List<String> deleteDaysBefore(final String boundary) {
+        final List<Day> expired = scanDays().stream()
+                .filter(day -> day.date().compareTo(boundary) < 0)
+                .toList();
+
+        for (final Day day : expired) {
+            final List<TransactWriteItem> items = new ArrayList<>();
+            items.add(TransactWriteItem.builder().delete(Delete.builder()
+                    .tableName(tableName)
+                    .key(Map.of("pk", AttributeValue.builder().s(Day.partitionKey(day.date())).build()))
+                    .build()).build());
+            day.meetings().forEach(meeting -> items.add(
+                    TransactWriteItem.builder().delete(pointerDelete(meeting.id())).build()));
+            dynamoDbClient.transactWriteItems(TransactWriteItemsRequest.builder().transactItems(items).build());
+        }
+        return expired.stream().map(Day::date).sorted().toList();
     }
 
     /**

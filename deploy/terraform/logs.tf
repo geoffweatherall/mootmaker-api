@@ -28,6 +28,7 @@ locals {
     "${local.resource_prefix}-post-confirmation-create-person",
     "${local.resource_prefix}-database-reset",
     "${local.resource_prefix}-database-repair",
+    "${local.resource_prefix}-history-cleanup",
   ])
 }
 
