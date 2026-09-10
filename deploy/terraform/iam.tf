@@ -26,9 +26,16 @@ data "aws_iam_policy_document" "lambda_dynamodb_access" {
       "dynamodb:PutItem",
       "dynamodb:Scan",
       "dynamodb:Query",
-      # CreateMeetingHandler writes a meeting and its meeting-participants rows atomically so the
-      # two can never drift under normal operation; DeleteMyAccountHandler's meeting-cancellation
-      # cascade uses the same transactional Delete/Put pattern.
+      # Still required after the day-keyed rewrite, for a different reason than it was first granted.
+      # CreateMeetingHandler and CreateMeetingsHandler write the day item and one PTR# id -> date
+      # pointer per new meeting in a SINGLE transaction, so a meeting can never exist without the
+      # pointer that meeting(id:) resolves it through. That transaction is also why bulk creation
+      # caps at 99 meetings: DynamoDB allows 100 items, and the day item itself is one of them.
+      # DeleteMyAccountHandler's meeting-cancellation cascade uses the same Delete/Put pattern.
+      #
+      # The original justification here named the meeting-participants join table, which the rewrite
+      # deleted. Left as it was, the comment argued for this permission on grounds that no longer
+      # exist - which is an invitation to remove it and break bulk creation.
       "dynamodb:TransactWriteItems",
       # DeleteMyAccountHandler deletes the caller's own Person item directly (not via
       # TransactWriteItems, since it isn't part of any meeting cascade) - re-added after having been
