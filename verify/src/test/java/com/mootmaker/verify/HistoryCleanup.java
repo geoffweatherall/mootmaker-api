@@ -26,14 +26,29 @@ final class HistoryCleanup {
     private HistoryCleanup() {
     }
 
-    /** Runs the job for real. Returns its summary: the boundary it advanced to, and the dates it deleted. */
+    /** Runs the job for real, against the real clock - exactly what the weekly schedule sends. */
     static JsonNode run() {
         return invoke("{}");
     }
 
+    /**
+     * Runs the job as if it were {@code today}.
+     *
+     * <p>Needed because a deletion is otherwise unobservable from outside: writes are bounded at the
+     * retention boundary, so a test cannot seed a day behind it, and the boundary only moves when the
+     * calendar does - on most days a real run is correctly a no-op.
+     *
+     * <p>It overrides the CLOCK rather than the boundary on purpose. The job still computes its own
+     * boundary, which is the logic most likely to be wrong and the part an override of the boundary
+     * itself would bypass.
+     */
+    static JsonNode runAsOf(final LocalDate today) {
+        return invoke("{\"today\":\"" + today + "\"}");
+    }
+
     /** Reports what would go without moving the boundary or deleting anything. */
-    static JsonNode dryRun() {
-        return invoke("{\"dryRun\":true}");
+    static JsonNode dryRun(final LocalDate today) {
+        return invoke("{\"dryRun\":true,\"today\":\"" + today + "\"}");
     }
 
     private static JsonNode invoke(final String payload) {

@@ -34,6 +34,22 @@ class HistoryRetentionAcceptanceIT {
 
     private static final Logger LOG = LoggerFactory.getLogger(HistoryRetentionAcceptanceIT.class);
 
+    /**
+     * The server's retention window, in days. Duplicated rather than imported: {@code verify/} has no
+     * dependency on the implementation on purpose, so this is a black-box restatement of the promise
+     * (Limits.RETENTION_DAYS_MINIMUM) rather than a shared constant that could drift with it silently.
+     * If the two disagree, the assertions below fail - which is the point.
+     */
+    private static final int RETENTION_DAYS = 30;
+
+    /**
+     * Two weeks - the unit every offset below is built from, because a whole number of weeks added to
+     * the Monday boundary is itself a Monday. That makes the job's own rounding back to a Monday a
+     * no-op, so this test's arithmetic is exact rather than approximate, and no assertion depends on
+     * which weekday it happens to run.
+     */
+    private static final int TWO_WEEKS = 14;
+
     private static final String CREATE_ROOM_MUTATION =
             "mutation CreateRoom($room: RoomInput!) { createRoom(room: $room) { room { id } errors } }";
     private static final String CREATE_PERSON_MUTATION =
@@ -98,11 +114,12 @@ class HistoryRetentionAcceptanceIT {
     @DisplayName("deletes history before the boundary, keeps the day ON it, and leaves later days untouched")
     void deletesOnlyWhatIsPastTheBoundary() {
         final LocalDate currentBoundary = LocalDate.parse(boundary());
-        // Seeded relative to the boundary the environment actually reports, not to a hardcoded date -
-        // the boundary advances every week, so anything fixed would expire.
-        final LocalDate before = currentBoundary.minusDays(1);
-        final LocalDate onBoundary = currentBoundary;
-        final LocalDate after = currentBoundary.plusDays(3);
+        // Seeded AT and AFTER the current boundary, because writes behind it are rejected - that bound
+        // is itself part of the design. Time is then moved forward instead, until the boundary the job
+        // computes for itself has advanced past the earliest of the three.
+        final LocalDate before = currentBoundary;
+        final LocalDate onBoundary = currentBoundary.plusDays(TWO_WEEKS);
+        final LocalDate after = onBoundary.plusDays(TWO_WEEKS);
         LOG.info("Seeding {} (before), {} (on the boundary) and {} (after)", before, onBoundary, after);
         seedMeetingOn(before);
         seedMeetingOn(onBoundary);
@@ -112,8 +129,12 @@ class HistoryRetentionAcceptanceIT {
         assertThat("precondition: all three days hold a meeting",
                 datesHoldingMeetings(seeded).size(), equalTo(3));
 
-        LOG.info("Running the cleanup job");
-        final JsonNode summary = HistoryCleanup.run();
+        // As if it were a retention window past the second seeded day: the job's own
+        // Monday(asOf - RETENTION_DAYS) then lands on that day, so the first falls behind the new
+        // boundary, the second sits exactly ON it, and the third is well clear.
+        final LocalDate asOf = onBoundary.plusDays(RETENTION_DAYS);
+        LOG.info("Running the cleanup job as if it were {}", asOf);
+        final JsonNode summary = HistoryCleanup.runAsOf(asOf);
         final String newBoundary = summary.get("boundary").asText();
 
         // The boundary only ever moves forward, and lands on a Monday.
@@ -133,10 +154,11 @@ class HistoryRetentionAcceptanceIT {
     @Test
     @DisplayName("a second run immediately after the first changes nothing")
     void isIdempotent() {
-        HistoryCleanup.run();
+        final LocalDate asOf = LocalDate.parse(boundary()).plusDays(RETENTION_DAYS + TWO_WEEKS);
+        HistoryCleanup.runAsOf(asOf);
         final String settled = boundary();
 
-        final JsonNode second = HistoryCleanup.run();
+        final JsonNode second = HistoryCleanup.runAsOf(asOf);
 
         assertThat(second.get("datesDeleted").size(), equalTo(0));
         assertThat(boundary(), equalTo(settled));
@@ -145,17 +167,17 @@ class HistoryRetentionAcceptanceIT {
     @Test
     @DisplayName("a dry run reports what would go without moving the boundary or deleting anything")
     void dryRunChangesNothing() {
-        HistoryCleanup.run();
         final String settled = boundary();
-        final LocalDate expired = LocalDate.parse(settled).minusDays(2);
-        seedMeetingOn(expired);
+        // A day that is legal to book now, but will be behind the boundary once the job runs later.
+        final LocalDate willExpire = LocalDate.parse(settled).plusDays(1);
+        seedMeetingOn(willExpire);
 
-        final JsonNode summary = HistoryCleanup.dryRun();
+        final JsonNode summary = HistoryCleanup.dryRun(willExpire.plusDays(RETENTION_DAYS + TWO_WEEKS));
 
         final List<String> would = new ArrayList<>();
         summary.get("datesDeleted").forEach(date -> would.add(date.asText()));
-        assertThat(would, hasItem(expired.toString()));
+        assertThat(would, hasItem(willExpire.toString()));
         assertThat("the boundary must not move on a dry run", boundary(), equalTo(settled));
-        assertThat("the day must still be there", datesHoldingMeetings(List.of(expired)), hasItem(expired.toString()));
+        assertThat("the day must still be there", datesHoldingMeetings(List.of(willExpire)), hasItem(willExpire.toString()));
     }
 }
