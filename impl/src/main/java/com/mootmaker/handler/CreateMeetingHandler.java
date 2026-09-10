@@ -40,8 +40,7 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
     private static final Logger LOGGER = LoggerFactory.getLogger(CreateMeetingHandler.class);
 
     private final DayRepository days;
-    private final RoomRepository rooms;
-    private final PersonRepository people;
+    private final MeetingValidator validator;
 
     public CreateMeetingHandler() {
         this(DynamoDbClientProvider.client(),
@@ -59,8 +58,7 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
 
     CreateMeetingHandler(final DayRepository days, final RoomRepository rooms, final PersonRepository people) {
         this.days = days;
-        this.rooms = rooms;
-        this.people = people;
+        this.validator = new MeetingValidator(rooms, people);
     }
 
     @Override
@@ -79,7 +77,7 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
 
     /** Shared with bulk creation, which applies the same rules to each input against one day. */
     Meeting create(final Map<String, Object> meetingInput, final Boundaries boundaries) {
-        final Validated validated = validateRequest(meetingInput, boundaries);
+        final MeetingValidator.Validated validated = validator.validateRequest(meetingInput, boundaries);
 
         // Day-state rules are evaluated HERE as well as inside the write, and the duplication is
         // deliberate. This pass exists so a caller learns everything wrong with their request at
@@ -89,7 +87,7 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
         // other rules have already failed.
         final List<String> errors = new ArrayList<>(validated.errors());
         if (validated.canInspectDay()) {
-            errors.addAll(dayStateErrors(days.read(validated.date()).meetings(), validated));
+            errors.addAll(MeetingValidator.dayStateErrors(days.read(validated.date()).meetings(), validated));
         }
         if (!errors.isEmpty()) {
             throw new MeetingRejected(errors);
@@ -105,7 +103,7 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
                 // Re-run on every attempt, against freshly-read state. This is the whole point of
                 // mutate taking a function rather than a value: a booking that loses a version
                 // conflict must answer "is the room still free" about the day as it NOW is.
-                final List<String> conflicts = dayStateErrors(day.meetings(), validated);
+                final List<String> conflicts = MeetingValidator.dayStateErrors(day.meetings(), validated);
                 if (!conflicts.isEmpty()) {
                     throw new MeetingRejected(conflicts);
                 }
@@ -123,125 +121,6 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
                 record.subject(), record.startTime(), record.endTime());
     }
 
-    /**
-     * The request after checking, valid or not. Carries the errors rather than throwing them so the
-     * day-state pass can add its own before anything is reported.
-     */
-    private record Validated(List<String> errors, String roomId, String organiserId, List<String> attendeeIds,
-            String subject, LocalDateTime startTime, LocalDateTime endTime, Room room, Person organiser,
-            List<Person> attendees) {
-
-        /** Enough of the request survived to ask the day a question. */
-        boolean canInspectDay() {
-            return startTime != null && endTime != null && startTime.toLocalDate().equals(endTime.toLocalDate());
-        }
-
-        String date() {
-            return startTime.toLocalDate().toString();
-        }
-    }
-
-    /** The rules that depend on what the day already holds. */
-    private static List<String> dayStateErrors(final List<MeetingRecord> meetingsThatDay, final Validated validated) {
-        final List<String> errors = new ArrayList<>();
-        if (meetingsThatDay.size() >= Limits.MAX_MEETINGS_PER_DAY) {
-            errors.add(MeetingError.DayIsFull.name());
-        }
-        if (validated.roomId() != null && !validated.roomId().isBlank()
-                && !RoomAvailability.isFree(meetingsThatDay, validated.roomId(), validated.startTime(), validated.endTime())) {
-            errors.add(MeetingError.TimeRangeUnavailable.name());
-        }
-        return errors;
-    }
-
-    /** Everything checkable without reading the day. Collects every broken rule rather than stopping at the first. */
-    private Validated validateRequest(final Map<String, Object> meetingInput, final Boundaries boundaries) {
-        final String roomId = (String) meetingInput.get("roomId");
-        final String organiserId = (String) meetingInput.get("organiserId");
-        @SuppressWarnings("unchecked")
-        final List<String> attendeeIds = (List<String>) meetingInput.get("attendeeIds");
-        final String subject = Subjects.normalise((String) meetingInput.get("subject"));
-
-        final List<String> errors = new ArrayList<>();
-
-        if (isBlank(subject)) {
-            errors.add(MeetingError.SubjectRequired.name());
-        } else if (!Subjects.isWithinLimit(subject)) {
-            errors.add(MeetingError.SubjectTooLong.name());
-        }
-
-        final LocalDateTime startTime =
-                parseOnFifteenMinuteBoundary((String) meetingInput.get("startTime"), MeetingError.StartMisaligned, errors);
-        final LocalDateTime endTime =
-                parseOnFifteenMinuteBoundary((String) meetingInput.get("endTime"), MeetingError.EndMisaligned, errors);
-
-        if (startTime != null && endTime != null) {
-            if (!startTime.toLocalDate().equals(endTime.toLocalDate())) {
-                errors.add(MeetingError.SpansMultipleDays.name());
-            } else if (!endTime.isAfter(startTime)) {
-                errors.add(MeetingError.EndBeforeStart.name());
-            } else if (!boundaries.contains(startTime.toLocalDate().toString())) {
-                errors.add(MeetingError.OutsideBookableRange.name());
-            }
-        }
-
-        if (attendeeIds != null && attendeeIds.size() > Limits.MAX_ATTENDEES_PER_MEETING) {
-            errors.add(MeetingError.TooManyAttendees.name());
-        }
-
-        Room room = null;
-        if (isBlank(roomId)) {
-            errors.add(MeetingError.RoomRequired.name());
-        } else {
-            room = rooms.findById(roomId).orElse(null);
-            if (room == null) {
-                errors.add(MeetingError.RoomNotFound.name());
-            }
-        }
-
-        Person organiser = null;
-        if (isBlank(organiserId)) {
-            errors.add(MeetingError.OrganiserRequired.name());
-        } else {
-            organiser = people.findById(organiserId).orElse(null);
-            if (organiser == null) {
-                errors.add(MeetingError.OrganiserNotFound.name());
-            }
-        }
-
-        final List<String> safeAttendeeIds = attendeeIds == null ? List.of() : attendeeIds;
-        final Map<String, Person> attendeesById = people.loadByIds(Set.copyOf(safeAttendeeIds));
-        final List<Person> attendees = new ArrayList<>();
-        for (final String attendeeId : safeAttendeeIds) {
-            final Person attendee = attendeesById.get(attendeeId);
-            if (attendee == null) {
-                errors.add(MeetingError.AttendeeNotFound.name());
-            } else {
-                attendees.add(attendee);
-            }
-        }
-
-        if (!isBlank(organiserId) && safeAttendeeIds.contains(organiserId)) {
-            errors.add(MeetingError.OrganiserIsAttendee.name());
-        }
-
-        if (room != null) {
-            // A Set, not "1 + attendeeIds.size()", so a duplicated organiserId (already separately rejected
-            // above via OrganiserIsAttendee) can't also inflate this count and raise a spurious, misleading
-            // InsufficientCapacity alongside it.
-            final Set<String> distinctParticipantIds = new HashSet<>(safeAttendeeIds);
-            if (!isBlank(organiserId)) {
-                distinctParticipantIds.add(organiserId);
-            }
-            if (room.capacity() < distinctParticipantIds.size()) {
-                errors.add(MeetingError.InsufficientCapacity.name());
-            }
-        }
-
-        return new Validated(errors, roomId, organiserId, safeAttendeeIds, subject, startTime, endTime,
-                room, organiser, attendees);
-    }
-
     private static Map<String, Object> created(final Meeting meeting) {
         final Map<String, Object> result = new HashMap<>();
         result.put("meeting", meeting.toResponseMap());
@@ -254,29 +133,6 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
         result.put("meeting", null);
         result.put("errors", errors);
         return result;
-    }
-
-    private static LocalDateTime parseOnFifteenMinuteBoundary(final String text, final MeetingError error, final List<String> errors) {
-        if (text == null) {
-            errors.add(error.name());
-            return null;
-        }
-        final LocalDateTime dateTime;
-        try {
-            dateTime = LocalDateTime.parse(text);
-        } catch (final DateTimeParseException _) {
-            errors.add(error.name());
-            return null;
-        }
-        if (dateTime.getSecond() != 0 || dateTime.getNano() != 0 || dateTime.getMinute() % 15 != 0) {
-            errors.add(error.name());
-            return null;
-        }
-        return dateTime;
-    }
-
-    private static boolean isBlank(final String value) {
-        return value == null || value.isBlank();
     }
 
     @SuppressWarnings("unchecked")

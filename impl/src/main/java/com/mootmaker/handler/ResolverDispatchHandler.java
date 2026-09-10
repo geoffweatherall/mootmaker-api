@@ -39,10 +39,11 @@ public class ResolverDispatchHandler implements RequestHandler<Map<String, Objec
         // the first XxxHandler() constructor call creates/primes the shared client and the rest
         // just read it.
         this(Map.ofEntries(
-                Map.entry("Query.rooms", new ListRoomsHandler()),
-                Map.entry("Query.people", new ListPeopleHandler()),
-                Map.entry("Query.myPerson", new MyPersonHandler()),
-                Map.entry("Query.meetings", new ListMeetingsHandler()),
+                // One composite entry point replaces Query.rooms, Query.people, Query.myPerson and
+                // Query.meetings: a page load is now one invocation and one SnapStart restore rather
+                // than four of each.
+                Map.entry("Query.workspace", new WorkspaceHandler()),
+                Map.entry("Query.meeting", new MeetingByIdHandler()),
                 Map.entry("Query.suggestRoom", new SuggestRoomHandler()),
                 Map.entry("Mutation.createRoom", new CreateRoomHandler()),
                 Map.entry("Mutation.updateRoom", new UpdateRoomHandler()),
@@ -50,6 +51,7 @@ public class ResolverDispatchHandler implements RequestHandler<Map<String, Objec
                 Map.entry("Mutation.updatePerson", new UpdatePersonHandler()),
                 Map.entry("Mutation.updateMyPreferences", new UpdateMyPreferencesHandler()),
                 Map.entry("Mutation.createMeeting", new CreateMeetingHandler()),
+                Map.entry("Mutation.createMeetings", new CreateMeetingsHandler()),
                 Map.entry("Mutation.deleteMyAccount", new DeleteMyAccountHandler())));
     }
 
