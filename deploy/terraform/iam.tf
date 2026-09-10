@@ -76,6 +76,28 @@ resource "aws_iam_role_policy" "lambda_cognito_access" {
   policy = data.aws_iam_policy_document.lambda_cognito_access.json
 }
 
+# Lets the resolver Lambda call Mutation.publishDaysInvalidated over IAM-signed HTTP after a
+# successful write, and nothing else on the API.
+#
+# The resource ARN is scoped to that ONE FIELD rather than to the API. appsync:GraphQL supports
+# field-level ARNs, so granting apis/<id>/* here would hand the Lambda the ability to call every
+# mutation as an IAM principal - bypassing the admin checks that every other field's resolver
+# performs, since those run as the Lambda itself rather than as the signed-in user. The narrow ARN
+# is what keeps @aws_iam on that field a boundary instead of a label.
+data "aws_iam_policy_document" "lambda_appsync_publish" {
+  statement {
+    sid       = "PublishDaysInvalidatedOnly"
+    actions   = ["appsync:GraphQL"]
+    resources = ["${aws_appsync_graphql_api.this.arn}/types/Mutation/fields/publishDaysInvalidated"]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_appsync_publish" {
+  name   = "${local.resource_prefix}-lambda-appsync-publish"
+  role   = aws_iam_role.lambda_exec.id
+  policy = data.aws_iam_policy_document.lambda_appsync_publish.json
+}
+
 data "aws_iam_policy_document" "appsync_assume_role" {
   statement {
     actions = ["sts:AssumeRole"]

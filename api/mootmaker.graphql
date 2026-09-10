@@ -1,6 +1,7 @@
 schema {
  query: Query
  mutation: Mutation
+ subscription: Subscription
 }
 
 type Query {
@@ -61,6 +62,23 @@ type Mutation {
  updateMyPreferences(preferences: PreferencesInput!): UpdateMyPreferencesResult!
  "Deletes the signed-in caller's own account: cancels every upcoming meeting they organise, removes them from every upcoming meeting they only attend, deletes their linked Person, then deletes their Cognito user entirely. Past meetings are left untouched. Irreversible. Not available for reserved system accounts (e.g. the demo user), which reject with an error."
  deleteMyAccount: Boolean!
+
+ "NOT FOR CLIENT USE, and not merely by convention - `@aws_iam` means AppSync refuses the call before any resolver runs, so a signed-in user cannot invoke it at all. A publish-only mutation on a NONE data source, called by the resolver Lambda over IAM-signed HTTP after a successful write, purely to drive `Subscription.daysInvalidated`. It exists because `@aws_subscribe` pushes the MUTATION'S return value and requires the subscription field's type to match it: subscribing directly to createMeeting would broadcast rejected bookings (which return successfully, with a typed errors array, rather than failing - verified), and could not also cover createMeetings, whose result type differs."
+ publishDaysInvalidated(dates: [String!]!): Invalidation @aws_iam
+}
+
+"""
+Carries invalidated DATES, never data.
+
+Both type-level directives are REQUIRED, and their absence fails silently - verified on a throwaway API, not read from documentation. The publisher reaches this type over IAM and the subscriber reads it as a Cognito user, so both modes must be named here; with only the field directive on the mutation, subscribing still returns `start_ack` and then delivers nothing forever, and the sole symptom is `Not Authorized to access dates on type Invalidation` on the PUBLISHER's response - inside a Lambda nobody is watching.
+"""
+type Invalidation @aws_iam @aws_cognito_user_pools {
+    dates: [String!]!
+}
+
+type Subscription {
+    "Carries dates, never data - for four reasons, of which the cap is only the first. AppSync caps a subscription payload at 240 KB (measured: 244,440 bytes delivered, 247,040 did not, and the over-cap publish still returned SUCCESS) against 5 MB for a resolver response, while a worst-case Day is ~618 KB of JSON - so a broadcast cannot carry a day even though a mutation response can. Beyond fitting: the payload is uniform and tiny whatever the day holds; one channel serves every kind of change (create, bulk create, and later history deletion); and it is idempotent, where merging the same meeting twice would need deduplication. The client evicts Day:<date> and its ordinary gap fetch refills it. The 217-day worst case measures 2,861 bytes, about 1.2% of the cap."
+    daysInvalidated: Invalidation @aws_subscribe(mutations: ["publishDaysInvalidated"])
 }
 
 type Room {
