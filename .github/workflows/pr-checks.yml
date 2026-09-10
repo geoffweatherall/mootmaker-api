@@ -15,6 +15,14 @@ name: PR checks
 on:
   pull_request:
     branches: [main]
+    # 'edited' is here for STACKED PRs, and is not optional. The default activity types are
+    # opened/synchronize/reopened; retargeting a PR's base branch is none of those, it is 'edited'.
+    # So when PR B is stacked on PR A and A merges, GitHub retargets B to main and fires no run -
+    # leaving B stuck on "Expected - waiting for status" forever, with no push left to trigger it,
+    # because main's protection requires the unit-tests context below.
+    # The cost is a run on title and body edits too; the suite is ~25s and the concurrency group
+    # below cancels anything in flight, so that is the cheaper side of the trade.
+    types: [opened, synchronize, reopened, edited]
   # Lets the gate be re-run without pushing an empty commit.
   workflow_dispatch:
 
