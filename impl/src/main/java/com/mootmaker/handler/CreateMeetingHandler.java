@@ -4,6 +4,8 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.DayItemTooLargeException;
 import com.mootmaker.dynamo.DayRepository;
+import com.mootmaker.realtime.DayBroadcaster;
+import com.mootmaker.realtime.DaysInvalidatedPublisher;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.dynamo.RoomAvailability;
@@ -41,6 +43,7 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
 
     private final DayRepository days;
     private final MeetingValidator validator;
+    private final DayBroadcaster broadcaster;
 
     public CreateMeetingHandler() {
         this(DynamoDbClientProvider.client(),
@@ -51,14 +54,27 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
 
     CreateMeetingHandler(final DynamoDbClient dynamoDbClient, final String meetingsTableName,
             final String roomsTableName, final String peopleTableName) {
+        this(dynamoDbClient, meetingsTableName, roomsTableName, peopleTableName,
+                DaysInvalidatedPublisher.fromEnvironment());
+    }
+
+    CreateMeetingHandler(final DynamoDbClient dynamoDbClient, final String meetingsTableName,
+            final String roomsTableName, final String peopleTableName, final DayBroadcaster broadcaster) {
         this(new DayRepository(dynamoDbClient, meetingsTableName),
                 new RoomRepository(dynamoDbClient, roomsTableName),
-                new PersonRepository(dynamoDbClient, peopleTableName));
+                new PersonRepository(dynamoDbClient, peopleTableName),
+                broadcaster);
     }
 
     CreateMeetingHandler(final DayRepository days, final RoomRepository rooms, final PersonRepository people) {
+        this(days, rooms, people, DaysInvalidatedPublisher.fromEnvironment());
+    }
+
+    CreateMeetingHandler(final DayRepository days, final RoomRepository rooms, final PersonRepository people,
+            final DayBroadcaster broadcaster) {
         this.days = days;
         this.validator = new MeetingValidator(rooms, people);
+        this.broadcaster = broadcaster;
     }
 
     @Override
@@ -69,7 +85,14 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
         final Map<String, Object> meetingInput = castToMap(arguments.get("meeting"));
 
         try {
-            return created(create(meetingInput, days.boundaries()));
+            final Meeting meeting = create(meetingInput, days.boundaries());
+            // Only after the write has committed, and only for a write that succeeded. A rejected
+            // booking must broadcast nothing: it changed no day, and waking every connected client
+            // to refetch an unchanged day is pure cost. See DaysInvalidatedPublisher for why this
+            // is a separate publish rather than a subscription on createMeeting itself - AppSync
+            // broadcasts a rejected mutation exactly like a successful one.
+            broadcaster.publish(List.of(meeting.startTime().substring(0, 10)));
+            return created(meeting);
         } catch (final MeetingRejected rejected) {
             return rejected(rejected.errors());
         }

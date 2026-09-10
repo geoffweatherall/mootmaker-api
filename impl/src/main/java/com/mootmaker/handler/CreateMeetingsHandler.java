@@ -4,6 +4,8 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.DayItemTooLargeException;
 import com.mootmaker.dynamo.DayRepository;
+import com.mootmaker.realtime.DayBroadcaster;
+import com.mootmaker.realtime.DaysInvalidatedPublisher;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.dynamo.RoomRepository;
@@ -38,6 +40,7 @@ public class CreateMeetingsHandler implements RequestHandler<Map<String, Object>
 
     private final DayRepository days;
     private final MeetingValidator validator;
+    private final DayBroadcaster broadcaster;
 
     public CreateMeetingsHandler() {
         this(DynamoDbClientProvider.client(),
@@ -48,14 +51,27 @@ public class CreateMeetingsHandler implements RequestHandler<Map<String, Object>
 
     CreateMeetingsHandler(final DynamoDbClient dynamoDbClient, final String meetingsTableName,
             final String roomsTableName, final String peopleTableName) {
+        this(dynamoDbClient, meetingsTableName, roomsTableName, peopleTableName,
+                DaysInvalidatedPublisher.fromEnvironment());
+    }
+
+    CreateMeetingsHandler(final DynamoDbClient dynamoDbClient, final String meetingsTableName,
+            final String roomsTableName, final String peopleTableName, final DayBroadcaster broadcaster) {
         this(new DayRepository(dynamoDbClient, meetingsTableName),
                 new RoomRepository(dynamoDbClient, roomsTableName),
-                new PersonRepository(dynamoDbClient, peopleTableName));
+                new PersonRepository(dynamoDbClient, peopleTableName),
+                broadcaster);
     }
 
     CreateMeetingsHandler(final DayRepository days, final RoomRepository rooms, final PersonRepository people) {
+        this(days, rooms, people, DaysInvalidatedPublisher.fromEnvironment());
+    }
+
+    CreateMeetingsHandler(final DayRepository days, final RoomRepository rooms, final PersonRepository people,
+            final DayBroadcaster broadcaster) {
         this.days = days;
         this.validator = new MeetingValidator(rooms, people);
+        this.broadcaster = broadcaster;
     }
 
     @Override
@@ -93,6 +109,13 @@ public class CreateMeetingsHandler implements RequestHandler<Map<String, Object>
 
         if (!accepted.isEmpty()) {
             write(date, accepted, failures);
+            // One broadcast for the whole call, not one per meeting - which is the entire point of
+            // Decision 5's day-scoped bulk creation. 99 meetings on one date change exactly one
+            // day, so subscribers are woken once and refetch once.
+            //
+            // Conditional on something having been accepted: a call where every input failed wrote
+            // nothing, so there is nothing for anyone to refetch.
+            broadcaster.publish(List.of(date));
         }
 
         final Map<String, Object> result = new HashMap<>();

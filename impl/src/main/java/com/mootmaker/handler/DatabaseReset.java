@@ -2,6 +2,7 @@ package com.mootmaker.handler;
 
 import com.mootmaker.concurrent.ConcurrencyUtils;
 import com.mootmaker.dynamo.DayRepository;
+import com.mootmaker.limits.Limits;
 import com.mootmaker.model.Day;
 import com.mootmaker.model.Person;
 import com.mootmaker.model.MeetingRecord;
@@ -129,10 +130,18 @@ final class DatabaseReset {
     /**
      * Deletes every day item and every {@code id -> date} pointer from the meetings table.
      *
-     * <p><b>The {@code CONFIG#retention} item is deliberately preserved.</b> It is configuration
+     * <p><b>The {@code CONFIG#retention} item is preserved but REWRITTEN.</b> It is configuration
      * seeded by Terraform when the table is created, not data - and it is load-bearing: without it
      * every subsequent booking fails, because the bookable window cannot be computed. A reset that
      * wiped the whole table would leave an environment that looks fine and refuses every write.
+     *
+     * <p>Its value is put back to the boundary today's calendar implies, because the boundary was
+     * the one piece of state a reset could not undo. It only ever moves forward in normal operation,
+     * and the acceptance suite advances it deliberately in order to observe a deletion at all -
+     * so without this, every retention run pushed an environment's bookable window further into the
+     * future, permanently, until nothing near-term could be booked. Safe only here, and only
+     * because it happens once every day item is already gone: there is then no history left for a
+     * lower boundary to advertise falsely.
      *
      * <p>Pointers go with their days here rather than being left to dangle. Nothing would break if
      * they were orphaned - {@code meeting(id:)} resolves a pointer, reads the day, finds nothing and
@@ -154,7 +163,21 @@ final class DatabaseReset {
                 .tableName(meetingsTableName)
                 .key(Map.of("pk", item.get("pk")))
                 .build()));
+
+        // After the delete, never before: the boundary may only drop once there is no history for it
+        // to misrepresent.
+        new DayRepository(dynamoDbClient, meetingsTableName).resetBoundaryTo(naturalBoundary(LocalDate.now()));
         return meetingsRemoved;
+    }
+
+    /**
+     * The boundary the weekly cleanup would compute today - deliberately the same rule, so a reset
+     * leaves an environment indistinguishable from one the job has just run against.
+     */
+    static String naturalBoundary(final LocalDate today) {
+        return today.minusDays(Limits.RETENTION_DAYS_MINIMUM)
+                .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                .toString();
     }
 
     private static List<UserType> listAllUsers(final CognitoIdentityProviderClient cognitoClient, final String userPoolId) {

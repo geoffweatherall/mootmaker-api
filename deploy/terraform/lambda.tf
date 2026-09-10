@@ -35,6 +35,13 @@ locals {
   resolver_lambda_env_vars = merge(local.admin_gated_env_vars, {
     COGNITO_USER_POOL_ID    = aws_cognito_user_pool.this.id
     RESERVED_ACCOUNT_EMAILS = local.reserved_account_emails
+    # The API calling its own publishDaysInvalidated mutation over IAM-signed HTTP after a write -
+    # AppSync has no server-side publish API, so a broadcast IS a mutation call. Set only for this
+    # function: database-reset and database-repair run the same jar and neither has the appsync
+    # grant, so DaysInvalidatedPublisher.fromEnvironment() degrades to a no-op there rather than
+    # failing. Deliberately the raw AppSync URL rather than the custom domain, so a broadcast does
+    # not depend on DNS or the ACM certificate being healthy.
+    GRAPHQL_ENDPOINT = aws_appsync_graphql_api.this.uris["GRAPHQL"]
   })
 }
 

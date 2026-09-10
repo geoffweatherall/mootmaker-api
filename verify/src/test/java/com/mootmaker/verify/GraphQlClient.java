@@ -34,6 +34,15 @@ class GraphQlClient {
         return new GraphQlClient(requireEnv("GRAPHQL_API_URL"), accessToken());
     }
 
+    /**
+     * The same token this client authenticates with, for a subscription to reuse. AppSync accepts
+     * it over the realtime transport exactly as it does over HTTP, so a test does not need a second
+     * set of credentials to prove a broadcast reaches a second client.
+     */
+    String accessTokenForSubscriptions() {
+        return accessToken;
+    }
+
     private static synchronized String accessToken() {
         if (cachedAccessToken == null) {
             cachedAccessToken = fetchAccessToken();

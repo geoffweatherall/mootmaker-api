@@ -101,6 +101,35 @@ class DatabaseResetTest {
     }
 
     @Test
+    void deleteAllMeetingsPutsTheRetentionBoundaryBackToTodaysNaturalValue() {
+        final FakeDynamoDbClient dynamoDbClient = new FakeDynamoDbClient();
+        // A boundary far in the FUTURE, which is the state the retention acceptance test leaves
+        // behind: it must advance the boundary to observe a deletion at all, and the boundary is
+        // monotonic, so nothing could put it back. Left alone, an environment's bookable window
+        // crept further forward with every run until nothing near-term could be booked.
+        dynamoDbClient.tables.put(MEETINGS_TABLE, new ArrayList<>(List.of(
+                DayFixtures.retentionConfig("2026-11-02"))));
+
+        DatabaseReset.deleteAllMeetings(dynamoDbClient, MEETINGS_TABLE);
+
+        final Map<String, AttributeValue> config = dynamoDbClient.tables.get(MEETINGS_TABLE).stream()
+                .filter(item -> "CONFIG#retention".equals(item.get("pk").s()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("the config item must still exist"));
+        assertEquals(DatabaseReset.naturalBoundary(LocalDate.now()),
+                config.get("earliestRetainedDate").s(),
+                "a reset must leave the boundary where the weekly job would put it today");
+    }
+
+    @Test
+    void naturalBoundaryIsTheMondayOnOrBeforeThirtyDaysAgo() {
+        // Pinned against a known Wednesday: 2026-09-09 minus 30 days is 2026-08-10, itself a Monday.
+        assertEquals("2026-08-10", DatabaseReset.naturalBoundary(LocalDate.parse("2026-09-09")));
+        // And a date whose minus-30 lands mid-week rounds BACK, never forward.
+        assertEquals("2026-08-10", DatabaseReset.naturalBoundary(LocalDate.parse("2026-09-14")));
+    }
+
+    @Test
     void deleteAllMeetingsSucceedsWhenTheTableIsAlreadyEmpty() {
         final FakeDynamoDbClient dynamoDbClient = new FakeDynamoDbClient();
 

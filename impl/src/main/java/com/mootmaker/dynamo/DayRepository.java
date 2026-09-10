@@ -231,6 +231,31 @@ public final class DayRepository {
     }
 
     /**
+     * Puts the retention boundary back to a given Monday REGARDLESS of where it currently sits,
+     * including backwards - which {@link #advanceBoundaryTo} refuses by design.
+     *
+     * <p>Only legitimate immediately after every day item has been deleted, which is why it lives
+     * here for {@code database-reset} alone rather than being offered as a general operation.
+     * Moving the boundary back normally advertises history that has already been deleted; once the
+     * table holds no history at all, there is nothing left to advertise falsely, and every day in
+     * the new window is legitimately empty rather than missing.
+     *
+     * <p>Needed because the boundary is the one piece of state a reset could not previously undo.
+     * The acceptance suite advances it deliberately, to observe a deletion at all, and without this
+     * that advance was permanent: an environment's bookable window would creep further into the
+     * future with every run until nothing near-term could be booked. Preserving the config item was
+     * always right - deleting it breaks every write - but preserving its VALUE was not.
+     */
+    public void resetBoundaryTo(final String monday) {
+        dynamoDbClient.putItem(PutItemRequest.builder()
+                .tableName(tableName)
+                .item(Map.of(
+                        "pk", AttributeValue.builder().s(RETENTION_CONFIG_PK).build(),
+                        "earliestRetainedDate", AttributeValue.builder().s(monday).build()))
+                .build());
+    }
+
+    /**
      * Deletes every day strictly before {@code boundary}, each with its pointers, transactionally.
      *
      * <p>Strictly before: a day falling exactly ON the boundary is retained, because the boundary is

@@ -43,6 +43,20 @@ data "aws_iam_policy_document" "database_reset_access" {
     ]
   }
 
+  # PutItem on the MEETINGS table only, and only for one item: reset rewrites CONFIG#retention to
+  # the boundary today's calendar implies (see DatabaseReset.deleteAllMeetings and #46). The
+  # boundary is monotonic in normal operation, so a reset is the only thing that can put it back,
+  # and without that an environment's bookable window creeps permanently into the future.
+  #
+  # Deliberately not extended to the rooms and people tables: reset has no reason to write there,
+  # and this role's narrowness is what caught the write being added in the first place - the
+  # acceptance suite failed with AccessDenied rather than silently doing something unintended.
+  statement {
+    sid       = "DatabaseResetRetentionBoundaryWrite"
+    actions   = ["dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.meetings.arn]
+  }
+
   statement {
     sid       = "DatabaseResetCognitoAccess"
     actions   = ["cognito-idp:ListUsers", "cognito-idp:AdminDeleteUser"]
