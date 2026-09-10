@@ -47,6 +47,16 @@ jobs:
           npm install -g npm@latest
           npm --version
 
+      # Gates the publish itself, not just the pull request. A package cannot be unpublished, so
+      # this is the last point at which an unparseable schema is still a failed build rather than a
+      # permanently broken version on a public registry. Version 3.1.0 reached npm without the
+      # `directive @aws_*` declarations and graphql-js rejects it; this step is what would have
+      # stopped it.
+      - name: Refuse to publish a schema standard tooling cannot parse
+        run: |
+          npm install --no-save graphql@16
+          node api/check-schema-parses.mjs api/mootmaker.graphql
+
       - name: Read the declared version
         id: version
         run: echo "value=$(node -p "require('./api/package.json').version")" >> "$GITHUB_OUTPUT"
