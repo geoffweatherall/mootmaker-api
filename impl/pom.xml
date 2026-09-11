@@ -12,6 +12,13 @@
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <spotless.version>3.10.2</spotless.version>
+    <!-- Pinned, not 'latest'. The VS Code extension is pinned to this same number in
+         java.format.settings.google.version; if the two drift, the editor reformats what the build
+         then rejects. Bumping means bumping both. -->
+    <google-java-format.version>1.30.0</google-java-format.version>
+    <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
+    <checkstyle.version>14.1.0</checkstyle.version>
     <awssdk.version>2.46.7</awssdk.version>
   </properties>
 
@@ -153,6 +160,53 @@
             </configuration>
           </execution>
         </executions>
+      </plugin>
+
+      <!-- Formatting is google-java-format in unmodified Google style. `mvn spotless:apply` fixes a
+           file; `mvn spotless:check` is what CI runs. reflowLongStrings makes this byte-identical to
+           the formatter's command line, which is what the VS Code extension runs - without it the
+           editor wraps long string literals and this build does not, and the two fight on save. -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>${spotless.version}</version>
+        <configuration>
+          <java>
+            <googleJavaFormat>
+              <version>${google-java-format.version}</version>
+              <style>GOOGLE</style>
+              <reflowLongStrings>true</reflowLongStrings>
+            </googleJavaFormat>
+          </java>
+        </configuration>
+      </plugin>
+
+      <!-- Google's own ruleset, used as shipped. Deviations live in config/checkstyle-suppressions.xml
+           so they stay readable in one place rather than as edits to a 108-module file.
+           violationSeverity=warning matters: google_checks.xml reports at warning severity, and the
+           plugin's default only fails on errors - left alone it prints thousands of findings and
+           still says BUILD SUCCESS. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>${maven-checkstyle-plugin.version}</version>
+        <dependencies>
+          <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>${checkstyle.version}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <configLocation>/google_checks.xml</configLocation>
+          <suppressionsLocation>${project.basedir}/../config/checkstyle-suppressions.xml</suppressionsLocation>
+          <suppressionsFileExpression>org.checkstyle.google.suppressionfilter.config</suppressionsFileExpression>
+          <includeTestSourceDirectory>true</includeTestSourceDirectory>
+          <violationSeverity>warning</violationSeverity>
+          <failOnViolation>true</failOnViolation>
+          <consoleOutput>true</consoleOutput>
+          <linkXRef>false</linkXRef>
+        </configuration>
       </plugin>
     </plugins>
   </build>
