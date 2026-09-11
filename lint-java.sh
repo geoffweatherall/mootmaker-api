@@ -19,10 +19,10 @@ set -euo pipefail
 readonly ECJ_VERSION="3.46.100"
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Which warnings fail the build. All four are at zero, so anything new is genuinely new.
-# `deprecation` is deliberately absent: there is one known deprecated AWS SDK call in
-# DaysInvalidatedPublisher, and turning it on would fail every build until that is dealt with.
-readonly WARNINGS="+unusedImport,+unusedLocal,+unusedPrivateMember,+unusedParam"
+# Which warnings fail the build. All five are at zero, so anything new is genuinely new.
+# Kept byte-identical to the copy in the other Java repository, so drift shows up in a plain diff.
+# If they ever have to differ, say why here.
+readonly WARNINGS="+unusedImport,+unusedLocal,+unusedPrivateMember,+unusedParam,+deprecation"
 
 ecj_jar() {
     local jar="${HOME}/.m2/repository/org/eclipse/jdt/ecj/${ECJ_VERSION}/ecj-${ECJ_VERSION}.jar"

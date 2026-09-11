@@ -85,7 +85,7 @@ public final class DaysInvalidatedPublisher implements DayBroadcaster {
     }
     return new DaysInvalidatedPublisher(
         UrlConnectionHttpClient.builder().socketTimeout(TIMEOUT).connectionTimeout(TIMEOUT).build(),
-        DefaultCredentialsProvider.create(),
+        DefaultCredentialsProvider.builder().build(),
         URI.create(endpoint),
         Region.of(System.getenv("AWS_REGION")));
   }
