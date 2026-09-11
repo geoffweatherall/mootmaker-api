@@ -22,4 +22,26 @@
   <!-- SummaryJavadoc demands a complete sentence as the first line of any javadoc that IS written.
        Dropped with the two above: a comment worth writing is not always worth a formal summary. -->
   <suppress checks="SummaryJavadoc" files="."/>
+  <!--
+    CustomImportOrder does not understand Java 25 module imports. When a file has static imports AND
+    an `import module` declaration, it stops recognising the group boundaries and reports every
+    ordinary import as needing a blank line that is already there. Verified: all 24 files it fires on
+    have both, and no file with only one of them is flagged.
+
+    Nothing is lost by switching it off. google-java-format sorts and groups imports itself, and
+    spotless:check fails if they drift - so import order is already enforced, by the formatter, which
+    can parse the language this codebase is written in.
+  -->
+  <suppress checks="CustomImportOrder" files="."/>
+
+  <!--
+    The two below fire only on test method names, which this codebase writes as sentences:
+    writesTheFirstVersionOfADay, ignoresEverythingThatIsNotADay. Google's naming rules read the
+    English article "A" followed by a capitalised word as a two-letter abbreviation.
+
+    Scoped to test sources on purpose. Production names still have to satisfy Google's rules, and a
+    real abbreviation problem in main/ will still fail the build.
+  -->
+  <suppress checks="AbbreviationAsWordInName" files="[\\/]src[\\/]test[\\/]"/>
+  <suppress checks="GoogleMethodName" files="[\\/]src[\\/]test[\\/]"/>
 </suppressions>
