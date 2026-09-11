@@ -1,7 +1,5 @@
 package com.mootmaker.limits;
 
-import module java.base;
-
 /**
  * Every size limit in the system, and the arithmetic proving they are consistent with the platform
  * caps they exist to respect.

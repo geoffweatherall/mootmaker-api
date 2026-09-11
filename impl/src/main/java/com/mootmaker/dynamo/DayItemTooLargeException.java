@@ -1,7 +1,5 @@
 package com.mootmaker.dynamo;
 
-import module java.base;
-
 /**
  * Layer 3 of the item-size guarantee fired: the real serialised day item exceeded the cap even
  * though validation, working from the modelled byte budget, let it through.
