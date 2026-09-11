@@ -1,5 +1,7 @@
 package com.mootmaker.handler;
 
+import module java.base;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.cognito.CognitoIdentityProviderClientProvider;
@@ -18,141 +20,147 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
-import module java.base;
-
 /**
  * AppSync direct-Lambda resolver for {@code Mutation.updatePerson}. Allowed for the caller's own
  * linked Person (a self-rename, identified the same way {@link MyPersonHandler} does - matching
- * {@code identity.sub} against the target's linked accounts) or, for any person, if the caller
- * is admin (see {@link Identity#isAdmin}).
+ * {@code identity.sub} against the target's linked accounts) or, for any person, if the caller is
+ * admin (see {@link Identity#isAdmin}).
  *
  * <p>If the target person has a linked Cognito account, this also updates Cognito's own {@code
  * name} attribute to match - otherwise it would go stale relative to {@code Person.name} (Cognito
- * sets it once at sign-up and nothing else ever touches it), and {@code AuthProvider} on the
- * webapp briefly shows that stale name from the ID token on next sign-in, before its {@code
- * myPerson} lookup overrides it with the current one.
+ * sets it once at sign-up and nothing else ever touches it), and {@code AuthProvider} on the webapp
+ * briefly shows that stale name from the ID token on next sign-in, before its {@code myPerson}
+ * lookup overrides it with the current one.
  */
 public class UpdatePersonHandler implements RequestHandler<Map<String, Object>, Object> {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(UpdatePersonHandler.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(UpdatePersonHandler.class);
 
-    private final DynamoDbClient dynamoDbClient;
-    private final CognitoIdentityProviderClient cognitoClient;
-    private final String tableName;
-    private final String userPoolId;
+  private final DynamoDbClient dynamoDbClient;
+  private final CognitoIdentityProviderClient cognitoClient;
+  private final String tableName;
+  private final String userPoolId;
 
-    public UpdatePersonHandler() {
-        this(DynamoDbClientProvider.client(), CognitoIdentityProviderClientProvider.client(),
-                System.getenv().getOrDefault("PEOPLE_TABLE_NAME", "People"),
-                System.getenv("COGNITO_USER_POOL_ID"));
+  public UpdatePersonHandler() {
+    this(
+        DynamoDbClientProvider.client(),
+        CognitoIdentityProviderClientProvider.client(),
+        System.getenv().getOrDefault("PEOPLE_TABLE_NAME", "People"),
+        System.getenv("COGNITO_USER_POOL_ID"));
+  }
+
+  UpdatePersonHandler(
+      final DynamoDbClient dynamoDbClient,
+      final CognitoIdentityProviderClient cognitoClient,
+      final String tableName,
+      final String userPoolId) {
+    this.dynamoDbClient = dynamoDbClient;
+    this.cognitoClient = cognitoClient;
+    this.tableName = tableName;
+    this.userPoolId = userPoolId;
+  }
+
+  @Override
+  public Object handleRequest(final Map<String, Object> event, final Context context) {
+    Identity.requireAuthenticated(event);
+
+    final Map<String, Object> arguments = castToMap(event.get("arguments"));
+    final String id = (String) arguments.get("id");
+    final Map<String, Object> personInput = castToMap(arguments.get("person"));
+    final String name = (String) personInput.get("name");
+
+    final List<String> errors = new ArrayList<>();
+    if (name == null || name.isBlank()) {
+      errors.add(PersonError.NameRequired.name());
     }
 
-    UpdatePersonHandler(final DynamoDbClient dynamoDbClient, final CognitoIdentityProviderClient cognitoClient,
-            final String tableName, final String userPoolId) {
-        this.dynamoDbClient = dynamoDbClient;
-        this.cognitoClient = cognitoClient;
-        this.tableName = tableName;
-        this.userPoolId = userPoolId;
+    final Map<String, Object> result = new HashMap<>();
+    final Optional<Person> current = findById(id);
+    if (current.isEmpty()) {
+      errors.add(PersonError.PersonNotFound.name());
+      result.put("person", null);
+      // The whole collection, on success and on failure alike. A normalising client cache updates
+      // an entity by id everywhere it is referenced, but returning one room does NOT add it to a
+      // cached list - that is a separate cache field - so the list is what makes this mutation
+      // self-sufficient. Both collections are small enough that sending them costs nothing.
+      result.put("people", allPeople());
+      result.put("errors", errors);
+      return result;
     }
 
-    @Override
-    public Object handleRequest(final Map<String, Object> event, final Context context) {
-        Identity.requireAuthenticated(event);
-
-        final Map<String, Object> arguments = castToMap(event.get("arguments"));
-        final String id = (String) arguments.get("id");
-        final Map<String, Object> personInput = castToMap(arguments.get("person"));
-        final String name = (String) personInput.get("name");
-
-        final List<String> errors = new ArrayList<>();
-        if (name == null || name.isBlank()) {
-            errors.add(PersonError.NameRequired.name());
-        }
-
-        final Map<String, Object> result = new HashMap<>();
-        final Optional<Person> current = findById(id);
-        if (current.isEmpty()) {
-            errors.add(PersonError.PersonNotFound.name());
-            result.put("person", null);
-            // The whole collection, on success and on failure alike. A normalising client cache updates
-        // an entity by id everywhere it is referenced, but returning one room does NOT add it to a
-        // cached list - that is a separate cache field - so the list is what makes this mutation
-        // self-sufficient. Both collections are small enough that sending them costs nothing.
-        result.put("people", allPeople());
-            result.put("errors", errors);
-            return result;
-        }
-
-        final Map<String, Object> identity = castToMap(event.get("identity"));
-        final String callerSub = (String) identity.get("sub");
-        final boolean isSelf = callerSub != null && current.get().cognitoSubs().contains(callerSub);
-        if (!isSelf && !Identity.isAdmin(event)) {
-            throw new IllegalStateException("Forbidden: can only update your own name unless you are admin");
-        }
-
-        if (!errors.isEmpty()) {
-            result.put("person", null);
-            result.put("people", allPeople());
-            result.put("errors", errors);
-            return result;
-        }
-
-        // Carries the existing linked accounts forward - PutItem fully replaces the item, and
-        // PersonInput has no linking field, so building this from just (id, name) would
-        // silently unlink a real user's account from their Cognito login.
-        final Person updated = new Person(id, name, current.get().cognitoSubs(), null, null);
-        dynamoDbClient.putItem(PutItemRequest.builder()
-                .tableName(tableName)
-                .item(updated.toItem())
-                .build());
-
-        // Every linked account, not just one: a person who signs in two ways should not end up with
-        // the new name under one login and the old one under the other.
-        for (final String cognitoSub : updated.cognitoSubs()) {
-            propagateNameToCognito(cognitoSub, name);
-        }
-
-        result.put("person", updated.toResponseMap());
-        result.put("people", allPeople());
-        result.put("errors", errors);
-        return result;
+    final Map<String, Object> identity = castToMap(event.get("identity"));
+    final String callerSub = (String) identity.get("sub");
+    final boolean isSelf = callerSub != null && current.get().cognitoSubs().contains(callerSub);
+    if (!isSelf && !Identity.isAdmin(event)) {
+      throw new IllegalStateException(
+          "Forbidden: can only update your own name unless you are admin");
     }
 
-    private Optional<Person> findById(final String id) {
-        final GetItemResponse response = dynamoDbClient.getItem(GetItemRequest.builder()
+    if (!errors.isEmpty()) {
+      result.put("person", null);
+      result.put("people", allPeople());
+      result.put("errors", errors);
+      return result;
+    }
+
+    // Carries the existing linked accounts forward - PutItem fully replaces the item, and
+    // PersonInput has no linking field, so building this from just (id, name) would
+    // silently unlink a real user's account from their Cognito login.
+    final Person updated = new Person(id, name, current.get().cognitoSubs(), null, null);
+    dynamoDbClient.putItem(
+        PutItemRequest.builder().tableName(tableName).item(updated.toItem()).build());
+
+    // Every linked account, not just one: a person who signs in two ways should not end up with
+    // the new name under one login and the old one under the other.
+    for (final String cognitoSub : updated.cognitoSubs()) {
+      propagateNameToCognito(cognitoSub, name);
+    }
+
+    result.put("person", updated.toResponseMap());
+    result.put("people", allPeople());
+    result.put("errors", errors);
+    return result;
+  }
+
+  private Optional<Person> findById(final String id) {
+    final GetItemResponse response =
+        dynamoDbClient.getItem(
+            GetItemRequest.builder()
                 .tableName(tableName)
                 .key(Map.of("id", AttributeValue.builder().s(id).build()))
                 .build());
-        return response.hasItem() ? Optional.of(Person.fromItem(response.item())) : Optional.empty();
-    }
+    return response.hasItem() ? Optional.of(Person.fromItem(response.item())) : Optional.empty();
+  }
 
-    private void propagateNameToCognito(final String cognitoSub, final String name) {
-        try {
-            // Username and sub are the same value in this pool: username_attributes = ["email"]
-            // (see cognito.tf) makes Cognito auto-generate a UUID Username identical to sub, with
-            // email set as an alias - so cognitoSub can be used directly as AdminUpdateUserAttributes'
-            // Username without a separate lookup.
-            cognitoClient.adminUpdateUserAttributes(AdminUpdateUserAttributesRequest.builder()
-                    .userPoolId(userPoolId)
-                    .username(cognitoSub)
-                    .userAttributes(AttributeType.builder().name("name").value(name).build())
-                    .build());
-        } catch (final RuntimeException e) {
-            // The Person record (the source of truth) has already been updated successfully at
-            // this point; Cognito's name is only a display convenience for the brief window before
-            // AuthProvider's myPerson lookup resolves, so a failure here shouldn't fail the whole
-            // mutation.
-            LOGGER.error("Failed to update Cognito name attribute for cognitoSub '{}'", cognitoSub, e);
-        }
+  private void propagateNameToCognito(final String cognitoSub, final String name) {
+    try {
+      // Username and sub are the same value in this pool: username_attributes = ["email"]
+      // (see cognito.tf) makes Cognito auto-generate a UUID Username identical to sub, with
+      // email set as an alias - so cognitoSub can be used directly as AdminUpdateUserAttributes'
+      // Username without a separate lookup.
+      cognitoClient.adminUpdateUserAttributes(
+          AdminUpdateUserAttributesRequest.builder()
+              .userPoolId(userPoolId)
+              .username(cognitoSub)
+              .userAttributes(AttributeType.builder().name("name").value(name).build())
+              .build());
+    } catch (final RuntimeException e) {
+      // The Person record (the source of truth) has already been updated successfully at
+      // this point; Cognito's name is only a display convenience for the brief window before
+      // AuthProvider's myPerson lookup resolves, so a failure here shouldn't fail the whole
+      // mutation.
+      LOGGER.error("Failed to update Cognito name attribute for cognitoSub '{}'", cognitoSub, e);
     }
+  }
 
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> castToMap(final Object value) {
-        return (Map<String, Object>) value;
-    }
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> castToMap(final Object value) {
+    return (Map<String, Object>) value;
+  }
 
-    /** Every peopl after the change - see the schema's note on Person mutation results. */
-    private List<Map<String, Object>> allPeople() {
-        return new PersonRepository(dynamoDbClient, tableName).listAll().stream().map(Person::toResponseMap).toList();
-    }
+  /** Every peopl after the change - see the schema's note on Person mutation results. */
+  private List<Map<String, Object>> allPeople() {
+    return new PersonRepository(dynamoDbClient, tableName)
+        .listAll().stream().map(Person::toResponseMap).toList();
+  }
 }
