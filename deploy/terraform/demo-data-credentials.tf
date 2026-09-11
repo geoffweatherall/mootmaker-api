@@ -78,3 +78,28 @@ resource "aws_ssm_parameter" "demo_data_scope" {
   type        = "String"
   value       = "${aws_cognito_resource_server.api.identifier}/execute ${aws_cognito_resource_server.api.identifier}/admin"
 }
+
+# Persons that mootmaker-demo-data must give at least one meeting on every work day in its window.
+#
+# Without this the demo user's calendar is populated only by luck: demo-data picks organisers and
+# attendees at random from every Person, so the published account the signed-out home page hands
+# every visitor can show an empty calendar. See mootmaker-demo-data#29.
+#
+# A LIST, not a "demo user" flag, and this project decides what goes in it. demo-data honours the
+# ids without needing a concept of which account is special - adding the e2e Person later is a
+# value change here, not a code change there.
+#
+# The id is the same deterministic uuidv5 written into the demo user's custom:personId claim and
+# into aws_dynamodb_table_item.demo_person, so all three agree by construction rather than by
+# convention. Deliberately NOT recomputed in demo-data's own Terraform: that would duplicate a
+# derivation whose determinism is load-bearing (see cognito.tf), and a later change to the seed
+# string would leave demo-data guaranteeing meetings for a Person that does not exist.
+#
+# StringList rather than String: SSM's own type for this, and the SDK returns it comma-joined
+# either way, so the type is documentation that costs nothing.
+resource "aws_ssm_parameter" "demo_data_guaranteed_person_ids" {
+  name        = "/mootmaker/${var.environment}/demo-data/guaranteed-person-ids"
+  description = "Person ids demo-data guarantees at least one meeting per work day. See mootmaker-demo-data#29."
+  type        = "StringList"
+  value       = join(",", [local.demo_person_id])
+}
