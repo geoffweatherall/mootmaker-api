@@ -1,5 +1,7 @@
 package com.mootmaker.handler;
 
+import module java.base;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
@@ -11,8 +13,6 @@ import com.mootmaker.model.TimeFormat;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
-import module java.base;
-
 /**
  * AppSync direct-Lambda resolver for {@code Mutation.updateMyPreferences}: sets the caller's own
  * date/time display preferences.
@@ -23,61 +23,67 @@ import module java.base;
  * the Person linked to {@code identity.sub} and there is no id argument to get wrong.
  *
  * <p>Both formats are non-null in {@code PreferencesInput}, so AppSync rejects a missing or null
- * one before this runs: the mutation replaces the whole preference pair rather than patching one
- * of them, and the only failure left to report is having no linked Person at all.
+ * one before this runs: the mutation replaces the whole preference pair rather than patching one of
+ * them, and the only failure left to report is having no linked Person at all.
  *
  * <p>Purely presentational. This does not affect the ISO-8601 format the API uses for every
  * date/time it accepts and returns.
  */
 public class UpdateMyPreferencesHandler implements RequestHandler<Map<String, Object>, Object> {
 
-    private final DynamoDbClient dynamoDbClient;
-    private final String tableName;
+  private final DynamoDbClient dynamoDbClient;
+  private final String tableName;
 
-    public UpdateMyPreferencesHandler() {
-        this(DynamoDbClientProvider.client(), System.getenv().getOrDefault("PEOPLE_TABLE_NAME", "People"));
+  public UpdateMyPreferencesHandler() {
+    this(
+        DynamoDbClientProvider.client(),
+        System.getenv().getOrDefault("PEOPLE_TABLE_NAME", "People"));
+  }
+
+  UpdateMyPreferencesHandler(final DynamoDbClient dynamoDbClient, final String tableName) {
+    this.dynamoDbClient = dynamoDbClient;
+    this.tableName = tableName;
+  }
+
+  @Override
+  public Object handleRequest(final Map<String, Object> event, final Context context) {
+    Identity.requireAuthenticated(event);
+
+    final Map<String, Object> result = new HashMap<>();
+    final Optional<Person> current =
+        Identity.personId(event).flatMap(new PersonRepository(dynamoDbClient, tableName)::findById);
+    if (current.isEmpty()) {
+      result.put("person", null);
+      result.put("errors", List.of(PreferencesError.NoLinkedPerson.name()));
+      return result;
     }
 
-    UpdateMyPreferencesHandler(final DynamoDbClient dynamoDbClient, final String tableName) {
-        this.dynamoDbClient = dynamoDbClient;
-        this.tableName = tableName;
-    }
+    final Map<String, Object> arguments = castToMap(event.get("arguments"));
+    final Map<String, Object> preferences = castToMap(arguments.get("preferences"));
+    final DateFormat dateFormat = DateFormat.valueOf((String) preferences.get("dateFormat"));
+    final TimeFormat timeFormat = TimeFormat.valueOf((String) preferences.get("timeFormat"));
 
-    @Override
-    public Object handleRequest(final Map<String, Object> event, final Context context) {
-        Identity.requireAuthenticated(event);
+    // Carries name and linked Cognito accounts forward - PutItem fully replaces the item, so
+    // building this
+    // from the preferences alone would wipe the caller's name and unlink their Cognito login.
+    // The mirror image of UpdatePersonHandler's care in the other direction.
+    final Person updated =
+        new Person(
+            current.get().id(),
+            current.get().name(),
+            current.get().cognitoSubs(),
+            dateFormat,
+            timeFormat);
+    dynamoDbClient.putItem(
+        PutItemRequest.builder().tableName(tableName).item(updated.toItem()).build());
 
-        final Map<String, Object> result = new HashMap<>();
-        final Optional<Person> current = Identity.personId(event)
-                .flatMap(new PersonRepository(dynamoDbClient, tableName)::findById);
-        if (current.isEmpty()) {
-            result.put("person", null);
-            result.put("errors", List.of(PreferencesError.NoLinkedPerson.name()));
-            return result;
-        }
+    result.put("person", updated.toResponseMap());
+    result.put("errors", List.of());
+    return result;
+  }
 
-        final Map<String, Object> arguments = castToMap(event.get("arguments"));
-        final Map<String, Object> preferences = castToMap(arguments.get("preferences"));
-        final DateFormat dateFormat = DateFormat.valueOf((String) preferences.get("dateFormat"));
-        final TimeFormat timeFormat = TimeFormat.valueOf((String) preferences.get("timeFormat"));
-
-        // Carries name and linked Cognito accounts forward - PutItem fully replaces the item, so building this
-        // from the preferences alone would wipe the caller's name and unlink their Cognito login.
-        // The mirror image of UpdatePersonHandler's care in the other direction.
-        final Person updated = new Person(
-                current.get().id(), current.get().name(), current.get().cognitoSubs(), dateFormat, timeFormat);
-        dynamoDbClient.putItem(PutItemRequest.builder()
-                .tableName(tableName)
-                .item(updated.toItem())
-                .build());
-
-        result.put("person", updated.toResponseMap());
-        result.put("errors", List.of());
-        return result;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> castToMap(final Object value) {
-        return (Map<String, Object>) value;
-    }
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> castToMap(final Object value) {
+    return (Map<String, Object>) value;
+  }
 }

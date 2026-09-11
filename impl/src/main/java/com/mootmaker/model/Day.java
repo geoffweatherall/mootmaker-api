@@ -1,8 +1,8 @@
 package com.mootmaker.model;
 
-import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-
 import module java.base;
+
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 /**
  * Every meeting on one calendar date, as a single DynamoDB item.
@@ -19,41 +19,46 @@ import module java.base;
  */
 public record Day(String date, long version, List<MeetingRecord> meetings) {
 
-    /** Partition-key prefix. The table holds day items, id-to-date pointers and one config item. */
-    public static final String PK_PREFIX = "DAY#";
+  /** Partition-key prefix. The table holds day items, id-to-date pointers and one config item. */
+  public static final String PK_PREFIX = "DAY#";
 
-    public Day {
-        meetings = List.copyOf(meetings);
-    }
+  public Day {
+    meetings = List.copyOf(meetings);
+  }
 
-    /** An unwritten day: present as a concept, absent from the table. Version 0 means "must not exist". */
-    public static Day empty(final String date) {
-        return new Day(date, 0, List.of());
-    }
+  /**
+   * An unwritten day: present as a concept, absent from the table. Version 0 means "must not
+   * exist".
+   */
+  public static Day empty(final String date) {
+    return new Day(date, 0, List.of());
+  }
 
-    public static String partitionKey(final String date) {
-        return PK_PREFIX + date;
-    }
+  public static String partitionKey(final String date) {
+    return PK_PREFIX + date;
+  }
 
-    public Day withMeetings(final List<MeetingRecord> updated) {
-        return new Day(date, version, updated);
-    }
+  public Day withMeetings(final List<MeetingRecord> updated) {
+    return new Day(date, version, updated);
+  }
 
-    public Map<String, AttributeValue> toItem() {
-        final Map<String, AttributeValue> item = new HashMap<>();
-        item.put("pk", AttributeValue.builder().s(partitionKey(date)).build());
-        item.put("date", AttributeValue.builder().s(date).build());
-        item.put("version", AttributeValue.builder().n(String.valueOf(version)).build());
-        item.put("meetings", AttributeValue.builder()
-                .l(meetings.stream().map(MeetingRecord::toAttributeValue).toList())
-                .build());
-        return item;
-    }
+  public Map<String, AttributeValue> toItem() {
+    final Map<String, AttributeValue> item = new HashMap<>();
+    item.put("pk", AttributeValue.builder().s(partitionKey(date)).build());
+    item.put("date", AttributeValue.builder().s(date).build());
+    item.put("version", AttributeValue.builder().n(String.valueOf(version)).build());
+    item.put(
+        "meetings",
+        AttributeValue.builder()
+            .l(meetings.stream().map(MeetingRecord::toAttributeValue).toList())
+            .build());
+    return item;
+  }
 
-    public static Day fromItem(final Map<String, AttributeValue> item) {
-        return new Day(
-                item.get("date").s(),
-                Long.parseLong(item.get("version").n()),
-                item.get("meetings").l().stream().map(MeetingRecord::fromAttributeValue).toList());
-    }
+  public static Day fromItem(final Map<String, AttributeValue> item) {
+    return new Day(
+        item.get("date").s(),
+        Long.parseLong(item.get("version").n()),
+        item.get("meetings").l().stream().map(MeetingRecord::fromAttributeValue).toList());
+  }
 }

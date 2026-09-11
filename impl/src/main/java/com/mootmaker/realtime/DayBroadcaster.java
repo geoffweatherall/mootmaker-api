@@ -14,9 +14,9 @@ import module java.base;
 @FunctionalInterface
 public interface DayBroadcaster {
 
-    /** Never throws: a failed broadcast must not fail a write that has already committed. */
-    void publish(Collection<String> dates);
+  /** Never throws: a failed broadcast must not fail a write that has already committed. */
+  void publish(Collection<String> dates);
 
-    /** Used wherever broadcasting is not configured. */
-    DayBroadcaster NONE = dates -> { };
+  /** Used wherever broadcasting is not configured. */
+  DayBroadcaster NONE = dates -> {};
 }

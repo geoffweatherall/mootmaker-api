@@ -26,6 +26,15 @@ those change — it is load-bearing, and both people and agents rely on it being
 - **Deploy this before the webapp.** The webapp reads this environment's Terraform outputs — the
   GraphQL URL and Cognito IDs — via `authenticate.sh`.
 - **Java 25**, Maven, `mvn -f impl/pom.xml test` for unit tests.
+- **Formatting is google-java-format, Google style — run `mvn -f impl/pom.xml spotless:apply`.** The
+  `code-style` PR check fails on unformatted code, on Checkstyle violations, and on unused imports
+  that `javac` does not warn about. To set an editor up, run
+  `../mootmaker/tools/install-workspace-config.sh --force` — it links the versioned VS Code settings
+  and installs the extensions, with no manual steps. Two of those settings fail *silently* when
+  wrong, so if Java formatting seems not to work, read
+  [`../mootmaker/docs/process/java-code-style.md`](https://github.com/geoffweatherall/mootmaker/blob/main/docs/process/java-code-style.md)
+  before changing anything. Deviations from Google's ruleset are in
+  `config/checkstyle-suppressions.xml`, each with its reason.
 - **Cold starts are real.** Java Lambdas take several seconds on first invocation, which has caused
   test timeouts before. Consider it before concluding something is broken.
 - **`database-reset`/`database-repair` live here too**, as two more Lambdas built from the same jar

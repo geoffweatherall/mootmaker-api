@@ -19,23 +19,23 @@ import module java.base;
  * the person typing it.
  *
  * <p><b>Reject, never truncate.</b> Cutting a string at a byte boundary can split a character
- * mid-sequence and produce mojibake. A client-side counter may truncate, but on grapheme boundaries.
+ * mid-sequence and produce mojibake. A client-side counter may truncate, but on grapheme
+ * boundaries.
  */
 public final class Subjects {
 
-    private Subjects() {
-    }
+  private Subjects() {}
 
-    /** The form that is stored: what is measured and what is written must be the same string. */
-    public static String normalise(final String subject) {
-        return subject == null ? null : Normalizer.normalize(subject, Normalizer.Form.NFC);
-    }
+  /** The form that is stored: what is measured and what is written must be the same string. */
+  public static String normalise(final String subject) {
+    return subject == null ? null : Normalizer.normalize(subject, Normalizer.Form.NFC);
+  }
 
-    public static int byteLength(final String normalisedSubject) {
-        return normalisedSubject.getBytes(StandardCharsets.UTF_8).length;
-    }
+  public static int byteLength(final String normalisedSubject) {
+    return normalisedSubject.getBytes(StandardCharsets.UTF_8).length;
+  }
 
-    public static boolean isWithinLimit(final String normalisedSubject) {
-        return byteLength(normalisedSubject) <= Limits.MAX_SUBJECT_BYTES;
-    }
+  public static boolean isWithinLimit(final String normalisedSubject) {
+    return byteLength(normalisedSubject) <= Limits.MAX_SUBJECT_BYTES;
+  }
 }

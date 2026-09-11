@@ -7,8 +7,8 @@ package com.mootmaker.model;
  * <p>Purely a client display preference - see {@link DateFormat} for the same caveat.
  */
 public enum TimeFormat {
-    /** {@code HH:mm}. Also the default for anyone who has never chosen. */
-    TwentyFourHour,
-    /** {@code hh:mm A}. */
-    AmPm
+  /** {@code HH:mm}. Also the default for anyone who has never chosen. */
+  TwentyFourHour,
+  /** {@code hh:mm A}. */
+  AmPm
 }

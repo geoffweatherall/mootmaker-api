@@ -8,10 +8,10 @@ package com.mootmaker.model;
  * regardless of any person's setting. Nothing server-side should ever branch on this value.
  */
 public enum DateFormat {
-    /** {@code MM/DD/YYYY}. */
-    Usa,
-    /** {@code DD/MM/YYYY}. */
-    British,
-    /** {@code YYYY-MM-DD}. Also the default for anyone who has never chosen. */
-    Iso
+  /** {@code MM/DD/YYYY}. */
+  Usa,
+  /** {@code DD/MM/YYYY}. */
+  British,
+  /** {@code YYYY-MM-DD}. Also the default for anyone who has never chosen. */
+  Iso
 }

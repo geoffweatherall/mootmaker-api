@@ -11,109 +11,118 @@ import module java.base;
  */
 final class Identity {
 
-    /**
-     * OAuth scope (e.g. {@code test-mootmaker-api/admin}) that grants admin-equivalent access to
-     * the M2M tooling clients (the acceptance tests, mootmaker-demo-data) - that client
-     * authenticates via client_credentials with no Cognito user behind it at all, so it can never
-     * carry a {@code custom:class} claim the way a real signed-in user's ID token does. Set by
-     * Terraform (see cognito.tf's admin resource-server scope and lambda.tf).
-     */
-    private static final String ADMIN_SCOPE_ENV_VAR = "COGNITO_ADMIN_SCOPE";
+  /**
+   * OAuth scope (e.g. {@code test-mootmaker-api/admin}) that grants admin-equivalent access to the
+   * M2M tooling clients (the acceptance tests, mootmaker-demo-data) - that client authenticates via
+   * client_credentials with no Cognito user behind it at all, so it can never carry a {@code
+   * custom:class} claim the way a real signed-in user's ID token does. Set by Terraform (see
+   * cognito.tf's admin resource-server scope and lambda.tf).
+   */
+  private static final String ADMIN_SCOPE_ENV_VAR = "COGNITO_ADMIN_SCOPE";
 
-    /** Set server-side by the PostConfirmation trigger; never client-writable. See {@link #personId}. */
-    static final String PERSON_ID_CLAIM = "custom:personId";
+  /**
+   * Set server-side by the PostConfirmation trigger; never client-writable. See {@link #personId}.
+   */
+  static final String PERSON_ID_CLAIM = "custom:personId";
 
-    private Identity() {
+  private Identity() {}
+
+  /**
+   * The caller's own Person id, taken from the {@code custom:personId} claim.
+   *
+   * <p>This is what removed the startup waterfall: the id arrives on the token, so nothing has to
+   * be looked up before a query can name the caller. It replaced a GSI query on {@code
+   * cognitoSub-index}, which could not be read consistently - a GSI rejects {@code ConsistentRead},
+   * so a Person written moments earlier might not have been visible.
+   *
+   * <p>Empty in two legitimate cases, and both must degrade rather than fail. A machine-to-machine
+   * {@code client_credentials} token has no user behind it at all, so it can never carry a custom
+   * attribute. And a confirmed user whose PostConfirmation trigger failed has no Person and no
+   * claim - that trigger deliberately swallows its own errors rather than blocking sign-up, so the
+   * state is reachable, and {@code CreateMissingPersonsRepair} is the fix.
+   *
+   * <p>The claim is safe to trust because the pool refuses to let a user write it: see {@code
+   * cognito.tf}'s {@code write_attributes}. Self-writing it would not be privilege escalation, it
+   * would be becoming another person outright.
+   */
+  static Optional<String> personId(final Map<String, Object> event) {
+    final Map<String, Object> identity = castToMap(event == null ? null : event.get("identity"));
+    if (identity == null) {
+      return Optional.empty();
     }
-
-    /**
-     * The caller's own Person id, taken from the {@code custom:personId} claim.
-     *
-     * <p>This is what removed the startup waterfall: the id arrives on the token, so nothing has to be
-     * looked up before a query can name the caller. It replaced a GSI query on {@code cognitoSub-index},
-     * which could not be read consistently - a GSI rejects {@code ConsistentRead}, so a Person written
-     * moments earlier might not have been visible.
-     *
-     * <p>Empty in two legitimate cases, and both must degrade rather than fail. A machine-to-machine
-     * {@code client_credentials} token has no user behind it at all, so it can never carry a custom
-     * attribute. And a confirmed user whose PostConfirmation trigger failed has no Person and no claim -
-     * that trigger deliberately swallows its own errors rather than blocking sign-up, so the state is
-     * reachable, and {@code CreateMissingPersonsRepair} is the fix.
-     *
-     * <p>The claim is safe to trust because the pool refuses to let a user write it: see
-     * {@code cognito.tf}'s {@code write_attributes}. Self-writing it would not be privilege escalation,
-     * it would be becoming another person outright.
-     */
-    static Optional<String> personId(final Map<String, Object> event) {
-        final Map<String, Object> identity = castToMap(event == null ? null : event.get("identity"));
-        if (identity == null) {
-            return Optional.empty();
-        }
-        final Map<String, Object> claims = castToMap(identity.get("claims"));
-        if (claims == null) {
-            return Optional.empty();
-        }
-        final Object personId = claims.get(PERSON_ID_CLAIM);
-        return personId instanceof String value && !value.isBlank() ? Optional.of(value) : Optional.empty();
+    final Map<String, Object> claims = castToMap(identity.get("claims"));
+    if (claims == null) {
+      return Optional.empty();
     }
+    final Object personId = claims.get(PERSON_ID_CLAIM);
+    return personId instanceof String value && !value.isBlank()
+        ? Optional.of(value)
+        : Optional.empty();
+  }
 
-    /** Throws if the AppSync context has no authenticated identity; call before any handler logic. */
-    static void requireAuthenticated(final Map<String, Object> event) {
-        if (event == null || event.get("identity") == null) {
-            throw new IllegalStateException("Unauthorized: request has no authenticated identity");
-        }
+  /** Throws if the AppSync context has no authenticated identity; call before any handler logic. */
+  static void requireAuthenticated(final Map<String, Object> event) {
+    if (event == null || event.get("identity") == null) {
+      throw new IllegalStateException("Unauthorized: request has no authenticated identity");
     }
+  }
 
-    /**
-     * Throws unless the caller is either a real signed-in user whose token carries
-     * {@code custom:class=admin}, or the M2M tooling client presenting the admin scope (see
-     * {@link #ADMIN_SCOPE_ENV_VAR}). Call before any handler logic that only admins may perform.
-     */
-    static void requireAdmin(final Map<String, Object> event) {
-        requireAdmin(event, System.getenv(ADMIN_SCOPE_ENV_VAR));
-    }
+  /**
+   * Throws unless the caller is either a real signed-in user whose token carries {@code
+   * custom:class=admin}, or the M2M tooling client presenting the admin scope (see {@link
+   * #ADMIN_SCOPE_ENV_VAR}). Call before any handler logic that only admins may perform.
+   */
+  static void requireAdmin(final Map<String, Object> event) {
+    requireAdmin(event, System.getenv(ADMIN_SCOPE_ENV_VAR));
+  }
 
-    /** Package-private overload so {@code IdentityTest} can supply the admin scope directly rather than a real environment variable. */
-    static void requireAdmin(final Map<String, Object> event, final String adminScope) {
-        requireAuthenticated(event);
-        if (!isAdmin(event, adminScope)) {
-            throw new IllegalStateException("Forbidden: admin access required");
-        }
+  /**
+   * Package-private overload so {@code IdentityTest} can supply the admin scope directly rather
+   * than a real environment variable.
+   */
+  static void requireAdmin(final Map<String, Object> event, final String adminScope) {
+    requireAuthenticated(event);
+    if (!isAdmin(event, adminScope)) {
+      throw new IllegalStateException("Forbidden: admin access required");
     }
+  }
 
-    /**
-     * Non-throwing check for the same condition {@link #requireAdmin} enforces - for handlers like
-     * {@code UpdatePersonHandler} that allow admin access as just one of several ways a request can
-     * be authorized (the other being "this is your own record"), rather than admin being the only
-     * acceptable outcome.
-     */
-    static boolean isAdmin(final Map<String, Object> event) {
-        return isAdmin(event, System.getenv(ADMIN_SCOPE_ENV_VAR));
-    }
+  /**
+   * Non-throwing check for the same condition {@link #requireAdmin} enforces - for handlers like
+   * {@code UpdatePersonHandler} that allow admin access as just one of several ways a request can
+   * be authorized (the other being "this is your own record"), rather than admin being the only
+   * acceptable outcome.
+   */
+  static boolean isAdmin(final Map<String, Object> event) {
+    return isAdmin(event, System.getenv(ADMIN_SCOPE_ENV_VAR));
+  }
 
-    /** Package-private overload so {@code IdentityTest} can supply the admin scope directly rather than a real environment variable. */
-    static boolean isAdmin(final Map<String, Object> event, final String adminScope) {
-        final Map<String, Object> identity = castToMap(event == null ? null : event.get("identity"));
-        if (identity == null) {
-            return false;
-        }
-        final Map<String, Object> claims = castToMap(identity.get("claims"));
-        if (claims == null) {
-            return false;
-        }
-        return "admin".equals(claims.get("custom:class")) || hasAdminScope(claims, adminScope);
+  /**
+   * Package-private overload so {@code IdentityTest} can supply the admin scope directly rather
+   * than a real environment variable.
+   */
+  static boolean isAdmin(final Map<String, Object> event, final String adminScope) {
+    final Map<String, Object> identity = castToMap(event == null ? null : event.get("identity"));
+    if (identity == null) {
+      return false;
     }
+    final Map<String, Object> claims = castToMap(identity.get("claims"));
+    if (claims == null) {
+      return false;
+    }
+    return "admin".equals(claims.get("custom:class")) || hasAdminScope(claims, adminScope);
+  }
 
-    private static boolean hasAdminScope(final Map<String, Object> claims, final String adminScope) {
-        final Object scopeClaim = claims.get("scope");
-        if (adminScope == null || adminScope.isBlank() || !(scopeClaim instanceof String scope)) {
-            return false;
-        }
-        return Arrays.asList(scope.split(" ")).contains(adminScope);
+  private static boolean hasAdminScope(final Map<String, Object> claims, final String adminScope) {
+    final Object scopeClaim = claims.get("scope");
+    if (adminScope == null || adminScope.isBlank() || !(scopeClaim instanceof String scope)) {
+      return false;
     }
+    return Arrays.asList(scope.split(" ")).contains(adminScope);
+  }
 
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> castToMap(final Object value) {
-        return value instanceof Map<?, ?> ? (Map<String, Object>) value : null;
-    }
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> castToMap(final Object value) {
+    return value instanceof Map<?, ?> ? (Map<String, Object>) value : null;
+  }
 }
