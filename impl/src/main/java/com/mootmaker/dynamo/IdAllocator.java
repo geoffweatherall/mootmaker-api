@@ -4,9 +4,10 @@ import module java.base;
 
 /**
  * Generates the short opaque ids this system uses in place of UUIDs. See
- * ../../../mootmaker/designs/dynamodb-storage-compaction.md for why: a 36-byte UUID costs 4-5x what
- * an 8-character token does in every DynamoDB item that stores one, and a meeting stores up to 23
- * of them (id, roomId, organiserId, and up to {@code MAX_ATTENDEES_PER_MEETING} attendee ids).
+ * ../../../mootmaker/designs/archive/dynamodb-storage-compaction.md for why: a 36-byte UUID costs
+ * 4-5x what an 8-character token does in every DynamoDB item that stores one, and a meeting stores
+ * up to 23 of them (id, roomId, organiserId, and up to {@code MAX_ATTENDEES_PER_MEETING} attendee
+ * ids).
  *
  * <p><b>Purely a token generator - no DynamoDB access, no state.</b> Collision safety is each
  * caller's own responsibility, because it depends on what the caller can already check for free:
