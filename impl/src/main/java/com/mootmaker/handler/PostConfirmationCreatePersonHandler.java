@@ -6,6 +6,8 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.cognito.CognitoIdentityProviderClientProvider;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
+import com.mootmaker.dynamo.IdAllocator;
+import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.model.Person;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,7 +15,6 @@ import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityPr
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminUpdateUserAttributesRequest;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AttributeType;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * Cognito PostConfirmation trigger: creates a Person linked to the newly confirmed user via {@code
@@ -101,7 +102,7 @@ public class PostConfirmationCreatePersonHandler
       // creates a SECOND Person, and the duplicate is undetectable without the index we just
       // deleted. This order leaves a claim pointing at a Person that does not exist yet: myPerson
       // returns null, and the repair creates it with exactly that id. No duplicate is possible.
-      final String personId = UUID.randomUUID().toString();
+      final String personId = IdAllocator.newId();
       cognitoClient.adminUpdateUserAttributes(
           AdminUpdateUserAttributesRequest.builder()
               .userPoolId(userPoolId)
@@ -110,11 +111,11 @@ public class PostConfirmationCreatePersonHandler
                   AttributeType.builder().name(Identity.PERSON_ID_CLAIM).value(personId).build())
               .build());
 
-      dynamoDbClient.putItem(
-          PutItemRequest.builder()
-              .tableName(tableName)
-              .item(new Person(personId, name, cognitoSub).toItem())
-              .build());
+      // create, not createWithNewId: personId is already claimed above, so a collision here (see
+      // IdAllocator's javadoc for how negligible that is) must fail loudly rather than silently
+      // writing a different id and stranding the claim just set.
+      new PersonRepository(dynamoDbClient, tableName)
+          .create(new Person(personId, name, cognitoSub));
 
       LOGGER.info("Created Person '{}' for confirmed sign-up '{}'", personId, name);
     } catch (final RuntimeException e) {

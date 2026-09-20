@@ -5,7 +5,9 @@ import module java.base;
 import com.mootmaker.model.Person;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * People, by id. An instance rather than the static utility it used to be, matching {@link
@@ -19,6 +21,9 @@ import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
  * Person itself: free to read, because deletion already holds the item.
  */
 public final class PersonRepository {
+
+  /** Enough to clear the negligible chance of a real collision; see {@link IdAllocator}. */
+  private static final int MAX_CREATE_ATTEMPTS = 5;
 
   private final DynamoDbClient dynamoDbClient;
   private final String tableName;
@@ -46,6 +51,45 @@ public final class PersonRepository {
 
   public void put(final Person person) {
     BatchGet.put(dynamoDbClient, tableName, person.toItem());
+  }
+
+  /**
+   * Writes exactly this {@code Person}, failing rather than substituting a different id, for a
+   * caller whose id is already fixed before this call - e.g. one already written to a Cognito
+   * {@code custom:personId} claim, where writing a different id here would silently strand that
+   * claim. See {@link IdAllocator}'s javadoc and {@code PostConfirmationCreatePersonHandler}.
+   *
+   * @throws software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException if a
+   *     Person with this id already exists
+   */
+  public void create(final Person person) {
+    dynamoDbClient.putItem(
+        PutItemRequest.builder()
+            .tableName(tableName)
+            .item(person.toItem())
+            .conditionExpression("attribute_not_exists(id)")
+            .build());
+  }
+
+  /**
+   * Allocates a fresh id and creates a guest Person with it - no Cognito account, so nothing has
+   * claimed the id in advance, and a collision (negligibly likely - see {@link IdAllocator}) can
+   * simply be retried with a newly drawn one.
+   */
+  public Person createWithNewId(final String name) {
+    for (int attempt = 1; attempt <= MAX_CREATE_ATTEMPTS; attempt++) {
+      final Person person = new Person(IdAllocator.newId(), name);
+      try {
+        create(person);
+        return person;
+      } catch (final ConditionalCheckFailedException e) {
+        if (attempt == MAX_CREATE_ATTEMPTS) {
+          throw new IllegalStateException(
+              "Could not allocate a person id after " + MAX_CREATE_ATTEMPTS + " attempts", e);
+        }
+      }
+    }
+    throw new IllegalStateException("unreachable");
   }
 
   public void deleteById(final String id) {

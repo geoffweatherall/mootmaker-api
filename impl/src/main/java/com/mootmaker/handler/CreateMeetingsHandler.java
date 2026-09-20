@@ -7,6 +7,7 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.DayItemTooLargeException;
 import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
+import com.mootmaker.dynamo.IdAllocator;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.dynamo.RoomRepository;
 import com.mootmaker.limits.Limits;
@@ -146,6 +147,14 @@ public class CreateMeetingsHandler implements RequestHandler<Map<String, Object>
    * The write re-checks nothing per input: the batch was validated against a consistent snapshot,
    * and {@code mutate} re-runs the whole change on a version conflict, so the check that matters is
    * the one inside the retry - that the day still has room for all of them.
+   *
+   * <p>{@code accepted}'s records carry a placeholder id ({@link #toRecord}) - real ids are drawn
+   * fresh, here, on every attempt {@code mutate} makes, the same reasoning as {@code
+   * CreateMeetingHandler}: a PTR# pointer collision (negligibly likely, see {@link IdAllocator})
+   * fails the whole transaction exactly like a version conflict does, so an id fixed once, before
+   * calling {@code mutate}, would retry with the SAME id forever on that one failure mode. Nothing
+   * downstream depends on {@code accepted}'s own placeholder ids surviving - {@link #dayResponse}
+   * re-reads the day after this returns, rather than reusing this list.
    */
   private void write(
       final String date,
@@ -158,8 +167,21 @@ public class CreateMeetingsHandler implements RequestHandler<Map<String, Object>
             if (day.meetings().size() + accepted.size() > Limits.MAX_MEETINGS_PER_DAY) {
               throw new MeetingRejected(MeetingError.DayIsFull);
             }
+            final List<MeetingRecord> withFreshIds =
+                accepted.stream()
+                    .map(
+                        record ->
+                            new MeetingRecord(
+                                IdAllocator.newId(),
+                                record.roomId(),
+                                record.organiserId(),
+                                record.attendeeIds(),
+                                record.subject(),
+                                record.startTime(),
+                                record.endTime()))
+                    .toList();
             return day.withMeetings(
-                Stream.concat(day.meetings().stream(), accepted.stream()).toList());
+                Stream.concat(day.meetings().stream(), withFreshIds.stream()).toList());
           });
     } catch (final MeetingRejected rejected) {
       failuresForEveryAccepted(accepted, failures, rejected.errors());
@@ -200,11 +222,12 @@ public class CreateMeetingsHandler implements RequestHandler<Map<String, Object>
     return errors;
   }
 
+  /** Id is a placeholder - see {@link #write}, which draws the real one. */
   private static MeetingRecord toRecord(final Map<String, Object> input) {
     @SuppressWarnings("unchecked")
     final List<String> attendeeIds = (List<String>) input.getOrDefault("attendeeIds", List.of());
     return new MeetingRecord(
-        UUID.randomUUID().toString(),
+        "",
         (String) input.get("roomId"),
         (String) input.get("organiserId"),
         attendeeIds,

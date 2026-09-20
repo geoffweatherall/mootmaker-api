@@ -5,6 +5,8 @@ import module java.base;
 import com.mootmaker.model.Room;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * Rooms, by id. An instance rather than a static utility so it owns its client and table name,
@@ -12,6 +14,9 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  * so it lands in the SnapStart snapshot.
  */
 public final class RoomRepository {
+
+  /** Enough to clear the negligible chance of a real collision; see {@link IdAllocator}. */
+  private static final int MAX_CREATE_ATTEMPTS = 5;
 
   private final DynamoDbClient dynamoDbClient;
   private final String tableName;
@@ -42,6 +47,33 @@ public final class RoomRepository {
 
   public void put(final Room room) {
     BatchGet.put(dynamoDbClient, tableName, room.toItem());
+  }
+
+  /**
+   * Allocates a fresh id and creates a room with it, unlike {@link #put}, which writes whatever
+   * {@code Room} it is given (an update overwriting an existing item, for {@code
+   * UpdateRoomHandler}). Retries with a newly drawn id on the negligible chance of a collision -
+   * see {@link IdAllocator}.
+   */
+  public Room create(final String name, final int capacity) {
+    for (int attempt = 1; attempt <= MAX_CREATE_ATTEMPTS; attempt++) {
+      final Room room = new Room(IdAllocator.newId(), name, capacity);
+      try {
+        dynamoDbClient.putItem(
+            PutItemRequest.builder()
+                .tableName(tableName)
+                .item(room.toItem())
+                .conditionExpression("attribute_not_exists(id)")
+                .build());
+        return room;
+      } catch (final ConditionalCheckFailedException e) {
+        if (attempt == MAX_CREATE_ATTEMPTS) {
+          throw new IllegalStateException(
+              "Could not allocate a room id after " + MAX_CREATE_ATTEMPTS + " attempts", e);
+        }
+      }
+    }
+    throw new IllegalStateException("unreachable");
   }
 
   /** Exposed for the resolver's response bound, which must know the collection is within limits. */
