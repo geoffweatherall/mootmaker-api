@@ -210,9 +210,15 @@ resource "random_password" "e2e_user" {
 #
 # It also makes the id stable across a destroy-and-rebuild of an environment, which is a small gain
 # on its own: the demo and e2e Persons keep their identity when the environment is recreated.
+#
+# Truncated to 8 hex characters (hyphens stripped first) to match custom:personId's
+# string_attribute_constraints below and com.mootmaker.dynamo.IdAllocator's id length elsewhere -
+# was the full 36-character uuidv5 output before this project's ids became compact (see
+# designs/dynamodb-storage-compaction.md). substr() of a known value is itself known at plan time,
+# so this keeps the same plan-time-known property the comment above explains.
 locals {
-  e2e_person_id  = uuidv5("dns", "e2e-person.${var.environment}.mootmaker")
-  demo_person_id = uuidv5("dns", "demo-person.${var.environment}.mootmaker")
+  e2e_person_id  = substr(replace(uuidv5("dns", "e2e-person.${var.environment}.mootmaker"), "-", ""), 0, 8)
+  demo_person_id = substr(replace(uuidv5("dns", "demo-person.${var.environment}.mootmaker"), "-", ""), 0, 8)
 }
 
 resource "aws_cognito_user" "e2e" {
