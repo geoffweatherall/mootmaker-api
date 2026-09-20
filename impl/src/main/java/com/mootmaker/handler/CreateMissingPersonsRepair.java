@@ -3,6 +3,7 @@ package com.mootmaker.handler;
 import module java.base;
 
 import com.mootmaker.concurrent.ConcurrencyUtils;
+import com.mootmaker.dynamo.IdAllocator;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.model.Person;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
@@ -13,7 +14,6 @@ import software.amazon.awssdk.services.cognitoidentityprovider.model.ListUsersRe
 import software.amazon.awssdk.services.cognitoidentityprovider.model.UserStatusType;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.UserType;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * Repair #1: every confirmed Cognito user should have a linked Person, created automatically by
@@ -69,7 +69,11 @@ final class CreateMissingPersonsRepair {
             return;
           }
 
-          final String personId = claimedPersonId.orElseGet(() -> UUID.randomUUID().toString());
+          // Either way the id is fixed before the Person write below: either it was already
+          // claimed, or it gets claimed on Cognito first, matching the trigger's own ordering -
+          // so the write must use PersonRepository#create (fails loudly on collision) rather than
+          // #createWithNewId (retries with a different id), which would silently strand the claim.
+          final String personId = claimedPersonId.orElseGet(IdAllocator::newId);
           final String name = emailLocalPart(email);
           final String what =
               claimedPersonId.isPresent()
@@ -91,11 +95,7 @@ final class CreateMissingPersonsRepair {
                               .build())
                       .build());
             }
-            dynamoDbClient.putItem(
-                PutItemRequest.builder()
-                    .tableName(peopleTableName)
-                    .item(new Person(personId, name, cognitoSub).toItem())
-                    .build());
+            people.create(new Person(personId, name, cognitoSub));
           }
           repaired.incrementAndGet();
         });

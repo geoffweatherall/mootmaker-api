@@ -9,7 +9,6 @@ import com.mootmaker.dynamo.RoomRepository;
 import com.mootmaker.model.Room;
 import com.mootmaker.model.RoomError;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * AppSync direct-Lambda resolver for {@code Mutation.createRoom}. Admin only - see {@link
@@ -60,9 +59,7 @@ public class CreateRoomHandler implements RequestHandler<Map<String, Object>, Ob
       return result;
     }
 
-    final Room room = new Room(UUID.randomUUID().toString(), name, capacity);
-    dynamoDbClient.putItem(
-        PutItemRequest.builder().tableName(tableName).item(room.toItem()).build());
+    final Room room = new RoomRepository(dynamoDbClient, tableName).create(name, capacity);
 
     result.put("room", room.toResponseMap());
     result.put("rooms", allRooms());

@@ -7,6 +7,7 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.DayItemTooLargeException;
 import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
+import com.mootmaker.dynamo.IdAllocator;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.dynamo.RoomRepository;
 import com.mootmaker.model.Boundaries;
@@ -131,19 +132,18 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
       throw new MeetingRejected(errors);
     }
 
-    final MeetingRecord record =
-        new MeetingRecord(
-            UUID.randomUUID().toString(),
-            validated.roomId(),
-            validated.organiserId(),
-            validated.attendeeIds(),
-            validated.subject(),
-            validated.startTime().format(MeetingRecord.DATE_TIME_FORMAT),
-            validated.endTime().format(MeetingRecord.DATE_TIME_FORMAT));
+    final String date = validated.date();
 
+    // Drawn fresh inside the mutate lambda below, not here - a collision on the PTR# pointer
+    // write (negligibly likely, see IdAllocator) fails the whole transaction exactly like a
+    // version conflict does, and mutate already retries the whole lambda on either. Generating
+    // the id once, here, would retry with the SAME id forever on that one failure mode. The
+    // AtomicReference is how the id actually written survives past mutate's return - mutate
+    // only returns once a write has genuinely succeeded, so the last value set below is it.
+    final AtomicReference<MeetingRecord> written = new AtomicReference<>();
     try {
       days.mutate(
-          record.date(),
+          date,
           day -> {
             // Re-run on every attempt, against freshly-read state. This is the whole point of
             // mutate taking a function rather than a value: a booking that loses a version
@@ -153,6 +153,16 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
             if (!conflicts.isEmpty()) {
               throw new MeetingRejected(conflicts);
             }
+            final MeetingRecord record =
+                new MeetingRecord(
+                    IdAllocator.newId(),
+                    validated.roomId(),
+                    validated.organiserId(),
+                    validated.attendeeIds(),
+                    validated.subject(),
+                    validated.startTime().format(MeetingRecord.DATE_TIME_FORMAT),
+                    validated.endTime().format(MeetingRecord.DATE_TIME_FORMAT));
+            written.set(record);
             return day.withMeetings(
                 Stream.concat(day.meetings().stream(), Stream.of(record)).toList());
           });
@@ -160,11 +170,11 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
       // Layer 3 fired, so the byte model in Limits has drifted from reality. Loud in the log,
       // because that needs fixing - but an ordinary "the day is full" to the user, which is
       // true, renderable, and does not leak that an internal estimate was wrong.
-      LOGGER.error(
-          "Byte model drift: day {} was rejected by the write-time size check", record.date(), e);
+      LOGGER.error("Byte model drift: day {} was rejected by the write-time size check", date, e);
       throw new MeetingRejected(MeetingError.DayIsFull);
     }
 
+    final MeetingRecord record = written.get();
     return new Meeting(
         record.id(),
         validated.room(),

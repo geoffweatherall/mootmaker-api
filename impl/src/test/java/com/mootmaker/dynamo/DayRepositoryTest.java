@@ -42,21 +42,15 @@ class DayRepositoryTest {
   }
 
   /**
-   * A 36-character id, the shape a UUID actually is. The byte model in {@code Limits} budgets for
-   * UUIDs, so a test using longer ids measures a system nobody is running - and it will fail
-   * against limits that are, in fact, correct.
+   * An 8-character id, the shape {@link com.mootmaker.dynamo.IdAllocator} actually produces. The
+   * byte model in {@code Limits} budgets for 8-character ids, so a test using a different length
+   * measures a system nobody is running - and it will fail against limits that are, in fact,
+   * correct. Distinct per seed (not necessarily base62 - only the length matters to the byte
+   * model), which is all {@code attribute_not_exists} pointer-collision safety needs from a test
+   * double.
    */
-  private static String uuidShapedId(final int seed) {
-    final String digits = "%032d".formatted(seed);
-    return digits.substring(0, 8)
-        + "-"
-        + digits.substring(8, 12)
-        + "-"
-        + digits.substring(12, 16)
-        + "-"
-        + digits.substring(16, 20)
-        + "-"
-        + digits.substring(20);
+  private static String shortId(final int seed) {
+    return "%08d".formatted(seed % 100_000_000);
   }
 
   /** Runs the interfering write with the hook disabled, so it cannot trigger itself. */
@@ -208,6 +202,51 @@ class DayRepositoryTest {
           assertThrows(IllegalStateException.class, () -> add(meeting("m-mine", "Mine")));
       assertTrue(thrown.getMessage().contains("attempts"), thrown.getMessage());
     }
+
+    @Test
+    @DisplayName(
+        "retries on a PTR# pointer collision, not just a version conflict - the mechanism "
+            + "IdAllocator-drawn ids rely on for collision safety")
+    void retriesWhenAFreshlyDrawnMeetingIdCollidesWithAnExistingPointer() {
+      // On a DIFFERENT date, not this test's DATE - a pointer is global across the whole table,
+      // so the realistic collision is with a meeting on some other day entirely, not one already
+      // in the day being written (which withMeetings would just silently duplicate rather than
+      // exercising the pointer condition at all).
+      final String otherDate = "2026-09-15";
+      repository.mutate(
+          otherDate,
+          current ->
+              current.withMeetings(
+                  List.of(
+                      new MeetingRecord(
+                          "m-taken",
+                          "room-1",
+                          "person-1",
+                          List.of(),
+                          "Elsewhere",
+                          otherDate + "T09:00:00",
+                          otherDate + "T09:30:00"))));
+
+      // Mimics a caller that draws a fresh id inside mutate's lambda on every attempt (as
+      // CreateMeetingHandler/CreateMeetingsHandler do via IdAllocator): the first draw happens to
+      // collide with an id that already has a pointer, and only a later attempt succeeds.
+      final AtomicInteger attempts = new AtomicInteger();
+      final Day day =
+          repository.mutate(
+              DATE,
+              current -> {
+                final String id = attempts.getAndIncrement() == 0 ? "m-taken" : "m-fresh";
+                return current.withMeetings(
+                    Stream.concat(current.meetings().stream(), Stream.of(meeting(id, "New")))
+                        .toList());
+              });
+
+      assertTrue(attempts.get() >= 2, "expected a retry after the pointer collision");
+      assertEquals(1, day.meetings().size());
+      assertTrue(day.meetings().stream().anyMatch(m -> m.id().equals("m-fresh")));
+      assertEquals(Optional.of(DATE), repository.findDateOfMeeting("m-fresh"));
+      assertEquals(Optional.of(otherDate), repository.findDateOfMeeting("m-taken"));
+    }
   }
 
   @Nested
@@ -220,18 +259,23 @@ class DayRepositoryTest {
       final String maxSubject = "x".repeat(Limits.MAX_SUBJECT_BYTES);
       final List<String> attendees =
           IntStream.range(0, Limits.MAX_ATTENDEES_PER_MEETING)
-              .mapToObj(DayRepositoryTest::uuidShapedId)
+              .mapToObj(DayRepositoryTest::shortId)
               .toList();
       // Past the day limit on purpose: layer 2 would have stopped this, so reaching layer 3
-      // means the model drifted - which is the case this exists to survive.
+      // means the model drifted - which is the case this exists to survive. Comfortably more
+      // than Limits.MAX_MEETINGS_PER_DAY: compaction raised the real ceiling to 660 (see
+      // LimitsTest's worstCaseMeetingBytes), and this measures REAL bytes via ItemSizer rather
+      // than the modelled worst case - which is smaller here, since the model reserves headroom
+      // for the not-yet-built attendee-status field that this test's meetings don't carry - so
+      // the number needs comfortable margin above the model's own ceiling, not just past it.
       final List<MeetingRecord> tooMany =
-          IntStream.range(0, 400)
+          IntStream.range(0, 1_000)
               .mapToObj(
                   i ->
                       new MeetingRecord(
-                          uuidShapedId(i),
-                          uuidShapedId(i + 1_000_000),
-                          uuidShapedId(i + 2_000_000),
+                          shortId(i),
+                          shortId(i + 1_000_000),
+                          shortId(i + 2_000_000),
                           attendees,
                           maxSubject,
                           DATE + "T09:00:00",
@@ -255,16 +299,16 @@ class DayRepositoryTest {
       final String maxSubject = "x".repeat(Limits.MAX_SUBJECT_BYTES);
       final List<String> attendees =
           IntStream.range(0, Limits.MAX_ATTENDEES_PER_MEETING)
-              .mapToObj(DayRepositoryTest::uuidShapedId)
+              .mapToObj(DayRepositoryTest::shortId)
               .toList();
       final List<MeetingRecord> full =
           IntStream.range(0, Limits.MAX_MEETINGS_PER_DAY)
               .mapToObj(
                   i ->
                       new MeetingRecord(
-                          uuidShapedId(i),
-                          uuidShapedId(i + 1_000_000),
-                          uuidShapedId(i + 2_000_000),
+                          shortId(i),
+                          shortId(i + 1_000_000),
+                          shortId(i + 2_000_000),
                           attendees,
                           maxSubject,
                           DATE + "T09:00:00",

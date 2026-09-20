@@ -213,9 +213,18 @@ public final class DayRepository {
             .build();
   }
 
+  /**
+   * Conditional on the pointer not already existing - which, alongside doubling as the ordinary "a
+   * pointer can never outlive the day that explains it" guarantee, is what gives a freshly
+   * allocated meeting id collision safety for free. {@code writeItems} is only ever called from
+   * {@code mutate}'s already-retried transaction, and a caller that draws a new id on every attempt
+   * (rather than once before calling {@code mutate}) gets a fresh draw on every retry - including a
+   * retry caused by this condition failing, not just a version conflict. See {@link IdAllocator}.
+   */
   private Put pointerPut(final String meetingId, final String date) {
     return Put.builder()
         .tableName(tableName)
+        .conditionExpression("attribute_not_exists(pk)")
         .item(
             Map.of(
                 "pk", AttributeValue.builder().s(POINTER_PK_PREFIX + meetingId).build(),

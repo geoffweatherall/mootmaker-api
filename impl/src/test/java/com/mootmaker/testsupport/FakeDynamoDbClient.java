@@ -6,6 +6,7 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.BatchGetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.BatchGetItemResponse;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.Delete;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse;
@@ -50,6 +51,14 @@ public class FakeDynamoDbClient implements DynamoDbClient {
   /** How many transactions have been attempted, so a test can assert a retry actually happened. */
   public int transactionAttempts;
 
+  /**
+   * Forces the next {@code putItem} call(s) to fail with a {@code ConditionalCheckFailedException}
+   * before the real condition is even checked - one entry consumed per call. Without a hook like
+   * this, an id collision (drawn from {@code IdAllocator}'s ~2.18x10^14-value space) cannot be
+   * exercised deterministically, the same reason {@link #beforeWrite} exists for transactions.
+   */
+  public int forcedPutItemCollisions;
+
   @Override
   public String serviceName() {
     return "dynamodb";
@@ -65,9 +74,29 @@ public class FakeDynamoDbClient implements DynamoDbClient {
    * this just appended unconditionally, which was fine when only create* handlers existed (never a
    * pre-existing item to collide with) but silently left a stale duplicate behind once update*
    * handlers started overwriting an existing item.
+   *
+   * <p>Now also honours {@code conditionExpression} - {@code RoomRepository}/{@code
+   * PersonRepository}'s {@code create} methods rely on {@code attribute_not_exists(id)} failing
+   * exactly like real DynamoDB would, so their collision-retry loops are actually exercisable
+   * against this fake rather than only against a real table.
    */
   @Override
   public synchronized PutItemResponse putItem(final PutItemRequest request) {
+    if (forcedPutItemCollisions > 0) {
+      forcedPutItemCollisions--;
+      throw ConditionalCheckFailedException.builder()
+          .message("Forced collision for " + request.item())
+          .build();
+    }
+    if (!conditionHolds(
+        request.tableName(),
+        request.conditionExpression(),
+        request.item(),
+        request.expressionAttributeValues())) {
+      throw ConditionalCheckFailedException.builder()
+          .message("ConditionalCheckFailed for " + request.item())
+          .build();
+    }
     replace(request.tableName(), request.item());
     return PutItemResponse.builder().build();
   }
@@ -98,21 +127,28 @@ public class FakeDynamoDbClient implements DynamoDbClient {
   }
 
   /**
-   * Only the two condition shapes DayRepository writes are modelled, and anything else throws
-   * rather than silently passing - a fake that quietly accepts an unmodelled condition would turn a
-   * broken conditional write into a green test.
+   * Only the condition shapes actually written anywhere in this codebase are modelled, and anything
+   * else throws rather than silently passing - a fake that quietly accepts an unmodelled condition
+   * would turn a broken conditional write into a green test. {@code attribute_not_exists(...)} is
+   * matched by prefix rather than exact string, since {@code DayRepository}'s pointer writes use
+   * {@code attribute_not_exists(pk)} and {@code RoomRepository}/{@code PersonRepository}'s {@code
+   * create} methods use {@code attribute_not_exists(id)} - both are "this key must be free", just
+   * on different key names, and both resolve to the same {@link #find} lookup either way.
    */
-  private boolean conditionHolds(final String tableName, final Put put) {
-    final String condition = put.conditionExpression();
+  private boolean conditionHolds(
+      final String tableName,
+      final String condition,
+      final Map<String, AttributeValue> item,
+      final Map<String, AttributeValue> expressionAttributeValues) {
     if (condition == null) {
       return true;
     }
-    final Map<String, AttributeValue> existing = find(tableName, put.item());
-    if ("attribute_not_exists(pk)".equals(condition)) {
+    final Map<String, AttributeValue> existing = find(tableName, item);
+    if (condition.startsWith("attribute_not_exists(")) {
       return existing == null;
     }
     if ("version = :expected".equals(condition)) {
-      final AttributeValue expected = put.expressionAttributeValues().get(":expected");
+      final AttributeValue expected = expressionAttributeValues.get(":expected");
       return existing != null && expected.n().equals(existing.get("version").n());
     }
     throw new UnsupportedOperationException(
@@ -131,10 +167,15 @@ public class FakeDynamoDbClient implements DynamoDbClient {
     beforeWrite.run();
 
     for (final TransactWriteItem transactItem : request.transactItems()) {
-      if (transactItem.put() != null
-          && !conditionHolds(transactItem.put().tableName(), transactItem.put())) {
+      final Put put = transactItem.put();
+      if (put != null
+          && !conditionHolds(
+              put.tableName(),
+              put.conditionExpression(),
+              put.item(),
+              put.expressionAttributeValues())) {
         throw TransactionCanceledException.builder()
-            .message("ConditionalCheckFailed for " + transactItem.put().item())
+            .message("ConditionalCheckFailed for " + put.item())
             .build();
       }
     }

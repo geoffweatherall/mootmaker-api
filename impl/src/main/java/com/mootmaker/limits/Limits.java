@@ -120,12 +120,37 @@ public final class Limits {
   // ── The byte model. Estimates of DynamoDB's and AppSync's accounting, held honest by layer 3. ──
 
   /**
-   * Attribute names and fixed-width values of one stored meeting, excluding attendees and subject.
+   * Bytes budgeted for a future per-attendee response-status field (coming / not coming / tentative
+   * / no response) that is not yet part of the persisted meeting shape - see
+   * designs/dynamodb-storage-compaction.md. Folded into {@link #PER_MEETING_BASE_BYTES} and {@link
+   * #BYTES_PER_ATTENDEE} below now, so a later PR that actually adds the field cannot silently blow
+   * a budget nobody remembered to check: today's real item is smaller than this model by exactly
+   * this much, which is the safe direction (a premature rejection, never an oversized item - see
+   * the class javadoc). Modelled as a parallel {@code attendeeStatuses} list, one single-digit code
+   * per attendee: {@link #RESERVED_ATTENDEE_STATUS_BYTES_PER_ATTENDEE} is that list's per-element
+   * cost (1 overhead byte + 1 value byte); {@link #RESERVED_ATTENDEE_STATUS_OVERHEAD_BYTES} is the
+   * list's own one-time name-plus-container cost within the meeting map.
    */
-  static final int PER_MEETING_BASE_BYTES = 212;
+  static final int RESERVED_ATTENDEE_STATUS_BYTES_PER_ATTENDEE = 2;
 
-  /** One attendee id: a 36-character UUID plus list-element overhead. */
-  static final int BYTES_PER_ATTENDEE = 37;
+  static final int RESERVED_ATTENDEE_STATUS_OVERHEAD_BYTES = 20;
+
+  /**
+   * Attribute names and fixed-width values of one stored meeting, excluding attendees and subject:
+   * the meeting map's own container overhead, {@code id}/{@code roomId}/{@code organiserId} (each
+   * an 8-character opaque id - see {@link com.mootmaker.dynamo.IdAllocator}, not a 36-character
+   * UUID), {@code startTime}/{@code endTime} (epoch-minutes as a DynamoDB {@code N}, not a 19-byte
+   * ISO string - see {@code MeetingRecord#toEpochMinutes}), and the {@code attendeeIds} list's own
+   * name and container overhead (its per-element cost is {@link #BYTES_PER_ATTENDEE} below, applied
+   * separately per attendee) - plus the reserved attendee-status headroom above.
+   */
+  static final int PER_MEETING_BASE_BYTES = 100 + RESERVED_ATTENDEE_STATUS_OVERHEAD_BYTES;
+
+  /**
+   * One attendee id: an 8-character opaque id (1 overhead byte + 8 value bytes = 9) plus the
+   * reserved attendee-status headroom above.
+   */
+  static final int BYTES_PER_ATTENDEE = 9 + RESERVED_ATTENDEE_STATUS_BYTES_PER_ATTENDEE;
 
   /** pk, date and version attributes wrapping the meetings list. */
   static final int DAY_ITEM_OVERHEAD_BYTES = 128;

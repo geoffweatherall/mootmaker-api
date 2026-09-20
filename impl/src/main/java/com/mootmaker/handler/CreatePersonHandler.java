@@ -9,7 +9,6 @@ import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.model.Person;
 import com.mootmaker.model.PersonError;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * AppSync direct-Lambda resolver for {@code Mutation.createPerson}. Admin only - see {@link
@@ -50,9 +49,7 @@ public class CreatePersonHandler implements RequestHandler<Map<String, Object>, 
       return result;
     }
 
-    final Person person = new Person(UUID.randomUUID().toString(), name);
-    dynamoDbClient.putItem(
-        PutItemRequest.builder().tableName(tableName).item(person.toItem()).build());
+    final Person person = new PersonRepository(dynamoDbClient, tableName).createWithNewId(name);
 
     result.put("person", person.toResponseMap());
     result.put("errors", List.of());

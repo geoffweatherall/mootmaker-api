@@ -32,12 +32,14 @@ class LimitsTest {
       assertTrue(
           Limits.worstCaseDayItemBytes() <= Limits.DYNAMODB_MAX_ITEM_BYTES,
           "worst-case day item was " + Limits.worstCaseDayItemBytes() + " bytes");
-      // 212 + 37x20 + 280 = 1,232 bytes a meeting; x320 plus overhead is ~394 KB, ~96% of the cap.
+      // 120 + 11x20 + 280 = 620 bytes a meeting (short opaque ids and epoch-minute times, plus
+      // reserved attendee-status headroom - see designs/dynamodb-storage-compaction.md); x320 plus
+      // overhead is ~198.5 KB, ~48.5% of the cap.
       assertTrue(
-          Limits.worstCaseMeetingBytes() == 1_232,
+          Limits.worstCaseMeetingBytes() == 620,
           "worst-case meeting was "
               + Limits.worstCaseMeetingBytes()
-              + " bytes, expected 1232 - "
+              + " bytes, expected 620 - "
               + "if the persisted shape changed, the design's arithmetic needs revisiting too");
     }
 
@@ -72,7 +74,10 @@ class LimitsTest {
     @Test
     @DisplayName("when someone raises the day limit past what the item cap allows")
     void whenTheDayLimitIsRaisedTooFar() {
-      final Budget tooManyMeetings = new Budget(400, 20, 280, 200, 1_000, 42, 2_000);
+      // 660 is the new ceiling at 20 attendees/280-byte subjects (see the Accepts nested class
+      // below) now that ids and times are compact, so this needs to clear a much higher bar than
+      // the old model's 400 did.
+      final Budget tooManyMeetings = new Budget(700, 20, 280, 200, 1_000, 42, 2_000);
       final IllegalStateException thrown =
           assertThrows(IllegalStateException.class, () -> Limits.assertConsistent(tooManyMeetings));
       assertTrue(thrown.getMessage().contains("a day at every limit is"), thrown.getMessage());
@@ -81,9 +86,11 @@ class LimitsTest {
     @Test
     @DisplayName("when someone raises the attendee limit without revisiting the day limit")
     void whenTheAttendeeLimitIsRaisedTooFar() {
+      // 60 no longer exceeds the cap now that an attendee costs 11 bytes rather than 37 - 100
+      // does.
       assertThrows(
           IllegalStateException.class,
-          () -> Limits.assertConsistent(new Budget(320, 60, 280, 200, 1_000, 42, 2_000)));
+          () -> Limits.assertConsistent(new Budget(320, 100, 280, 200, 1_000, 42, 2_000)));
     }
 
     @Test
@@ -132,28 +139,33 @@ class LimitsTest {
 
     @Test
     @DisplayName(
-        "330 a day, which the design names as defensible - and 332, which it names as the ceiling")
+        "659 a day, which the design names as defensible - and 660, which it names as the ceiling")
     void theDayLimitsTheDesignSaysAreStillSafe() {
       assertDoesNotThrow(
-          () -> Limits.assertConsistent(new Budget(330, 20, 280, 200, 1_000, 42, 2_000)));
+          () -> Limits.assertConsistent(new Budget(659, 20, 280, 200, 1_000, 42, 2_000)));
       assertDoesNotThrow(
-          () -> Limits.assertConsistent(new Budget(332, 20, 280, 200, 1_000, 42, 2_000)));
+          () -> Limits.assertConsistent(new Budget(660, 20, 280, 200, 1_000, 42, 2_000)));
     }
 
     @Test
     @DisplayName(
-        "but not 333 - the design's stated ceiling is exactly where the arithmetic puts it")
+        "but not 661 - the design's stated ceiling is exactly where the arithmetic puts it")
     void butNotOneAboveThatCeiling() {
       assertThrows(
           IllegalStateException.class,
-          () -> Limits.assertConsistent(new Budget(333, 20, 280, 200, 1_000, 42, 2_000)));
+          () -> Limits.assertConsistent(new Budget(661, 20, 280, 200, 1_000, 42, 2_000)));
     }
 
     @Test
-    @DisplayName("16 attendees, the trade the design offers if the day cap ever binds")
-    void theLowerAttendeeLimitThatMakesAPhysicallyFullDayFit() {
+    @DisplayName(
+        "67 attendees at the physical day capacity - compaction raised this from 16, the old "
+            + "model's trade if the day cap ever binds")
+    void theAttendeeLimitThatMakesAPhysicallyFullDayFit() {
       assertDoesNotThrow(
-          () -> Limits.assertConsistent(new Budget(360, 16, 280, 200, 1_000, 42, 2_000)));
+          () -> Limits.assertConsistent(new Budget(360, 67, 280, 200, 1_000, 42, 2_000)));
+      assertThrows(
+          IllegalStateException.class,
+          () -> Limits.assertConsistent(new Budget(360, 68, 280, 200, 1_000, 42, 2_000)));
     }
   }
 }
