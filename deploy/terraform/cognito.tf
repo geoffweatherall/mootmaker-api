@@ -72,6 +72,17 @@ resource "aws_cognito_user_pool" "this" {
   # another person: their preferences, their rename, bookings as them, and deleteMyAccount on
   # their account. Immutable in practice, since a Person id never changes for the life of the
   # person, but declared mutable because the trigger has to set it after confirmation.
+  #
+  # Exactly 8, matching com.mootmaker.dynamo.IdAllocator's fixed token length (see
+  # designs/dynamodb-storage-compaction.md) - was 36 for the UUIDs this replaced. Found the hard
+  # way: AdminUpdateUserAttributes silently fails this constraint inside
+  # PostConfirmationCreatePersonHandler's already-swallowed try/catch, so an 8-character id here
+  # left every new sign-up with no linked Person at all, cascading into every acceptance test that
+  # needs one - not a webapp/android code problem (that surface was audited and is clean), a
+  # Terraform one. Custom attribute constraints are immutable on an existing user pool, so this
+  # change forces a pool replacement - accepted here the same way UUID-to-compact-id migration
+  # itself was: this project drops the whole DB, Cognito pool included, on every
+  # test/production release, so nothing is actually being migrated.
   schema {
     name                = "personId"
     attribute_data_type = "String"
@@ -79,8 +90,8 @@ resource "aws_cognito_user_pool" "this" {
     required            = false
 
     string_attribute_constraints {
-      min_length = 36
-      max_length = 36
+      min_length = 8
+      max_length = 8
     }
   }
 
