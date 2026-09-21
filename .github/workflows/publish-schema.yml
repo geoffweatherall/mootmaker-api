@@ -37,7 +37,7 @@ jobs:
 
       # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14. Node 24 ships npm 11.x, but the
       # exact bundled version moves, so it is upgraded explicitly below rather than assumed.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
