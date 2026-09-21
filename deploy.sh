@@ -45,6 +45,22 @@ if [[ "${environment}" == prod* && "${environment}" != "production" ]]; then
   exit 1
 fi
 
+# Lambda function names cap at 64 characters. Every function name here is
+# "<environment>-<function-suffix>" (see deploy/terraform/locals.tf's
+# resource_prefix and deploy/terraform/lambda.tf), and the longest suffix is
+# "-mootmaker-post-confirmation-create-person" (42 characters), which leaves
+# 64 - 42 = 22 characters for the environment name. An environment name over
+# that limit fails Terraform apply partway through - after Route 53 records,
+# DynamoDB tables, and IAM roles are already created - leaving a half-built
+# environment that has to be torn down by hand. Fail before running Terraform
+# instead. If a longer function-name suffix is ever added, update this limit
+# to match.
+max_environment_length=22
+if [[ "${#environment}" -gt "${max_environment_length}" ]]; then
+  echo "environment '${environment}' is ${#environment} characters, longer than the ${max_environment_length}-character limit imposed by Lambda's 64-character function name cap - refusing, to avoid a Terraform apply that fails partway through." >&2
+  exit 1
+fi
+
 echo "Deploying mootmaker-api to '${environment}'..."
 
 # Isolates this environment's Terraform provider cache/backend pointer from
