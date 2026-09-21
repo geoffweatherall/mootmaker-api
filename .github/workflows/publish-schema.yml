@@ -33,7 +33,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14. Node 24 ships npm 11.x, but the
       # exact bundled version moves, so it is upgraded explicitly below rather than assumed.
@@ -134,7 +134,7 @@ jobs:
       # server-id/username/password make setup-java write a ~/.m2/settings.xml with a <server>
       # entry called "github" - which is what deploy:deploy-file's -DrepositoryId resolves
       # credentials by. Setting GITHUB_TOKEN as a bare env var would not authenticate anything.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           java-version: '25'
           distribution: 'temurin'
