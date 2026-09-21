@@ -76,6 +76,9 @@ type Mutation {
  "Deletes the signed-in caller's own account: cancels every upcoming meeting they organise, removes them from every upcoming meeting they only attend, deletes their linked Person, then deletes their Cognito user entirely. Past meetings are left untouched. Irreversible. Not available for reserved system accounts (e.g. the demo user), which reject with an error."
  deleteMyAccount: Boolean!
 
+ "Sets the signed-in caller's own response status on a meeting they attend. Self-only, mirroring updateMyPreferences - there is no id argument, and no admin override. Only valid for a meeting the caller is an ATTENDEE of: the organiser has no status to set (implicitly Going, with no control of their own), and a caller who is neither organiser nor attendee is rejected the same way. Re-publishes daysInvalidated for the meeting's date on success, same as createMeeting."
+ respondToMeeting(meetingId: ID!, status: AttendeeStatus!): RespondToMeetingResult!
+
  "NOT FOR CLIENT USE, and not merely by convention - `@aws_iam` means AppSync refuses the call before any resolver runs, so a signed-in user cannot invoke it at all. A publish-only mutation on a NONE data source, called by the resolver Lambda over IAM-signed HTTP after a successful write, purely to drive `Subscription.daysInvalidated`. It exists because `@aws_subscribe` pushes the MUTATION'S return value and requires the subscription field's type to match it: subscribing directly to createMeeting would broadcast rejected bookings (which return successfully, with a typed errors array, rather than failing - verified), and could not also cover createMeetings, whose result type differs."
  publishDaysInvalidated(dates: [String!]!): Invalidation @aws_iam
 }
@@ -210,7 +213,8 @@ type Meeting {
     id: ID!
     room: Room!
     organiser: Person!
-    attendees: [Person!]!
+    "Every non-organiser attendee, each with their own response status. The organiser is never one of these - see Attendee's own doc comment for why."
+    attendees: [Attendee!]!
     subject: String!
     "ISO-8601 local date-time with no time-zone offset (java.time.LocalDateTime semantics), e.g. \"2026-07-01T14:30:00\"."
     startTime: String!
@@ -218,10 +222,43 @@ type Meeting {
     endTime: String!
 }
 
+"A meeting attendee paired with their response to it. Never the organiser: scheduling a meeting is itself treated as confirming attendance, so the organiser is implicitly Going with no status of their own to expose here or to set via respondToMeeting - see Meeting.organiser, which stays a plain Person."
+type Attendee {
+    person: Person!
+    status: AttendeeStatus!
+}
+
+"Going / Not going / Maybe / no response yet. Every attendee starts at NoResponse when a meeting is created, and may change their own response at any time via respondToMeeting."
+enum AttendeeStatus {
+    Going
+    NotGoing
+    Maybe
+    "The default for every new attendee until they explicitly respond."
+    NoResponse
+}
+
+type RespondToMeetingResult {
+    "Populated when the response was accepted."
+    meeting: Meeting
+    "Non-empty when the response was rejected; exactly one entry, since these cases are mutually exclusive."
+    errors: [RespondToMeetingError!]!
+}
+
+enum RespondToMeetingError {
+    "The caller has no linked Person, so there is no attendee identity to respond as."
+    NoLinkedPerson
+    "meetingId did not resolve to any meeting - never existed, or aged out of retention."
+    MeetingNotFound
+    "The caller is not among this meeting's attendees - they are its organiser (who has nothing to set) or unrelated to it entirely."
+    NotAnAttendee
+}
+
 input MeetingInput {
     roomId: ID!
     organiserId: ID!
     attendeeIds: [ID!]!
+    "Optional. Every attendee starts at NoResponse unless this is supplied AND its length matches attendeeIds exactly (index i sets attendeeIds[i]'s initial status) - any other length is ignored and every attendee defaults to NoResponse. There is no webapp UI for this: it exists so mootmaker-demo-data can seed a realistic status mix through the ordinary API, since most generated attendees are guests with no Cognito account to respond as themselves via respondToMeeting."
+    attendeeStatuses: [AttendeeStatus!]
     "Must not be null or blank."
     subject: String!
     "ISO-8601 local date-time with no time-zone offset, must fall on a 15 minute boundary, e.g. \"2026-07-01T14:30:00\". Must be on the same calendar date as endTime - a meeting cannot span midnight."

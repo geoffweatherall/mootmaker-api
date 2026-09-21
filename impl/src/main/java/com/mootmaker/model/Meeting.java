@@ -10,7 +10,7 @@ public record Meeting(
     String id,
     Room room,
     Person organiser,
-    List<Person> attendees,
+    List<Attendee> attendees,
     String subject,
     String startTime,
     String endTime) {
@@ -20,7 +20,7 @@ public record Meeting(
     map.put("id", id);
     map.put("room", room.toResponseMap());
     map.put("organiser", organiser.toResponseMap());
-    map.put("attendees", attendees.stream().map(Person::toResponseMap).toList());
+    map.put("attendees", attendees.stream().map(Attendee::toResponseMap).toList());
     map.put("subject", subject);
     map.put("startTime", startTime);
     map.put("endTime", endTime);

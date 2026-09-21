@@ -7,6 +7,7 @@ import com.mootmaker.dynamo.RoomAvailability;
 import com.mootmaker.dynamo.RoomRepository;
 import com.mootmaker.limits.Limits;
 import com.mootmaker.limits.Subjects;
+import com.mootmaker.model.AttendeeStatus;
 import com.mootmaker.model.Boundaries;
 import com.mootmaker.model.MeetingError;
 import com.mootmaker.model.MeetingRecord;
@@ -54,6 +55,7 @@ final class MeetingValidator {
       String roomId,
       String organiserId,
       List<String> attendeeIds,
+      List<AttendeeStatus> attendeeStatuses,
       String subject,
       LocalDateTime startTime,
       LocalDateTime endTime,
@@ -98,6 +100,8 @@ final class MeetingValidator {
     final String organiserId = (String) meetingInput.get("organiserId");
     @SuppressWarnings("unchecked")
     final List<String> attendeeIds = (List<String>) meetingInput.get("attendeeIds");
+    @SuppressWarnings("unchecked")
+    final List<String> attendeeStatusCodes = (List<String>) meetingInput.get("attendeeStatuses");
     final String subject = Subjects.normalise((String) meetingInput.get("subject"));
 
     final List<String> errors = new ArrayList<>();
@@ -150,6 +154,16 @@ final class MeetingValidator {
     }
 
     final List<String> safeAttendeeIds = attendeeIds == null ? List.of() : attendeeIds;
+    // Every attendee starts NoResponse unless the caller explicitly supplied a same-length
+    // attendeeStatuses list - see designs/attendee-response-status.md's "Technical considerations".
+    // There is no webapp UI for this (Add Meeting never sends it); it exists so mootmaker-demo-data
+    // can seed a realistic status mix through the ordinary GraphQL API rather than needing
+    // DynamoDB access or a self-only respondToMeeting call it has no identity to make (most
+    // generated attendees are guests with no Cognito account at all to respond as).
+    final List<AttendeeStatus> safeAttendeeStatuses =
+        attendeeStatusCodes != null && attendeeStatusCodes.size() == safeAttendeeIds.size()
+            ? attendeeStatusCodes.stream().map(AttendeeStatus::valueOf).toList()
+            : safeAttendeeIds.stream().map(id -> AttendeeStatus.NoResponse).toList();
     final Map<String, Person> attendeesById = people.loadByIds(Set.copyOf(safeAttendeeIds));
     final List<Person> attendees = new ArrayList<>();
     for (final String attendeeId : safeAttendeeIds) {
@@ -185,6 +199,7 @@ final class MeetingValidator {
         roomId,
         organiserId,
         safeAttendeeIds,
+        safeAttendeeStatuses,
         subject,
         startTime,
         endTime,

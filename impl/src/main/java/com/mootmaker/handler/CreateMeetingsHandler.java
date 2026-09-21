@@ -11,6 +11,7 @@ import com.mootmaker.dynamo.IdAllocator;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.dynamo.RoomRepository;
 import com.mootmaker.limits.Limits;
+import com.mootmaker.model.AttendeeStatus;
 import com.mootmaker.model.Boundaries;
 import com.mootmaker.model.MeetingError;
 import com.mootmaker.model.MeetingRecord;
@@ -176,6 +177,7 @@ public class CreateMeetingsHandler implements RequestHandler<Map<String, Object>
                                 record.roomId(),
                                 record.organiserId(),
                                 record.attendeeIds(),
+                                record.attendeeStatuses(),
                                 record.subject(),
                                 record.startTime(),
                                 record.endTime()))
@@ -226,11 +228,20 @@ public class CreateMeetingsHandler implements RequestHandler<Map<String, Object>
   private static MeetingRecord toRecord(final Map<String, Object> input) {
     @SuppressWarnings("unchecked")
     final List<String> attendeeIds = (List<String>) input.getOrDefault("attendeeIds", List.of());
+    @SuppressWarnings("unchecked")
+    final List<String> attendeeStatusCodes = (List<String>) input.get("attendeeStatuses");
+    // Same default-fill rule as MeetingValidator: NoResponse for everyone unless a same-length
+    // override was supplied (see that class for why - mootmaker-demo-data's seeding).
+    final List<AttendeeStatus> attendeeStatuses =
+        attendeeStatusCodes != null && attendeeStatusCodes.size() == attendeeIds.size()
+            ? attendeeStatusCodes.stream().map(AttendeeStatus::valueOf).toList()
+            : attendeeIds.stream().map(id -> AttendeeStatus.NoResponse).toList();
     return new MeetingRecord(
         "",
         (String) input.get("roomId"),
         (String) input.get("organiserId"),
         attendeeIds,
+        attendeeStatuses,
         com.mootmaker.limits.Subjects.normalise((String) input.get("subject")),
         canonical((String) input.get("startTime")),
         canonical((String) input.get("endTime")));

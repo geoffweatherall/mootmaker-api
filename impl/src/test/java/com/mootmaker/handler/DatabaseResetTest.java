@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import module java.base;
 
+import com.mootmaker.model.AttendeeStatus;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
 import com.mootmaker.testsupport.DayFixtures;
@@ -37,6 +38,7 @@ class DatabaseResetTest {
         "room-1",
         organiserId,
         attendeeIds,
+        Collections.nCopies(attendeeIds.size(), AttendeeStatus.NoResponse),
         "Subject",
         "2026-07-01T09:00:00",
         "2026-07-01T10:00:00");

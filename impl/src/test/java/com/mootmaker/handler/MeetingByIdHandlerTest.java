@@ -39,6 +39,7 @@ class MeetingByIdHandlerTest {
             "room-1",
             "person-1",
             List.of(),
+            List.of(),
             "Standup",
             DATE + "T09:00:00",
             DATE + "T09:30:00"));

@@ -415,6 +415,7 @@ class CreateMeetingHandlerTest {
             "room-1",
             "organiser-1",
             List.of(),
+            List.of(),
             "Existing meeting",
             "2026-07-01T14:00:00",
             "2026-07-01T15:00:00");
@@ -445,6 +446,7 @@ class CreateMeetingHandlerTest {
             "room-1",
             "organiser-1",
             List.of(),
+            List.of(),
             "Existing meeting",
             "2026-07-01T14:00:00",
             "2026-07-01T15:00:00");
@@ -474,6 +476,7 @@ class CreateMeetingHandlerTest {
             "existing-meeting",
             "room-1",
             "organiser-1",
+            List.of(),
             List.of(),
             "Existing meeting",
             "2026-07-01T14:00:00",

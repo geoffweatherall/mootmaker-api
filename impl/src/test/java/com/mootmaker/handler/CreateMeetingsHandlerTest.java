@@ -145,6 +145,7 @@ class CreateMeetingsHandlerTest {
             "room-1",
             "person-2",
             List.of(),
+            List.of(),
             "Already there",
             DATE + "T09:00:00",
             DATE + "T10:00:00"));

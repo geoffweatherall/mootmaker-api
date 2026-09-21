@@ -102,6 +102,7 @@ class SuggestRoomHandlerTest {
             "medium",
             "organiser-1",
             List.of(),
+            List.of(),
             "Existing meeting",
             "2026-07-01T14:00:00",
             "2026-07-01T15:00:00");
@@ -121,6 +122,7 @@ class SuggestRoomHandlerTest {
             "medium",
             "organiser-1",
             List.of(),
+            List.of(),
             "Meeting",
             "2026-07-01T14:00:00",
             "2026-07-01T15:00:00");
@@ -129,6 +131,7 @@ class SuggestRoomHandlerTest {
             "m2",
             "large",
             "organiser-1",
+            List.of(),
             List.of(),
             "Meeting",
             "2026-07-01T14:00:00",

@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import module java.base;
 
 import com.mootmaker.limits.Limits;
+import com.mootmaker.model.AttendeeStatus;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
 import com.mootmaker.model.Room;
@@ -46,6 +47,7 @@ class WorkspaceHandlerTest {
         "room-1",
         "person-1",
         List.of("person-2"),
+        List.of(AttendeeStatus.NoResponse),
         "Standup",
         date + "T09:00:00",
         date + "T09:30:00");
@@ -132,13 +134,17 @@ class WorkspaceHandlerTest {
                   "days/meetings/room",
                   "days/meetings/room/name",
                   "days/meetings/attendees",
-                  "days/meetings/attendees/name"));
+                  "days/meetings/attendees/person",
+                  "days/meetings/attendees/person/name"));
 
       assertEquals("Kaikoura", firstMeeting(workspace, "room").get("name"));
       @SuppressWarnings("unchecked")
       final List<Map<String, Object>> attendees =
           (List<Map<String, Object>>) firstMeetingMap(workspace).get("attendees");
-      assertEquals("Alan Turing", attendees.getFirst().get("name"));
+      @SuppressWarnings("unchecked")
+      final Map<String, Object> firstAttendeePerson =
+          (Map<String, Object>) attendees.getFirst().get("person");
+      assertEquals("Alan Turing", firstAttendeePerson.get("name"));
     }
   }
 
