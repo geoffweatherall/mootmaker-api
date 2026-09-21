@@ -139,22 +139,28 @@ class SelectionAwareMeetingsAcceptanceIT {
   @Test
   @DisplayName("ids only - resolvable without any room or person lookup, and still correct")
   void returnsCorrectIdsWithoutResolvingNames() {
-    final JsonNode meeting = theMeeting("id room { id } organiser { id } attendees { id }");
+    final JsonNode meeting =
+        theMeeting("id room { id } organiser { id } attendees { person { id } status }");
     assertThat(meeting.get("room").get("id").asText(), equalTo(roomId));
     assertThat(meeting.get("organiser").get("id").asText(), equalTo(organiserId));
     assertThat(meeting.get("attendees").size(), equalTo(1));
-    assertThat(meeting.get("attendees").get(0).get("id").asText(), equalTo(attendeeId));
+    assertThat(
+        meeting.get("attendees").get(0).get("person").get("id").asText(), equalTo(attendeeId));
+    assertThat(meeting.get("attendees").get(0).get("status").asText(), equalTo("NoResponse"));
   }
 
   @Test
   @DisplayName("full selection - names and capacity are resolved")
   void returnsResolvedNamesWhenSelected() {
     final JsonNode meeting =
-        theMeeting("id room { id name capacity } organiser { id name } attendees { id name }");
+        theMeeting(
+            "id room { id name capacity } organiser { id name } attendees { person { id name }"
+                + " status }");
     assertThat(meeting.get("room").get("name").asText(), equalTo(roomName));
     assertThat(meeting.get("room").get("capacity").asInt(), equalTo(8));
     assertThat(meeting.get("organiser").get("name").asText(), equalTo(organiserName));
-    assertThat(meeting.get("attendees").get(0).get("name").asText(), equalTo(attendeeName));
+    assertThat(
+        meeting.get("attendees").get(0).get("person").get("name").asText(), equalTo(attendeeName));
   }
 
   @Test
@@ -165,11 +171,13 @@ class SelectionAwareMeetingsAcceptanceIT {
     final JsonNode meeting =
         theMeeting(
             "id room { id whereWeAre: name } organiser { id whoBooked: name } attendees {"
-                + " alsoComing: name }");
+                + " person { alsoComing: name } }");
     assertThat(meeting.get("room").get("whereWeAre"), is(notNullValue()));
     assertThat(meeting.get("room").get("whereWeAre").asText(), equalTo(roomName));
     assertThat(meeting.get("organiser").get("whoBooked").asText(), equalTo(organiserName));
-    assertThat(meeting.get("attendees").get(0).get("alsoComing").asText(), equalTo(attendeeName));
+    assertThat(
+        meeting.get("attendees").get(0).get("person").get("alsoComing").asText(),
+        equalTo(attendeeName));
   }
 
   @Test
