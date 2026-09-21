@@ -24,8 +24,8 @@ class CreateMeetingAcceptanceIT {
       "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { person { id"
           + " name } errors } }";
   private static final String MEETING_FIELDS =
-      "id room { id name capacity } organiser { id name } attendees { id name } subject startTime"
-          + " endTime";
+      "id room { id name capacity } organiser { id name } attendees { person { id name } status }"
+          + " subject startTime endTime";
 
   private static GraphQlClient client;
   private static Faker faker;
@@ -88,7 +88,11 @@ class CreateMeetingAcceptanceIT {
     LOG.info("Created meeting with id '{}'", meetingId);
     assertThat(createdMeeting.get("room").get("id").asText(), equalTo(roomId));
     assertThat(createdMeeting.get("organiser").get("id").asText(), equalTo(organiserId));
-    assertThat(createdMeeting.get("attendees").get(0).get("id").asText(), equalTo(attendeeId));
+    assertThat(
+        createdMeeting.get("attendees").get(0).get("person").get("id").asText(),
+        equalTo(attendeeId));
+    assertThat(
+        createdMeeting.get("attendees").get(0).get("status").asText(), equalTo("NoResponse"));
     assertThat(createdMeeting.get("subject").asText(), equalTo(subject));
     assertThat(createdMeeting.get("startTime").asText(), equalTo(startTime));
     assertThat(createdMeeting.get("endTime").asText(), equalTo(endTime));
@@ -112,7 +116,9 @@ class CreateMeetingAcceptanceIT {
     assertThat(meetings.get(0).get("id").asText(), equalTo(meetingId));
     assertThat(meetings.get(0).get("room").get("id").asText(), equalTo(roomId));
     assertThat(meetings.get(0).get("organiser").get("id").asText(), equalTo(organiserId));
-    assertThat(meetings.get(0).get("attendees").get(0).get("id").asText(), equalTo(attendeeId));
+    assertThat(
+        meetings.get(0).get("attendees").get(0).get("person").get("id").asText(),
+        equalTo(attendeeId));
     LOG.info("Meeting for room '{}' was successfully returned by the meetings query", roomName);
   }
 }
