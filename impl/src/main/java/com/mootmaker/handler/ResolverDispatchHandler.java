@@ -54,6 +54,7 @@ public class ResolverDispatchHandler implements RequestHandler<Map<String, Objec
             Map.entry("Mutation.updateMyPreferences", new UpdateMyPreferencesHandler()),
             Map.entry("Mutation.createMeeting", new CreateMeetingHandler()),
             Map.entry("Mutation.createMeetings", new CreateMeetingsHandler()),
+            Map.entry("Mutation.respondToMeeting", new RespondToMeetingHandler()),
             Map.entry("Mutation.deleteMyAccount", new DeleteMyAccountHandler())));
   }
 

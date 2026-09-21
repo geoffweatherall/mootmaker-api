@@ -8,6 +8,7 @@ import com.mootmaker.cognito.CognitoIdentityProviderClientProvider;
 import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.PersonRepository;
+import com.mootmaker.model.AttendeeStatus;
 import com.mootmaker.model.Day;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
@@ -193,15 +194,27 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
         && (meeting.organiserId().equals(personId) || meeting.attendeeIds().contains(personId));
   }
 
+  /**
+   * Removes {@code personId} from {@code attendeeIds}, and the same index from the parallel {@code
+   * attendeeStatuses} - the two lists must stay in step (see {@code MeetingRecord}'s compact
+   * constructor), so this is the one place besides {@code RespondToMeetingHandler} that has to
+   * think about both together rather than just the ids.
+   */
   private static MeetingRecord withoutAttendee(final MeetingRecord meeting, final String personId) {
-    if (!meeting.attendeeIds().contains(personId)) {
+    final int index = meeting.attendeeIds().indexOf(personId);
+    if (index < 0) {
       return meeting;
     }
+    final List<String> ids = new ArrayList<>(meeting.attendeeIds());
+    final List<AttendeeStatus> statuses = new ArrayList<>(meeting.attendeeStatuses());
+    ids.remove(index);
+    statuses.remove(index);
     return new MeetingRecord(
         meeting.id(),
         meeting.roomId(),
         meeting.organiserId(),
-        meeting.attendeeIds().stream().filter(id -> !id.equals(personId)).toList(),
+        ids,
+        statuses,
         meeting.subject(),
         meeting.startTime(),
         meeting.endTime());

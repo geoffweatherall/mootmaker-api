@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import module java.base;
 
+import com.mootmaker.model.AttendeeStatus;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
 import com.mootmaker.testsupport.DayFixtures;
@@ -94,7 +95,14 @@ class DeleteMyAccountHandlerTest {
     putMeetingAndParticipants(
         dynamoDbClient,
         new MeetingRecord(
-            "meeting-1", "room-1", "person-a", List.of("person-b"), "Standup", FUTURE, FUTURE_END));
+            "meeting-1",
+            "room-1",
+            "person-a",
+            List.of("person-b"),
+            List.of(AttendeeStatus.NoResponse),
+            "Standup",
+            FUTURE,
+            FUTURE_END));
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
     final DeleteMyAccountHandler handler =
         new DeleteMyAccountHandler(
@@ -121,6 +129,7 @@ class DeleteMyAccountHandlerTest {
             "room-1",
             "person-b",
             List.of("person-a", "person-c"),
+            List.of(AttendeeStatus.NoResponse, AttendeeStatus.NoResponse),
             "Planning",
             FUTURE,
             FUTURE_END));
@@ -152,7 +161,14 @@ class DeleteMyAccountHandlerTest {
     putMeetingAndParticipants(
         dynamoDbClient,
         new MeetingRecord(
-            "meeting-3", "room-1", "person-a", List.of("person-b"), "Old standup", PAST, PAST_END));
+            "meeting-3",
+            "room-1",
+            "person-a",
+            List.of("person-b"),
+            List.of(AttendeeStatus.NoResponse),
+            "Old standup",
+            PAST,
+            PAST_END));
     putMeetingAndParticipants(
         dynamoDbClient,
         new MeetingRecord(
@@ -160,6 +176,7 @@ class DeleteMyAccountHandlerTest {
             "room-1",
             "person-b",
             List.of("person-a"),
+            List.of(AttendeeStatus.NoResponse),
             "Old planning",
             PAST,
             PAST_END));

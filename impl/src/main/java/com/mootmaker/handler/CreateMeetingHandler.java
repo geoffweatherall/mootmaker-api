@@ -10,6 +10,7 @@ import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.IdAllocator;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.dynamo.RoomRepository;
+import com.mootmaker.model.Attendee;
 import com.mootmaker.model.Boundaries;
 import com.mootmaker.model.Meeting;
 import com.mootmaker.model.MeetingError;
@@ -159,6 +160,11 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
                     validated.roomId(),
                     validated.organiserId(),
                     validated.attendeeIds(),
+                    // NoResponse for every attendee, unless MeetingInput.attendeeStatuses supplied
+                    // a same-length override (see MeetingValidator) - the organiser is never in
+                    // this list at all (OrganiserIsAttendee already rejects that), so their
+                    // implicit Going status has no slot here and is never stored.
+                    validated.attendeeStatuses(),
                     validated.subject(),
                     validated.startTime().format(MeetingRecord.DATE_TIME_FORMAT),
                     validated.endTime().format(MeetingRecord.DATE_TIME_FORMAT));
@@ -179,7 +185,13 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
         record.id(),
         validated.room(),
         validated.organiser(),
-        validated.attendees(),
+        // validated.attendees() and record.attendeeStatuses() are the same length and order as
+        // validated.attendeeIds() by construction (see MeetingValidator and the field above), so
+        // zipping by index is safe.
+        IntStream.range(0, validated.attendees().size())
+            .mapToObj(
+                i -> new Attendee(validated.attendees().get(i), record.attendeeStatuses().get(i)))
+            .toList(),
         record.subject(),
         record.startTime(),
         record.endTime());

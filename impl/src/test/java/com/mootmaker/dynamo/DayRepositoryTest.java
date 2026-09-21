@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import module java.base;
 
 import com.mootmaker.limits.Limits;
+import com.mootmaker.model.AttendeeStatus;
 import com.mootmaker.model.Day;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.testsupport.FakeDynamoDbClient;
@@ -36,6 +37,7 @@ class DayRepositoryTest {
         "room-1",
         "person-1",
         List.of("person-2"),
+        List.of(AttendeeStatus.NoResponse),
         subject,
         DATE + "T09:00:00",
         DATE + "T09:30:00");
@@ -223,6 +225,7 @@ class DayRepositoryTest {
                           "room-1",
                           "person-1",
                           List.of(),
+                          List.of(),
                           "Elsewhere",
                           otherDate + "T09:00:00",
                           otherDate + "T09:30:00"))));
@@ -261,13 +264,15 @@ class DayRepositoryTest {
           IntStream.range(0, Limits.MAX_ATTENDEES_PER_MEETING)
               .mapToObj(DayRepositoryTest::shortId)
               .toList();
+      final List<AttendeeStatus> statuses =
+          Collections.nCopies(attendees.size(), AttendeeStatus.NoResponse);
       // Past the day limit on purpose: layer 2 would have stopped this, so reaching layer 3
       // means the model drifted - which is the case this exists to survive. Comfortably more
       // than Limits.MAX_MEETINGS_PER_DAY: compaction raised the real ceiling to 660 (see
-      // LimitsTest's worstCaseMeetingBytes), and this measures REAL bytes via ItemSizer rather
-      // than the modelled worst case - which is smaller here, since the model reserves headroom
-      // for the not-yet-built attendee-status field that this test's meetings don't carry - so
-      // the number needs comfortable margin above the model's own ceiling, not just past it.
+      // LimitsTest's worstCaseMeetingBytes), and this measures REAL bytes via ItemSizer against
+      // the modelled worst case, now that attendeeStatuses is a real field rather than reserved
+      // headroom - so the margin no longer has to cover that gap, but 1,000 stays comfortably
+      // past the cap regardless.
       final List<MeetingRecord> tooMany =
           IntStream.range(0, 1_000)
               .mapToObj(
@@ -277,6 +282,7 @@ class DayRepositoryTest {
                           shortId(i + 1_000_000),
                           shortId(i + 2_000_000),
                           attendees,
+                          statuses,
                           maxSubject,
                           DATE + "T09:00:00",
                           DATE + "T09:30:00"))
@@ -301,6 +307,8 @@ class DayRepositoryTest {
           IntStream.range(0, Limits.MAX_ATTENDEES_PER_MEETING)
               .mapToObj(DayRepositoryTest::shortId)
               .toList();
+      final List<AttendeeStatus> statuses =
+          Collections.nCopies(attendees.size(), AttendeeStatus.NoResponse);
       final List<MeetingRecord> full =
           IntStream.range(0, Limits.MAX_MEETINGS_PER_DAY)
               .mapToObj(
@@ -310,6 +318,7 @@ class DayRepositoryTest {
                           shortId(i + 1_000_000),
                           shortId(i + 2_000_000),
                           attendees,
+                          statuses,
                           maxSubject,
                           DATE + "T09:00:00",
                           DATE + "T09:30:00"))
@@ -337,6 +346,7 @@ class DayRepositoryTest {
                           "m-2",
                           "room-1",
                           "person-1",
+                          List.of(),
                           List.of(),
                           "Other day",
                           "2026-09-15T09:00:00",

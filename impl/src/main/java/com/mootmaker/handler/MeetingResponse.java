@@ -2,6 +2,7 @@ package com.mootmaker.handler;
 
 import module java.base;
 
+import com.mootmaker.model.AttendeeStatus;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
 import com.mootmaker.model.Room;
@@ -40,12 +41,32 @@ final class MeetingResponse {
         peopleResolved
             ? resolvePerson(record.organiserId(), peopleById)
             : idOnly(record.organiserId()));
-    map.put(
-        "attendees",
-        record.attendeeIds().stream()
-            .map(id -> peopleResolved ? resolvePerson(id, peopleById) : idOnly(id))
-            .toList());
+    map.put("attendees", attendees(record, peopleById, peopleResolved));
     return map;
+  }
+
+  /**
+   * Zips {@code attendeeIds} with the parallel {@code attendeeStatuses} by index - same length and
+   * order by construction (see {@code MeetingRecord}'s compact constructor) - into the {@code
+   * Attendee} shape the schema exposes. {@code status} is free: it lives on the record already, no
+   * lookup needed, unlike {@code person} which follows the same resolved-or-id-only choice as
+   * {@code organiser} above.
+   */
+  private static List<Map<String, Object>> attendees(
+      final MeetingRecord record,
+      final Map<String, Person> peopleById,
+      final boolean peopleResolved) {
+    final List<String> ids = record.attendeeIds();
+    final List<AttendeeStatus> statuses = record.attendeeStatuses();
+    final List<Map<String, Object>> result = new ArrayList<>(ids.size());
+    for (int i = 0; i < ids.size(); i++) {
+      final Map<String, Object> attendee = new HashMap<>();
+      attendee.put(
+          "person", peopleResolved ? resolvePerson(ids.get(i), peopleById) : idOnly(ids.get(i)));
+      attendee.put("status", statuses.get(i).name());
+      result.add(attendee);
+    }
+    return result;
   }
 
   private static Map<String, Object> idOnly(final String id) {

@@ -8,6 +8,7 @@ import module java.base;
 
 import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.limits.Limits;
+import com.mootmaker.model.AttendeeStatus;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.testsupport.DayFixtures;
 import com.mootmaker.testsupport.FakeDynamoDbClient;
@@ -49,6 +50,7 @@ class HistoryCleanupHandlerTest {
               "room-1",
               "person-1",
               List.of("person-2"),
+              List.of(AttendeeStatus.NoResponse),
               "Seeded",
               date + "T09:00:00",
               date + "T09:30:00"));

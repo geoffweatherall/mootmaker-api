@@ -18,9 +18,29 @@ public record MeetingRecord(
     String roomId,
     String organiserId,
     List<String> attendeeIds,
+    List<AttendeeStatus> attendeeStatuses,
     String subject,
     String startTime,
     String endTime) {
+
+  /**
+   * Enforces the invariant every write in this class relies on: {@code attendeeStatuses} is a
+   * sibling list to {@code attendeeIds}, same length and order, index {@code i} of one corresponds
+   * to index {@code i} of the other - never a separate per-index update anywhere in this model, so
+   * the two cannot drift apart between writes (see designs/attendee-response-status.md's
+   * "Trade-offs and decisions"). Failing loudly here, at construction, is what stops a mismatched
+   * pair being written at all rather than being discovered on read.
+   */
+  public MeetingRecord {
+    if (attendeeStatuses.size() != attendeeIds.size()) {
+      throw new IllegalArgumentException(
+          "attendeeStatuses must be the same length as attendeeIds: "
+              + attendeeIds.size()
+              + " attendee(s), "
+              + attendeeStatuses.size()
+              + " status(es)");
+    }
+  }
 
   /**
    * Canonical, always-19-character format startTime/endTime are stored in, e.g.
@@ -57,6 +77,19 @@ public record MeetingRecord(
                     .map(attendeeId -> AttributeValue.builder().s(attendeeId).build())
                     .toList())
             .build());
+    // A parallel List<S> of single-character codes, exactly like attendeeIds above, matching the
+    // "1 byte code (+1 overhead = 2)" per-attendee budget designs/archive/dynamodb-storage-
+    // compaction.md reserved for this field. Same length and order as attendeeIds by construction
+    // (the compact constructor enforces it), so index i of one always corresponds to index i of
+    // the other.
+    fields.put(
+        "attendeeStatuses",
+        AttributeValue.builder()
+            .l(
+                attendeeStatuses.stream()
+                    .map(status -> AttributeValue.builder().s(status.code()).build())
+                    .toList())
+            .build());
     fields.put("subject", AttributeValue.builder().s(subject).build());
     fields.put(
         "startTime", AttributeValue.builder().n(String.valueOf(toEpochMinutes(startTime))).build());
@@ -72,6 +105,15 @@ public record MeetingRecord(
         fields.get("roomId").s(),
         fields.get("organiserId").s(),
         fields.get("attendeeIds").l().stream().map(AttributeValue::s).toList(),
+        // Required, not defaulted for a missing attribute - per designs/attendee-response-
+        // status.md's "Rollout & migration", test/production are reset and reseeded under the new
+        // shape rather than tolerating old-shape data, so every stored day item has this by the
+        // time this ships. A missing value here means that decision was not actually carried out,
+        // and failing loudly beats silently inventing statuses nobody set.
+        fields.get("attendeeStatuses").l().stream()
+            .map(AttributeValue::s)
+            .map(AttendeeStatus::fromCode)
+            .toList(),
         fields.get("subject").s(),
         fromEpochMinutes(Long.parseLong(fields.get("startTime").n())),
         fromEpochMinutes(Long.parseLong(fields.get("endTime").n())));

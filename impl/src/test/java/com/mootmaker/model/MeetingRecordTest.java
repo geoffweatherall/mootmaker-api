@@ -3,6 +3,7 @@ package com.mootmaker.model;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import module java.base;
 
@@ -20,7 +21,14 @@ class MeetingRecordTest {
 
   private static MeetingRecord meeting(final String startTime, final String endTime) {
     return new MeetingRecord(
-        "m-1", "room-1", "person-1", List.of("person-2"), "Standup", startTime, endTime);
+        "m-1",
+        "room-1",
+        "person-1",
+        List.of("person-2"),
+        List.of(AttendeeStatus.Maybe),
+        "Standup",
+        startTime,
+        endTime);
   }
 
   @Test
@@ -62,5 +70,48 @@ class MeetingRecordTest {
     assertEquals("2026-09-14", original.date());
     assertEquals(
         "2026-09-14", MeetingRecord.fromAttributeValue(original.toAttributeValue()).date());
+  }
+
+  @Test
+  @DisplayName("attendeeStatuses is stored as single-character codes and round-trips every value")
+  void attendeeStatusesRoundTripsEveryCode() {
+    final MeetingRecord original =
+        new MeetingRecord(
+            "m-1",
+            "room-1",
+            "person-1",
+            List.of("p2", "p3", "p4", "p5"),
+            List.of(
+                AttendeeStatus.Going,
+                AttendeeStatus.NotGoing,
+                AttendeeStatus.Maybe,
+                AttendeeStatus.NoResponse),
+            "Standup",
+            "2026-09-14T09:00:00",
+            "2026-09-14T09:30:00");
+
+    final Map<String, AttributeValue> fields = original.toAttributeValue().m();
+    assertEquals(
+        List.of("G", "N", "M", "U"),
+        fields.get("attendeeStatuses").l().stream().map(AttributeValue::s).toList());
+
+    assertEquals(original, MeetingRecord.fromAttributeValue(original.toAttributeValue()));
+  }
+
+  @Test
+  @DisplayName("attendeeStatuses must be the same length as attendeeIds")
+  void rejectsAMismatchedAttendeeStatusesLength() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new MeetingRecord(
+                "m-1",
+                "room-1",
+                "person-1",
+                List.of("p2", "p3"),
+                List.of(AttendeeStatus.Going),
+                "Standup",
+                "2026-09-14T09:00:00",
+                "2026-09-14T09:30:00"));
   }
 }
