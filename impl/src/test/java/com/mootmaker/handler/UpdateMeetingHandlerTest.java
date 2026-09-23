@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import module java.base;
 
 import com.mootmaker.dynamo.DayRepository;
+import com.mootmaker.model.AttendeeStatus;
 import com.mootmaker.model.MeetingError;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
@@ -38,7 +39,9 @@ class UpdateMeetingHandlerTest {
             List.of(
                 new Person("organiser-1", "Ada Lovelace", "organiser-sub").toItem(),
                 new Person("admin-1", "Grace Hopper", "admin-sub").toItem(),
-                new Person("stranger-1", "Alan Turing", "stranger-sub").toItem())));
+                new Person("stranger-1", "Alan Turing", "stranger-sub").toItem(),
+                new Person("attendee-1", "Katherine Johnson", "attendee-1-sub").toItem(),
+                new Person("attendee-2", "Margaret Hamilton", "attendee-2-sub").toItem())));
   }
 
   private static MeetingRecord existingMeeting(
@@ -199,5 +202,74 @@ class UpdateMeetingHandlerTest {
     assertEquals(1, days.read("2026-09-25").meetings().size());
     assertEquals("m-1", days.read("2026-09-25").meetings().getFirst().id());
     assertEquals(Optional.of("2026-09-25"), days.findDateOfMeeting("m-1"));
+  }
+
+  @Test
+  @DisplayName(
+      "an edit that changes only the time preserves every continuing attendee's existing "
+          + "response - the webapp never sends attendeeStatuses, so this must not reset "
+          + "everyone to NoResponse on every save")
+  void editingTheTimeAloneDoesNotResetAttendeeResponses() {
+    final MeetingRecord existing =
+        new MeetingRecord(
+            "m-1",
+            "room-a",
+            "organiser-1",
+            List.of("attendee-1", "attendee-2"),
+            List.of(AttendeeStatus.Going, AttendeeStatus.Maybe),
+            "Standup",
+            "2026-09-24T10:00:00",
+            "2026-09-24T11:00:00");
+    DayFixtures.seed(fakeClient, "Meetings", DayFixtures.DEFAULT_EARLIEST_RETAINED_DATE, existing);
+
+    final Map<String, Object> input =
+        meetingInput("room-a", "2026-09-24T10:30:00", "2026-09-24T11:30:00");
+    input.put("attendeeIds", List.of("attendee-1", "attendee-2"));
+
+    final Map<String, Object> result =
+        invoke(updateArguments("m-1", input, "organiser-sub", "standard"));
+
+    @SuppressWarnings("unchecked")
+    final List<String> errors = (List<String>) result.get("errors");
+    assertTrue(errors.isEmpty(), "errors: " + errors);
+
+    final DayRepository days = new DayRepository(fakeClient, "Meetings");
+    final MeetingRecord saved = days.read("2026-09-24").meetings().getFirst();
+    assertEquals(List.of("attendee-1", "attendee-2"), saved.attendeeIds());
+    assertEquals(List.of(AttendeeStatus.Going, AttendeeStatus.Maybe), saved.attendeeStatuses());
+  }
+
+  @Test
+  @DisplayName(
+      "a newly added attendee starts at NoResponse; a removed attendee's response is simply gone")
+  void newlyAddedAttendeeStartsAtNoResponse() {
+    final MeetingRecord existing =
+        new MeetingRecord(
+            "m-1",
+            "room-a",
+            "organiser-1",
+            List.of("attendee-1"),
+            List.of(AttendeeStatus.Going),
+            "Standup",
+            "2026-09-24T10:00:00",
+            "2026-09-24T11:00:00");
+    DayFixtures.seed(fakeClient, "Meetings", DayFixtures.DEFAULT_EARLIEST_RETAINED_DATE, existing);
+
+    // attendee-1 (Going) removed, attendee-2 (new) added.
+    final Map<String, Object> input =
+        meetingInput("room-a", "2026-09-24T10:00:00", "2026-09-24T11:00:00");
+    input.put("attendeeIds", List.of("attendee-2"));
+
+    final Map<String, Object> result =
+        invoke(updateArguments("m-1", input, "organiser-sub", "standard"));
+
+    @SuppressWarnings("unchecked")
+    final List<String> errors = (List<String>) result.get("errors");
+    assertTrue(errors.isEmpty(), "errors: " + errors);
+
+    final DayRepository days = new DayRepository(fakeClient, "Meetings");
+    final MeetingRecord saved = days.read("2026-09-24").meetings().getFirst();
+    assertEquals(List.of("attendee-2"), saved.attendeeIds());
+    assertEquals(List.of(AttendeeStatus.NoResponse), saved.attendeeStatuses());
   }
 }

@@ -10,6 +10,7 @@ import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.dynamo.RoomRepository;
 import com.mootmaker.model.Attendee;
+import com.mootmaker.model.AttendeeStatus;
 import com.mootmaker.model.Day;
 import com.mootmaker.model.Meeting;
 import com.mootmaker.model.MeetingError;
@@ -157,7 +158,7 @@ public class UpdateMeetingHandler implements RequestHandler<Map<String, Object>,
             validated.roomId(),
             validated.organiserId(),
             validated.attendeeIds(),
-            validated.attendeeStatuses(),
+            preservedAttendeeStatuses(existing.get(), validated.attendeeIds()),
             validated.subject(),
             validated.startTime().format(MeetingRecord.DATE_TIME_FORMAT),
             validated.endTime().format(MeetingRecord.DATE_TIME_FORMAT));
@@ -217,6 +218,30 @@ public class UpdateMeetingHandler implements RequestHandler<Map<String, Object>,
     result.put("day", dayResponse(record.startTime().substring(0, 10)));
     result.put("errors", List.of());
     return result;
+  }
+
+  /**
+   * An attendee who remains on the meeting keeps their existing response; only a newly added
+   * attendee starts at {@code NoResponse}. Without this, every edit would silently reset every
+   * attendee's RSVP - the webapp's {@code UPDATE_MEETING} call never sends {@code
+   * MeetingInput.attendeeStatuses} (that override exists only for {@code mootmaker-demo-data}, see
+   * {@code MeetingValidator}'s own doc comment), so {@link MeetingValidator.Validated#
+   * attendeeStatuses()} would otherwise default every one of them to {@code NoResponse} on every
+   * single update, including one that only changed the subject or time. Order matches {@code
+   * newAttendeeIds} exactly, the same index-parity convention {@code MeetingRecord} and this
+   * handler's own {@link #updated} already rely on.
+   */
+  private static List<AttendeeStatus> preservedAttendeeStatuses(
+      final MeetingRecord existing, final List<String> newAttendeeIds) {
+    final Map<String, AttendeeStatus> previousStatusByAttendeeId = new HashMap<>();
+    final List<String> oldAttendeeIds = existing.attendeeIds();
+    final List<AttendeeStatus> oldStatuses = existing.attendeeStatuses();
+    for (int i = 0; i < oldAttendeeIds.size(); i++) {
+      previousStatusByAttendeeId.put(oldAttendeeIds.get(i), oldStatuses.get(i));
+    }
+    return newAttendeeIds.stream()
+        .map(id -> previousStatusByAttendeeId.getOrDefault(id, AttendeeStatus.NoResponse))
+        .toList();
   }
 
   private static Map<String, Object> rejected(final List<String> errors) {
