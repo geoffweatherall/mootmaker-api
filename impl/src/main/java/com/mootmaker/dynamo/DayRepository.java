@@ -17,6 +17,7 @@ import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
+import software.amazon.awssdk.services.dynamodb.model.Update;
 
 /**
  * The only code that writes a day item.
@@ -138,6 +139,102 @@ public final class DayRepository {
    * @throws IllegalStateException if the write still conflicts after {@link #MAX_WRITE_ATTEMPTS}
    */
   public Day mutate(final String date, final UnaryOperator<Day> change) {
+    return mutateInternal(date, change, this::pointerDiffItems);
+  }
+
+  /**
+   * Moves one meeting from {@code fromDate}'s day to {@code toDate}'s day, with {@code newRecord}
+   * (which must carry the same id) as its content on the new day. Needed because a single day's
+   * pointer write ({@link #pointerPut}) is conditional on the pointer NOT already existing -
+   * collision safety for a freshly allocated id, but it means re-adding an *existing* id to a
+   * different day via the ordinary {@link #mutate}/pointer-diff path would collide with that same
+   * id's own still-live pointer at the old date, identically on every retry. {@link #mutate} has no
+   * way to repoint an existing pointer, only create or delete one.
+   *
+   * <p>Two separately committed writes, not one transaction spanning both days:
+   *
+   * <ol>
+   *   <li>Add {@code newRecord} to {@code toDate}'s day, in the same transaction as an {@code
+   *       Update} (not a fresh {@code Put}) on the pointer item - {@code SET date = :toDate}
+   *       conditional on the pointer's CURRENT value still being {@code :fromDate}, so two
+   *       concurrent moves of the same meeting cannot both "win".
+   *   <li>Remove the record from {@code fromDate}'s day - a write that touches NO pointer at all
+   *       (it was already repointed in step 1), unlike an ordinary loss through {@link #mutate},
+   *       which always deletes a lost id's pointer as part of its normal diff.
+   * </ol>
+   *
+   * <p>Deliberately add-then-remove: a failure (thrown exception, Lambda timeout, the process
+   * dying) between the two steps leaves the meeting visible on BOTH days - an overcount, harmless,
+   * safe for a retry to finish cleaning up - never gone from both, which nothing could recover.
+   *
+   * <p><b>Idempotent by construction.</b> Starts by reading the pointer itself: already at {@code
+   * toDate} means step 1 already committed (this call is a retry of one whose first write actually
+   * succeeded) and only step 2 runs; still at {@code fromDate} means neither step has run and both
+   * do.
+   *
+   * @return {@code newRecord}, unchanged - returned for symmetry with {@link #mutate}'s own return
+   * @throws IllegalStateException if the pointer is at neither date (moved or deleted by someone
+   *     else entirely - callers should treat this the same as MeetingNotFound), or if either write
+   *     still conflicts after {@link #MAX_WRITE_ATTEMPTS}
+   */
+  public MeetingRecord moveMeeting(
+      final String meetingId,
+      final String fromDate,
+      final String toDate,
+      final MeetingRecord newRecord) {
+    final String currentPointerDate =
+        findDateOfMeeting(meetingId)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Cannot move meeting " + meetingId + " - no pointer exists for it."));
+
+    if (currentPointerDate.equals(fromDate)) {
+      mutateInternal(
+          toDate,
+          day ->
+              day.withMeetings(
+                  Stream.concat(day.meetings().stream(), Stream.of(newRecord)).toList()),
+          (current, next) ->
+              List.of(
+                  TransactWriteItem.builder()
+                      .update(pointerRepoint(meetingId, fromDate, toDate))
+                      .build()));
+    } else if (!currentPointerDate.equals(toDate)) {
+      throw new IllegalStateException(
+          "Cannot move meeting "
+              + meetingId
+              + " from "
+              + fromDate
+              + " to "
+              + toDate
+              + " - its pointer is actually at "
+              + currentPointerDate
+              + ".");
+    }
+    // else: pointer already at toDate - step 1 committed on a previous call; resume at step 2.
+
+    mutateInternal(
+        fromDate,
+        day ->
+            day.withMeetings(
+                day.meetings().stream().filter(m -> !m.id().equals(meetingId)).toList()),
+        (current, next) -> List.of());
+
+    return newRecord;
+  }
+
+  /**
+   * The read/modify/write retry loop {@link #mutate} and {@link #moveMeeting} share, parameterised
+   * over how each write's extra transaction items (beyond the day item itself) are built from the
+   * before/after state - {@link #mutate} always diffs and manages pointers automatically via {@link
+   * #pointerDiffItems}; {@link #moveMeeting} needs to manage the one pointer it moves by hand,
+   * exactly once, not have it diffed like an ordinary gain or loss.
+   */
+  private Day mutateInternal(
+      final String date,
+      final UnaryOperator<Day> change,
+      final BiFunction<Day, Day, List<TransactWriteItem>> extraItems) {
     for (int attempt = 1; attempt <= MAX_WRITE_ATTEMPTS; attempt++) {
       final Day current = read(date);
       final Day changed = change.apply(current);
@@ -149,11 +246,13 @@ public final class DayRepository {
         throw new DayItemTooLargeException(date, bytes, Limits.DYNAMODB_MAX_ITEM_BYTES);
       }
 
+      final List<TransactWriteItem> items = new ArrayList<>();
+      items.add(TransactWriteItem.builder().put(dayPut(current, item)).build());
+      items.addAll(extraItems.apply(current, next));
+
       try {
         dynamoDbClient.transactWriteItems(
-            TransactWriteItemsRequest.builder()
-                .transactItems(writeItems(current, next, item))
-                .build());
+            TransactWriteItemsRequest.builder().transactItems(items).build());
         return next;
       } catch (final ConditionalCheckFailedException | TransactionCanceledException e) {
         if (attempt == MAX_WRITE_ATTEMPTS) {
@@ -171,16 +270,13 @@ public final class DayRepository {
   }
 
   /**
-   * The day item plus one pointer write per meeting gained and one delete per meeting lost, in a
-   * single transaction - so a pointer can never outlive the day that explains it, nor arrive before
-   * it. That atomicity is why {@code MAX_MEETINGS_PER_BULK_CREATE} exists: DynamoDB caps a
-   * transaction at 100 items, and one day plus 99 pointers is exactly that.
+   * The ordinary pointer create/delete diff {@link #mutate} has always done - one PUT per meeting
+   * id gained, one DELETE per meeting id lost - extracted unchanged so {@link #mutateInternal} can
+   * share its retry/size-check shape with {@link #moveMeeting}, which supplies its own pointer
+   * handling instead of this.
    */
-  private List<TransactWriteItem> writeItems(
-      final Day current, final Day next, final Map<String, AttributeValue> item) {
+  private List<TransactWriteItem> pointerDiffItems(final Day current, final Day next) {
     final List<TransactWriteItem> items = new ArrayList<>();
-    items.add(TransactWriteItem.builder().put(dayPut(current, item)).build());
-
     final Set<String> before =
         current.meetings().stream().map(MeetingRecord::id).collect(Collectors.toSet());
     final Set<String> after =
@@ -236,6 +332,28 @@ public final class DayRepository {
     return Delete.builder()
         .tableName(tableName)
         .key(Map.of("pk", AttributeValue.builder().s(POINTER_PK_PREFIX + meetingId).build()))
+        .build();
+  }
+
+  /**
+   * Repoints an EXISTING pointer from {@code fromDate} to {@code toDate}, conditional on it
+   * currently holding {@code fromDate} - so two concurrent moves of the same meeting cannot both
+   * "win" and leave the pointer pointing somewhere neither caller intended. Used only by {@link
+   * #moveMeeting}; every other pointer write is a create ({@link #pointerPut}) or a delete ({@link
+   * #pointerDelete}), never a repoint.
+   */
+  private Update pointerRepoint(
+      final String meetingId, final String fromDate, final String toDate) {
+    return Update.builder()
+        .tableName(tableName)
+        .key(Map.of("pk", AttributeValue.builder().s(POINTER_PK_PREFIX + meetingId).build()))
+        .updateExpression("SET #d = :toDate")
+        .conditionExpression("#d = :fromDate")
+        .expressionAttributeNames(Map.of("#d", "date"))
+        .expressionAttributeValues(
+            Map.of(
+                ":toDate", AttributeValue.builder().s(toDate).build(),
+                ":fromDate", AttributeValue.builder().s(fromDate).build()))
         .build();
   }
 

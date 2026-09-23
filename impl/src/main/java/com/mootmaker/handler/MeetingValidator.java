@@ -75,17 +75,39 @@ final class MeetingValidator {
     }
   }
 
-  /** The rules that depend on what the day already holds. */
+  /**
+   * The rules that depend on what the day already holds.
+   *
+   * <p>{@code excludingMeetingId} is {@code null} for {@code createMeeting}/{@code createMeetings},
+   * where there is no self to exclude. {@code updateMeeting} passes the id of the meeting being
+   * edited, so neither its own current room-slot nor its own place in the day's count is held
+   * against it - editing a meeting's time within its own room (even to a range that overlaps its
+   * own prior slot) must not spuriously fail as a self-conflict, and editing on a day already at
+   * {@link Limits#MAX_MEETINGS_PER_DAY} must not spuriously fail as full, since an edit never
+   * changes how many meetings the day holds.
+   */
   static List<String> dayStateErrors(
-      final List<MeetingRecord> meetingsThatDay, final Validated validated) {
+      final List<MeetingRecord> meetingsThatDay,
+      final Validated validated,
+      final String excludingMeetingId) {
     final List<String> errors = new ArrayList<>();
-    if (meetingsThatDay.size() >= Limits.MAX_MEETINGS_PER_DAY) {
+    final long countTowardDayCap =
+        excludingMeetingId == null
+            ? meetingsThatDay.size()
+            : meetingsThatDay.stream().filter(m -> !m.id().equals(excludingMeetingId)).count();
+    if (countTowardDayCap >= Limits.MAX_MEETINGS_PER_DAY) {
       errors.add(MeetingError.DayIsFull.name());
     }
+    // isFreeIgnoring(..., null) behaves exactly like isFree - a null id never matches any
+    // meeting's own id, so nothing is excluded on create.
     if (validated.roomId() != null
         && !validated.roomId().isBlank()
-        && !RoomAvailability.isFree(
-            meetingsThatDay, validated.roomId(), validated.startTime(), validated.endTime())) {
+        && !RoomAvailability.isFreeIgnoring(
+            meetingsThatDay,
+            validated.roomId(),
+            validated.startTime(),
+            validated.endTime(),
+            excludingMeetingId)) {
       errors.add(MeetingError.TimeRangeUnavailable.name());
     }
     return errors;
