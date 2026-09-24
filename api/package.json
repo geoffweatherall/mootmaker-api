@@ -1,6 +1,6 @@
 {
   "name": "@mootmaker/schema",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "The mootmaker GraphQL schema — the single source of truth for the API contract.",
   "license": "MIT",
   "repository": {
