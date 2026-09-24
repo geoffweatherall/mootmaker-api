@@ -2,7 +2,7 @@
 #
 # This exists because principles.md requires the bill to stay flat under steady usage, and meetings
 # were the one thing that grew with time rather than with use. See
-# ../../../mootmaker/designs/graphql-schema-and-caching.md's "Retention" section for why this is an
+# ../../../mootmaker/designs/archive/graphql-schema-and-caching.md's "Retention" section for why this is an
 # explicit job rather than a DynamoDB TTL - the short version is that TTL bakes the policy into every
 # item, cannot delete a day and its pointers atomically, and does not even act as a read boundary,
 # since expired-but-not-yet-deleted items are still returned by reads.

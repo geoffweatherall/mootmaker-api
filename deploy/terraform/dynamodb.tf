@@ -32,7 +32,7 @@ resource "aws_dynamodb_table" "people" {
 }
 
 # One item per calendar date, holding that day's meetings as a list. See
-# ../../../mootmaker/designs/graphql-schema-and-caching.md.
+# ../../../mootmaker/designs/archive/graphql-schema-and-caching.md.
 #
 # Reading a day by primary key is what buys ConsistentRead, which removes the read-after-write class
 # of bug outright - the previous per-meeting items were queried through a GSI, and GSIs reject
