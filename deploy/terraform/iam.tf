@@ -43,6 +43,12 @@ data "aws_iam_policy_document" "lambda_dynamodb_access" {
       # (its own Lambda, with its own narrowly-scoped role) - see the README's "Reset and real user
       # accounts" section.
       "dynamodb:DeleteItem",
+      # DayRepository.moveMeeting repoints a meeting's PTR# item to its new date via an Update
+      # action inside a TransactWriteItems call, rather than a Delete+Put - IAM authorizes each
+      # item action within a transaction against its own underlying permission, so
+      # TransactWriteItems alone does not cover this; discovered when O.121's acceptance test hit
+      # a real AccessDeniedException doing exactly this.
+      "dynamodb:UpdateItem",
       # Metadata-only, no items read/written - used by DynamoDbClientProvider's SnapStart
       # afterRestore hook purely to re-establish the DynamoDB connection/credentials before the
       # first real request reaches the handler.
