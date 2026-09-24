@@ -52,6 +52,11 @@ public class SuggestRoomHandler implements RequestHandler<Map<String, Object>, O
     final LocalDateTime startTime = parseDateTime((String) arguments.get("startTime"));
     final LocalDateTime endTime = parseDateTime((String) arguments.get("endTime"));
     final Integer requiredCapacity = (Integer) arguments.get("requiredCapacity");
+    // Only ever sent while editing an existing meeting - excludes that one meeting's own current
+    // slot from every room's availability check below, so a room is never wrongly reported as
+    // unavailable purely because of the meeting's own prior time in it. Absent (null) on every
+    // create call, where isFreeIgnoring behaves exactly like the old isFree - see MeetingValidator.
+    final String excludingMeetingId = (String) arguments.get("excludingMeetingId");
 
     if (startTime == null
         || endTime == null
@@ -83,7 +88,8 @@ public class SuggestRoomHandler implements RequestHandler<Map<String, Object>, O
     return candidates.stream()
         .filter(
             candidate ->
-                RoomAvailability.isFree(meetingsThatDay, candidate.id(), startTime, endTime))
+                RoomAvailability.isFreeIgnoring(
+                    meetingsThatDay, candidate.id(), startTime, endTime, excludingMeetingId))
         .map(Room::toResponseMap)
         .toList();
   }

@@ -127,7 +127,7 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
     final List<String> errors = new ArrayList<>(validated.errors());
     if (validated.canInspectDay()) {
       errors.addAll(
-          MeetingValidator.dayStateErrors(days.read(validated.date()).meetings(), validated));
+          MeetingValidator.dayStateErrors(days.read(validated.date()).meetings(), validated, null));
     }
     if (!errors.isEmpty()) {
       throw new MeetingRejected(errors);
@@ -150,7 +150,7 @@ public class CreateMeetingHandler implements RequestHandler<Map<String, Object>,
             // mutate taking a function rather than a value: a booking that loses a version
             // conflict must answer "is the room still free" about the day as it NOW is.
             final List<String> conflicts =
-                MeetingValidator.dayStateErrors(day.meetings(), validated);
+                MeetingValidator.dayStateErrors(day.meetings(), validated, null);
             if (!conflicts.isEmpty()) {
               throw new MeetingRejected(conflicts);
             }

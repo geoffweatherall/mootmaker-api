@@ -219,7 +219,7 @@ public class CreateMeetingsHandler implements RequestHandler<Map<String, Object>
         // The call names one day; a meeting for another belongs in another call.
         errors.add(MeetingError.SpansMultipleDays.name());
       }
-      errors.addAll(MeetingValidator.dayStateErrors(soFar, validated));
+      errors.addAll(MeetingValidator.dayStateErrors(soFar, validated, null));
     }
     return errors;
   }

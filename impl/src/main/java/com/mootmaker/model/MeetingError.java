@@ -35,5 +35,7 @@ public enum MeetingError {
    * More meetings in one bulk create than a single DynamoDB transaction can carry with their
    * pointers.
    */
-  TooManyMeetingsInOneCall
+  TooManyMeetingsInOneCall,
+  /** updateMeeting/cancelMeeting only: id did not match any existing meeting. */
+  MeetingNotFound
 }

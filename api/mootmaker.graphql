@@ -21,8 +21,8 @@ type Query {
     "Everything a screen needs, in one invocation. Sub-fields that are not selected are not fetched: `workspace { days { ... } }` does no people or rooms lookup at all, and `days { meetings { room { id } } }` does none either, because the ids are already on the stored meeting. `dates` is optional - omitting it means no days are wanted, which is how a reference-data-only refresh asks for just rooms and people. At most 42 dates, which covers the calendar's whole span with a week to spare."
     workspace(dates: [String!]): Workspace!
 
-    "Finds every room with capacity >= requiredCapacity that has no meeting overlapping [startTime, endTime), ranked smallest surplus capacity first (rooms of equal capacity break ties by name, so the order is predictable). requiredCapacity is the full headcount (organiser + attendees) - the caller computes it, this does not look up organiser/attendee ids. A user action rather than screen state, so it stays a root field: it has its own arguments and is never part of a page's initial load. Best-effort: invalid or missing arguments return an empty list rather than a structured error list, since this only feeds a suggestion button, not the authoritative createMeeting validation."
-    suggestRoom(startTime: String!, endTime: String!, requiredCapacity: Int!): [Room!]!
+    "Finds every room with capacity >= requiredCapacity that has no meeting overlapping [startTime, endTime), ranked smallest surplus capacity first (rooms of equal capacity break ties by name, so the order is predictable). requiredCapacity is the full headcount (organiser + attendees) - the caller computes it, this does not look up organiser/attendee ids. A user action rather than screen state, so it stays a root field: it has its own arguments and is never part of a page's initial load. Best-effort: invalid or missing arguments return an empty list rather than a structured error list, since this only feeds a suggestion button, not the authoritative createMeeting validation. excludingMeetingId is optional and only ever sent while editing an existing meeting: it excludes that one meeting's own current slot from every room's availability check, so a room is never wrongly reported as unavailable purely because of the meeting's own prior time in it - the same self-exclusion updateMeeting itself applies."
+    suggestRoom(startTime: String!, endTime: String!, requiredCapacity: Int!, excludingMeetingId: ID): [Room!]!
 
     "The one lookup that is not a date range, and the reason an id -> date pointer is written alongside every meeting: it resolves in two reads rather than the full-table scan this used to need. Returns null for an id that never existed AND for one whose day has passed out of retention - deliberately the same answer, so callers handle one case, and so nothing confirms that a given id was once valid."
     meeting(id: ID!): Meeting
@@ -71,6 +71,10 @@ type Mutation {
  createMeeting(meeting: MeetingInput!): CreateMeetingResult!
  "Day-scoped bulk creation: one operation, one item write. At most 99 meetings per call, because the day item and one id -> date pointer per new meeting are written in a single transaction and DynamoDB caps that at 100 items."
  createMeetings(date: String!, meetings: [MeetingInput!]!): CreateMeetingsResult!
+ "Allowed for the meeting's organiser, or for anyone if the caller is admin - mirroring updatePerson's self-or-admin shape. Full field replacement, exactly like updateRoom/updatePerson: every field in MeetingInput is applied, including reassigning the organiser or attendees. Re-validated against the day as it now is, the same as createMeeting, with the meeting's own current slot excluded from its own room-availability and day-size checks so an edit never conflicts with itself. Re-publishes daysInvalidated on success."
+ updateMeeting(id: ID!, meeting: MeetingInput!): UpdateMeetingResult!
+ "Allowed for the meeting's organiser, or for anyone if the caller is admin. A hard delete - the meeting is removed from its day entirely, with no cancelled/tombstone state left behind. No restriction based on whether the meeting is in the past, in progress, or upcoming. Re-publishes daysInvalidated on success."
+ cancelMeeting(id: ID!): CancelMeetingResult!
  "Sets the signed-in caller's own date/time display preferences. Self-only - requires a linked Person, and there is no admin override, unlike updatePerson. Purely presentational: does not change the ISO-8601 format this API uses for every date/time it accepts and returns."
  updateMyPreferences(preferences: PreferencesInput!): UpdateMyPreferencesResult!
  "Deletes the signed-in caller's own account: cancels every upcoming meeting they organise, removes them from every upcoming meeting they only attend, deletes their linked Person, then deletes their Cognito user entirely. Past meetings are left untouched. Irreversible. Not available for reserved system accounts (e.g. the demo user), which reject with an error."
@@ -283,6 +287,22 @@ type CreateMeetingsResult {
     failures: [MeetingFailure!]!
 }
 
+type UpdateMeetingResult {
+    "Populated when the update passed all validation rules and was applied."
+    meeting: Meeting
+    "The affected day in full, after the write. See CreateMeetingResult."
+    day: Day
+    "Non-empty when the update was rejected; one entry per validation rule broken."
+    errors: [MeetingError!]!
+}
+
+type CancelMeetingResult {
+    "The affected day in full, after the write - the cancelled meeting is simply absent from its meetings list. See CreateMeetingResult."
+    day: Day
+    "Non-empty when the cancellation was rejected; one entry per validation rule broken."
+    errors: [MeetingError!]!
+}
+
 "Which input failed, and why. Indexed rather than echoing the input back, so a large bulk call's response stays small."
 type MeetingFailure {
     "Index into the `meetings` argument of the call."
@@ -317,6 +337,8 @@ enum MeetingError {
     OutsideBookableRange
     "More meetings in one call than may be created together."
     TooManyMeetingsInOneCall
+    "updateMeeting/cancelMeeting only: id did not match any existing meeting."
+    MeetingNotFound
 }
 
 

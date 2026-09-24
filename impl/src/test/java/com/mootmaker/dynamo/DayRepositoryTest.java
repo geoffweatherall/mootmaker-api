@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 class DayRepositoryTest {
 
@@ -326,6 +327,136 @@ class DayRepositoryTest {
 
       repository.mutate(DATE, day -> day.withMeetings(full));
       assertEquals(Limits.MAX_MEETINGS_PER_DAY, repository.read(DATE).meetings().size());
+    }
+  }
+
+  @Nested
+  @DisplayName("moving a meeting to a different day")
+  class MovingAMeeting {
+
+    private static final String OTHER_DATE = "2026-09-15";
+
+    @Test
+    @DisplayName("the record lands on the new day, is gone from the old one, and the pointer moves")
+    void movesANormalMeeting() {
+      add(meeting("m-1", "Standup"));
+      final MeetingRecord moved =
+          new MeetingRecord(
+              "m-1",
+              "room-1",
+              "person-1",
+              List.of("person-2"),
+              List.of(AttendeeStatus.NoResponse),
+              "Standup (moved)",
+              OTHER_DATE + "T09:00:00",
+              OTHER_DATE + "T09:30:00");
+
+      repository.moveMeeting("m-1", DATE, OTHER_DATE, moved);
+
+      assertTrue(repository.read(DATE).meetings().isEmpty(), "gone from the old day");
+      assertEquals(1, repository.read(OTHER_DATE).meetings().size());
+      assertEquals("Standup (moved)", repository.read(OTHER_DATE).meetings().getFirst().subject());
+      assertEquals(Optional.of(OTHER_DATE), repository.findDateOfMeeting("m-1"));
+    }
+
+    @Test
+    @DisplayName("resuming after step 1 already committed only performs the removal")
+    void resumesFromAnAlreadyRepointedPointer() {
+      final MeetingRecord moved =
+          new MeetingRecord(
+              "m-1",
+              "room-1",
+              "person-1",
+              List.of("person-2"),
+              List.of(AttendeeStatus.NoResponse),
+              "Standup (moved)",
+              OTHER_DATE + "T09:00:00",
+              OTHER_DATE + "T09:30:00");
+
+      // Simulates step 1 having already committed on a previous call (e.g. the caller's process
+      // died between the two writes): DATE still holds a stale copy, OTHER_DATE already holds the
+      // moved one, and the pointer already points to OTHER_DATE. Built directly against the
+      // fake's own table rather than through DayRepository at all, since every one of its own
+      // write paths would try to create/condition on a pointer state this test needs to start
+      // from already-moved - exactly what moveMeeting's own resumption logic must detect instead.
+      final List<Map<String, AttributeValue>> items =
+          table.tables.computeIfAbsent(TABLE, _ -> new ArrayList<>());
+      items.add(new Day(DATE, 1, List.of(meeting("m-1", "Standup"))).toItem());
+      items.add(new Day(OTHER_DATE, 1, List.of(moved)).toItem());
+      items.add(
+          Map.of(
+              "pk", AttributeValue.builder().s(DayRepository.POINTER_PK_PREFIX + "m-1").build(),
+              "date", AttributeValue.builder().s(OTHER_DATE).build()));
+
+      repository.moveMeeting("m-1", DATE, OTHER_DATE, moved);
+
+      assertTrue(repository.read(DATE).meetings().isEmpty(), "the stale copy is cleaned up");
+      assertEquals(1, repository.read(OTHER_DATE).meetings().size());
+      assertEquals(Optional.of(OTHER_DATE), repository.findDateOfMeeting("m-1"));
+    }
+
+    @Test
+    @DisplayName("a version conflict on the destination day during step 1 still converges")
+    void retriesAVersionConflictOnTheDestinationDay() {
+      add(meeting("m-1", "Standup"));
+      // Something else is already on OTHER_DATE, so the first write there has a real version to
+      // race against.
+      repository.mutate(OTHER_DATE, day -> day.withMeetings(List.of(meeting("m-other", "Other"))));
+
+      final MeetingRecord moved =
+          new MeetingRecord(
+              "m-1",
+              "room-1",
+              "person-1",
+              List.of("person-2"),
+              List.of(AttendeeStatus.NoResponse),
+              "Standup (moved)",
+              OTHER_DATE + "T09:00:00",
+              OTHER_DATE + "T09:30:00");
+
+      final AtomicBoolean interfered = new AtomicBoolean(false);
+      table.beforeWrite =
+          () -> {
+            if (interfered.compareAndSet(false, true)) {
+              withoutInterference(
+                  () ->
+                      new DayRepository(table, TABLE)
+                          .mutate(
+                              OTHER_DATE,
+                              day ->
+                                  day.withMeetings(
+                                      Stream.concat(
+                                              day.meetings().stream(),
+                                              Stream.of(meeting("m-sneaked-in", "Sneaked in")))
+                                          .toList())));
+            }
+          };
+
+      repository.moveMeeting("m-1", DATE, OTHER_DATE, moved);
+
+      final List<String> idsOnOtherDate =
+          repository.read(OTHER_DATE).meetings().stream().map(MeetingRecord::id).sorted().toList();
+      assertEquals(List.of("m-1", "m-other", "m-sneaked-in"), idsOnOtherDate);
+      assertTrue(repository.read(DATE).meetings().isEmpty());
+      assertEquals(Optional.of(OTHER_DATE), repository.findDateOfMeeting("m-1"));
+    }
+
+    @Test
+    @DisplayName("no pointer at all for the meeting id fails loudly rather than moving nothing")
+    void refusesToMoveAMeetingWithNoPointer() {
+      final MeetingRecord ghost =
+          new MeetingRecord(
+              "never-existed",
+              "room-1",
+              "person-1",
+              List.of(),
+              List.of(),
+              "Ghost",
+              OTHER_DATE + "T09:00:00",
+              OTHER_DATE + "T09:30:00");
+      assertThrows(
+          IllegalStateException.class,
+          () -> repository.moveMeeting("never-existed", DATE, OTHER_DATE, ghost));
     }
   }
 

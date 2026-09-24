@@ -24,6 +24,7 @@ import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsResponse;
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
+import software.amazon.awssdk.services.dynamodb.model.Update;
 
 /**
  * Minimal in-memory test double covering only the operations the handlers under test use. {@code
@@ -178,6 +179,12 @@ public class FakeDynamoDbClient implements DynamoDbClient {
             .message("ConditionalCheckFailed for " + put.item())
             .build();
       }
+      final Update update = transactItem.update();
+      if (update != null && !updateConditionHolds(update)) {
+        throw TransactionCanceledException.builder()
+            .message("ConditionalCheckFailed for update on " + update.key())
+            .build();
+      }
     }
     for (final TransactWriteItem transactItem : request.transactItems()) {
       final Put put = transactItem.put();
@@ -191,8 +198,71 @@ public class FakeDynamoDbClient implements DynamoDbClient {
           items.removeIf(item -> matchesKey(item, delete.key()));
         }
       }
+      final Update update = transactItem.update();
+      if (update != null) {
+        applyUpdate(update);
+      }
     }
     return TransactWriteItemsResponse.builder().build();
+  }
+
+  /**
+   * Only "#alias = :value" (a single equality clause on one attribute) is modelled - the only shape
+   * {@code DayRepository}'s pointer repoint ({@code moveMeeting}) actually issues, the {@code
+   * Update} counterpart to {@link #conditionHolds}'s two {@code Put} condition shapes.
+   */
+  private boolean updateConditionHolds(final Update update) {
+    final String condition = update.conditionExpression();
+    if (condition == null) {
+      return true;
+    }
+    final Map<String, AttributeValue> existing =
+        tables.getOrDefault(update.tableName(), List.of()).stream()
+            .filter(item -> matchesKey(item, update.key()))
+            .findFirst()
+            .orElse(null);
+    final Map<String, String> names =
+        update.expressionAttributeNames() == null ? Map.of() : update.expressionAttributeNames();
+    final int eq = condition.indexOf(" = ");
+    if (eq < 0) {
+      throw new UnsupportedOperationException(
+          "FakeDynamoDbClient does not model the update condition: " + condition);
+    }
+    final String attrName = attributeName(condition.substring(0, eq).trim(), names);
+    final AttributeValue expected =
+        update.expressionAttributeValues().get(condition.substring(eq + 3).trim());
+    return existing != null && expected.equals(existing.get(attrName));
+  }
+
+  /**
+   * Only "SET #alias = :value" (a single assignment) is modelled - the only shape {@code
+   * DayRepository}'s pointer repoint issues.
+   */
+  private void applyUpdate(final Update update) {
+    final List<Map<String, AttributeValue>> items =
+        tables.computeIfAbsent(update.tableName(), _ -> new ArrayList<>());
+    final Map<String, AttributeValue> existing =
+        items.stream().filter(item -> matchesKey(item, update.key())).findFirst().orElse(null);
+    if (existing == null) {
+      throw new IllegalStateException("FakeDynamoDbClient: update on missing item " + update.key());
+    }
+    final String expr = update.updateExpression();
+    if (expr == null || !expr.startsWith("SET ") || expr.contains(",")) {
+      throw new UnsupportedOperationException(
+          "FakeDynamoDbClient does not model the update expression: " + expr);
+    }
+    final Map<String, String> names =
+        update.expressionAttributeNames() == null ? Map.of() : update.expressionAttributeNames();
+    final String assignment = expr.substring(4).trim();
+    final int eq = assignment.indexOf(" = ");
+    final String attrName = attributeName(assignment.substring(0, eq).trim(), names);
+    final AttributeValue newValue =
+        update.expressionAttributeValues().get(assignment.substring(eq + 3).trim());
+
+    final Map<String, AttributeValue> updated = new HashMap<>(existing);
+    updated.put(attrName, newValue);
+    items.removeIf(item -> matchesKey(item, update.key()));
+    items.add(updated);
   }
 
   @Override
