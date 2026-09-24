@@ -3,7 +3,7 @@
 # Standalone rather than a step inside a deploy pipeline: see
 # mootmaker/designs/archive/graphql-schema-sharing.md Decision 3. Publishing a static file needs no AWS
 # credentials, no environment targeting and no deployment machinery, so it does not have to wait
-# for designs/ci-cd-pipeline.md - which that design can absorb this workflow into once it lands.
+# for designs/archive/ci-cd-pipeline.md - which that design can absorb this workflow into once it lands.
 #
 # Two registries, deliberately (Decision 1): npmjs.com for the npm artifact because GitHub Packages
 # requires an access token to install even a PUBLIC package, which would make mootmaker-webapp

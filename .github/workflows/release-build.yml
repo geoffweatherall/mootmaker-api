@@ -1,4 +1,4 @@
-# Reusable release build for mootmaker-api. See mootmaker/designs/ci-cd-pipeline.md Decision 7
+# Reusable release build for mootmaker-api. See mootmaker/designs/archive/ci-cd-pipeline.md Decision 7
 # and Rollout step 6.
 #
 # Builds the Lambda jar ONCE, proves it against a fresh ephemeral AWS environment, and uploads it
