@@ -8,7 +8,7 @@
 #
 # --yes passes -auto-approve, for automation that has no stdin to answer the prompt with (the
 # release pipeline's ephemeral acceptance environments, and the scheduled ephemeral sweep - see
-# mootmaker/designs/ci-cd-pipeline.md Rollout steps 6 and 11).
+# mootmaker/designs/archive/ci-cd-pipeline.md Rollout steps 6 and 11).
 #
 # Non-interactive mode is deliberately NARROWER than interactive mode, not just quieter. Run by
 # hand, this script will destroy "production" if you confirm the prompt - the prompt is the

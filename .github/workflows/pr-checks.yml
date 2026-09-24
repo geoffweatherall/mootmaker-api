@@ -1,4 +1,4 @@
-# Required PR gate for mootmaker-api. See mootmaker/designs/ci-cd-pipeline.md Decision 12.
+# Required PR gate for mootmaker-api. See mootmaker/designs/archive/ci-cd-pipeline.md Decision 12.
 #
 # Scoped to what actually exists in this repository today, verified rather than assumed:
 # impl/ is the deployable Maven module and the only one that can run without AWS.
