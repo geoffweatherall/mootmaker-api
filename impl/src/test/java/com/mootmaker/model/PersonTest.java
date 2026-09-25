@@ -1,6 +1,8 @@
 package com.mootmaker.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import module java.base;
 
@@ -9,9 +11,11 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 /**
  * The preference fields are non-null over GraphQL but optional as DynamoDB attributes - every
- * Person written before the preferences feature existed lacks them. {@link Person#fromItem} is the
- * single point holding that guarantee up, so these tests pin it directly rather than only reaching
- * it through a handler.
+ * Person written before the preferences feature existed lacks them. {@code isAdmin} is optional the
+ * same way, for the same reason (every Person written before admin status existed lacks it) - and
+ * defaults to {@code false} rather than a sentinel enum value, since it has no "never chosen" third
+ * state to represent. {@link Person#fromItem} is the single point holding both guarantees up, so
+ * these tests pin it directly rather than only reaching it through a handler.
  */
 class PersonTest {
 
@@ -53,7 +57,15 @@ class PersonTest {
 
   @Test
   void normalisesNullPreferencesPassedToTheConstructor() {
-    final Person person = new Person("person-1", "Ada Lovelace", List.of("sub-1"), null, null);
+    final Person person =
+        new Person(
+            "person-1",
+            "Ada Lovelace",
+            List.of("sub-1"),
+            List.of("ada@example.com"),
+            false,
+            null,
+            null);
 
     assertEquals(DateFormat.Iso, person.dateFormat());
     assertEquals(TimeFormat.TwentyFourHour, person.timeFormat());
@@ -62,7 +74,14 @@ class PersonTest {
   @Test
   void roundTripsThroughAnItemWithoutLosingPreferences() {
     final Person original =
-        new Person("person-1", "Ada", List.of("sub-1"), DateFormat.Usa, TimeFormat.AmPm);
+        new Person(
+            "person-1",
+            "Ada",
+            List.of("sub-1"),
+            List.of("ada@example.com"),
+            false,
+            DateFormat.Usa,
+            TimeFormat.AmPm);
 
     final Person restored = Person.fromItem(original.toItem());
 
@@ -72,11 +91,66 @@ class PersonTest {
   @Test
   void exposesPreferencesOverGraphQlAsTheirLiteralEnumNames() {
     final Person person =
-        new Person("person-1", "Ada", List.of("sub-1"), DateFormat.British, TimeFormat.AmPm);
+        new Person(
+            "person-1",
+            "Ada",
+            List.of("sub-1"),
+            List.of(),
+            false,
+            DateFormat.British,
+            TimeFormat.AmPm);
 
     final Map<String, Object> response = person.toResponseMap();
 
     assertEquals("British", response.get("dateFormat"));
     assertEquals("AmPm", response.get("timeFormat"));
+  }
+
+  @Test
+  void defaultsToNotAdminAndNoLinkedEmailsWhenTheAttributesAreAbsent() {
+    final Person person = Person.fromItem(itemWithoutPreferences());
+
+    assertFalse(person.isAdmin());
+    assertTrue(person.cognitoEmails().isEmpty());
+  }
+
+  @Test
+  void roundTripsAdminStatusAndLinkedEmailsThroughAnItem() {
+    final Person original =
+        new Person(
+            "person-1",
+            "Ada",
+            List.of("sub-1", "sub-2"),
+            List.of("ada@example.com", "ada@work.example.com"),
+            true,
+            null,
+            null);
+
+    final Person restored = Person.fromItem(original.toItem());
+
+    assertEquals(original, restored);
+    assertTrue(restored.isAdmin());
+    assertEquals(List.of("ada@example.com", "ada@work.example.com"), restored.cognitoEmails());
+  }
+
+  @Test
+  void exposesAdminStatusAndLinkedEmailsOverGraphQl() {
+    final Person person =
+        new Person(
+            "person-1", "Ada", List.of("sub-1"), List.of("ada@example.com"), true, null, null);
+
+    final Map<String, Object> response = person.toResponseMap();
+
+    assertEquals(true, response.get("isAdmin"));
+    assertEquals(List.of("ada@example.com"), response.get("linkedEmails"));
+  }
+
+  @Test
+  void theSignUpConvenienceConstructorLinksOneAccountWithItsEmailAndIsNeverAdmin() {
+    final Person person = new Person("person-1", "Ada", "sub-1", "ada@example.com");
+
+    assertEquals(List.of("sub-1"), person.cognitoSubs());
+    assertEquals(List.of("ada@example.com"), person.cognitoEmails());
+    assertFalse(person.isAdmin());
   }
 }
