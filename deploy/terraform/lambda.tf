@@ -173,3 +173,26 @@ resource "aws_lambda_alias" "pre_sign_up_name_collision_live" {
   function_name    = aws_lambda_function.pre_sign_up_name_collision.function_name
   function_version = aws_lambda_function.pre_sign_up_name_collision.version
 }
+
+# A freshly published SnapStart version needs its own extra time before it can actually be invoked -
+# separate from, and in addition to, time_sleep.iam_role_propagation (defined in iam.tf) above. AWS
+# builds the snapshot asynchronously after publish; invoking too soon fails with Lambda's own
+# ResourceConflictException, which Cognito surfaces as "PreSignUp invocation failed due to error
+# ResourceConflictException" - seen for real deploying a fresh ephemeral environment, where
+# aws_cognito_user.e2e/demo below invoke this function within seconds of it being published.
+# post_confirmation_create_person carries the identical risk (same SnapStart setup) but has never hit
+# it: nothing in this apply invokes PostConfirmation synchronously - only a later, real sign-up does,
+# by which time the snapshot is long since ready. PreSignUp has no such luxury.
+#
+# Triggers on the published version, matching time_sleep.iam_role_propagation's own reasoning: an
+# unchanged function on an existing environment re-applies without paying this again, only a fresh
+# publish (a new environment, or a real code change) does.
+resource "time_sleep" "pre_sign_up_snapstart_ready" {
+  create_duration = "60s"
+
+  triggers = {
+    version = aws_lambda_function.pre_sign_up_name_collision.version
+  }
+
+  depends_on = [aws_lambda_alias.pre_sign_up_name_collision_live]
+}
