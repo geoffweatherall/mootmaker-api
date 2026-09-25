@@ -63,19 +63,27 @@ type Mutation {
  createRoom(room: RoomInput!): CreateRoomResult!
  "Admin only."
  updateRoom(id: ID!, room: RoomInput!): UpdateRoomResult!
+ "Admin only. Rejects with RoomHasUpcomingMeetings if any meeting from today onward is still booked in this room - reassign or cancel those first. A hard delete otherwise: MeetingResponse.resolveRoom already falls back to a 'Deleted room' placeholder for any (necessarily past) meeting still referencing this id, the same way resolvePerson already does for deleteMyAccount."
+ deleteRoom(id: ID!): DeleteRoomResult!
  "Admin only."
- createPerson(person: PersonInput!): CreatePersonResult!
- "Allowed for the caller's own linked Person (self-rename), or for anyone if the caller is admin."
- updatePerson(id: ID!, person: PersonInput!): UpdatePersonResult!
+ createPerson(name: String!): CreatePersonResult!
+ "Self-only - sets the caller's own name. Requires a linked Person, same as updateMyPreferences."
+ updateMyName(name: String!): UpdateMyNameResult!
+ "Admin only. Renames another person."
+ renamePerson(id: ID!, name: String!): RenamePersonResult!
+ "Admin only. Grants or revokes admin access. Every linked Cognito account is updated together, mirroring how a name change already propagates to every login. Rejects with NoLinkedAccount if the target has no linked Cognito account at all - there is nothing for admin access to actually grant until they sign up. Rejects with CannotRevokeOwnAdminAccess if the caller is targeting their own Person with isAdmin: false - no one can remove their own admin access through this mutation."
+ setPersonAdmin(id: ID!, isAdmin: Boolean!): SetPersonAdminResult!
+ "Admin only. Deletes another person's linked Cognito account(s) and Person record, cancelling every upcoming meeting they organise and removing them from every upcoming meeting they attend - the same cascade deleteMyAccount already applies to the caller's own account, just admin-invoked against someone else. Past meetings are left untouched, the same way. Rejects with CannotDeleteSelf if the caller targets their own Person (use deleteMyAccount instead) or with ReservedAccount for a reserved system account (e.g. the demo user)."
+ deletePerson(id: ID!): DeletePersonResult!
  "Returns both the created meeting and its whole updated Day. A caller picks by selection: `{ meeting { id } }` for a small response, or `{ day { date meetings { ... } } }` to have a day-keyed client cache absorb the new state with no update logic at all. Selecting the day is usually free rather than wasteful - the page that creates a meeting normally navigates straight to that date."
  createMeeting(meeting: MeetingInput!): CreateMeetingResult!
  "Day-scoped bulk creation: one operation, one item write. At most 99 meetings per call, because the day item and one id -> date pointer per new meeting are written in a single transaction and DynamoDB caps that at 100 items."
  createMeetings(date: String!, meetings: [MeetingInput!]!): CreateMeetingsResult!
- "Allowed for the meeting's organiser, or for anyone if the caller is admin - mirroring updatePerson's self-or-admin shape. Full field replacement, exactly like updateRoom/updatePerson: every field in MeetingInput is applied, including reassigning the organiser or attendees. Re-validated against the day as it now is, the same as createMeeting, with the meeting's own current slot excluded from its own room-availability and day-size checks so an edit never conflicts with itself. Re-publishes daysInvalidated on success."
+ "Allowed for the meeting's organiser, or for anyone if the caller is admin. Full field replacement, exactly like updateRoom: every field in MeetingInput is applied, including reassigning the organiser or attendees. Re-validated against the day as it now is, the same as createMeeting, with the meeting's own current slot excluded from its own room-availability and day-size checks so an edit never conflicts with itself. Re-publishes daysInvalidated on success."
  updateMeeting(id: ID!, meeting: MeetingInput!): UpdateMeetingResult!
  "Allowed for the meeting's organiser, or for anyone if the caller is admin. A hard delete - the meeting is removed from its day entirely, with no cancelled/tombstone state left behind. No restriction based on whether the meeting is in the past, in progress, or upcoming. Re-publishes daysInvalidated on success."
  cancelMeeting(id: ID!): CancelMeetingResult!
- "Sets the signed-in caller's own date/time display preferences. Self-only - requires a linked Person, and there is no admin override, unlike updatePerson. Purely presentational: does not change the ISO-8601 format this API uses for every date/time it accepts and returns."
+ "Sets the signed-in caller's own date/time display preferences. Self-only - requires a linked Person, and there is no admin override, unlike renamePerson. Purely presentational: does not change the ISO-8601 format this API uses for every date/time it accepts and returns."
  updateMyPreferences(preferences: PreferencesInput!): UpdateMyPreferencesResult!
  "Deletes the signed-in caller's own account: cancels every upcoming meeting they organise, removes them from every upcoming meeting they only attend, deletes their linked Person, then deletes their Cognito user entirely. Past meetings are left untouched. Irreversible. Not available for reserved system accounts (e.g. the demo user), which reject with an error."
  deleteMyAccount: Boolean!
@@ -132,25 +140,34 @@ type UpdateRoomResult {
     errors: [RoomError!]!
 }
 
+type DeleteRoomResult {
+    "Every room after the change. See CreateRoomResult."
+    rooms: [Room!]!
+    "Non-empty when the deletion was rejected; one entry per validation rule broken."
+    errors: [RoomError!]!
+}
+
 enum RoomError {
     NameRequired
     CapacityTooLow
-    "updateRoom only: id did not match any existing room."
+    "updateRoom/deleteRoom only: id did not match any existing room."
     RoomNotFound
+    "deleteRoom only: at least one meeting from today onward is still booked in this room - reassign or cancel it first."
+    RoomHasUpcomingMeetings
 }
 
 
 type Person {
     id: ID!
     name: String!
+    "Whether this person has admin access. A read-optimised copy of the same fact the caller's own JWT custom:class claim carries - see setPersonAdmin."
+    isAdmin: Boolean!
+    "Every email address of a Cognito account linked to this person, in no particular order. Empty for a guest Person who has never signed up - see setPersonAdmin's NoLinkedAccount rejection. Set once per linked account at sign-up time; this app has no change-email flow, so these never go stale."
+    linkedEmails: [String!]!
     "How this person prefers dates rendered and parsed by clients. Never null; defaults to Iso for anyone who has never chosen."
     dateFormat: DateFormat!
     "How this person prefers times rendered and parsed by clients. Never null; defaults to TwentyFourHour for anyone who has never chosen."
     timeFormat: TimeFormat!
-}
-
-input PersonInput {
-    name: String!
 }
 
 "How a client renders and parses dates. Display only - this API always speaks ISO-8601."
@@ -198,7 +215,14 @@ type CreatePersonResult {
     errors: [PersonError!]!
 }
 
-type UpdatePersonResult {
+type UpdateMyNameResult {
+    "Populated when the update was applied."
+    person: Person
+    "Non-empty when the update was rejected; one entry per validation rule broken."
+    errors: [PersonError!]!
+}
+
+type RenamePersonResult {
     "Every person after the change. See CreateRoomResult."
     people: [Person!]!
     "Populated when the update passed all validation rules and was applied."
@@ -207,10 +231,38 @@ type UpdatePersonResult {
     errors: [PersonError!]!
 }
 
+type SetPersonAdminResult {
+    "Every person after the change. See CreateRoomResult."
+    people: [Person!]!
+    "Populated when the change passed all validation rules and was applied."
+    person: Person
+    "True when the Person record was updated but syncing custom:class to one or more linked Cognito accounts failed - the grant/revoke may not take effect on that account's token until a retry succeeds. Never true alongside a non-empty errors list; this is a partial success, not a rejection."
+    cognitoSyncFailed: Boolean!
+    "Non-empty when the change was rejected; one entry per validation rule broken."
+    errors: [PersonError!]!
+}
+
+type DeletePersonResult {
+    "Every person after the change. See CreateRoomResult."
+    people: [Person!]!
+    "Non-empty when the deletion was rejected; one entry per validation rule broken."
+    errors: [PersonError!]!
+}
+
 enum PersonError {
     NameRequired
-    "id did not match any existing person."
+    "renamePerson/setPersonAdmin/deletePerson only: id did not match any existing person."
     PersonNotFound
+    "updateMyName only: the caller has no linked Person, so there is nothing to rename."
+    NoLinkedPerson
+    "deletePerson only: the caller targeted their own Person. Use deleteMyAccount instead, which has its own ordering guarantees this admin path deliberately skips."
+    CannotDeleteSelf
+    "deletePerson only: this Person belongs to a reserved system account (e.g. the demo user) and cannot be deleted this way."
+    ReservedAccount
+    "setPersonAdmin only: the target has no linked Cognito account, so there is nothing for admin access to actually grant until they sign up."
+    NoLinkedAccount
+    "setPersonAdmin only: the caller targeted their own Person with isAdmin: false. No one can remove their own admin access through this mutation."
+    CannotRevokeOwnAdminAccess
 }
 
 type Meeting {
