@@ -17,6 +17,19 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  * change: Cognito issues a DIFFERENT sub for a federated user, so a single-valued link would give
  * one human two Persons and two calendars.
  *
+ * <p>{@code cognitoEmails} is the display-facing counterpart: every linked account's email, IS
+ * exposed over GraphQL as {@code Person.linkedEmails}, set once per account at sign-up time
+ * alongside {@code cognitoSubs} (same lockstep write, same index correspondence not required - this
+ * is "every email this person can sign in with", not a sub-to-email map). Safe to treat as
+ * permanent once written: this app has no change-email flow, so unlike {@code name} there is
+ * nothing that could make it stale.
+ *
+ * <p>{@code isAdmin} is a read-optimised copy of the same fact the caller's own JWT {@code
+ * custom:class} claim carries - see {@code SetPersonAdminHandler}, the only mutation that ever
+ * changes it. {@code custom:class} on the linked Cognito account(s) stays the actual authorization
+ * source every request checks; this field only exists so the Persons admin screen can render an
+ * "Admin" badge without a live Cognito lookup per person.
+ *
  * <p>{@code dateFormat}/{@code timeFormat} are the owner's display preferences, exposed over
  * GraphQL as non-null. The DynamoDB attributes behind them are optional - every Person written
  * before the preferences feature existed lacks them, and guest Persons never sign in to set one -
@@ -27,6 +40,8 @@ public record Person(
     String id,
     String name,
     List<String> cognitoSubs,
+    List<String> cognitoEmails,
+    boolean isAdmin,
     DateFormat dateFormat,
     TimeFormat timeFormat) {
 
@@ -35,21 +50,42 @@ public record Person(
 
   /**
    * Normalises null preferences to the defaults, so a Person can never carry a null one however it
-   * was constructed - the same guarantee the GraphQL schema makes.
+   * was constructed - the same guarantee the GraphQL schema makes. {@code cognitoSubs}/{@code
+   * cognitoEmails} normalise a null list to empty the same way.
    */
   public Person {
     dateFormat = dateFormat == null ? DEFAULT_DATE_FORMAT : dateFormat;
     timeFormat = timeFormat == null ? DEFAULT_TIME_FORMAT : timeFormat;
     cognitoSubs = cognitoSubs == null ? List.of() : List.copyOf(cognitoSubs);
+    cognitoEmails = cognitoEmails == null ? List.of() : List.copyOf(cognitoEmails);
   }
 
   public Person(final String id, final String name) {
-    this(id, name, null);
+    this(id, name, null, null);
   }
 
-  /** Convenience for the common case of exactly one linked account, or none when null. */
+  /**
+   * Convenience for a linked account with no known email (mostly tests) - see the 4-arg overload.
+   */
   public Person(final String id, final String name, final String cognitoSub) {
-    this(id, name, cognitoSub == null ? List.of() : List.of(cognitoSub), null, null);
+    this(id, name, cognitoSub, null);
+  }
+
+  /**
+   * Convenience for the common case at sign-up: exactly one linked account, with its email - or
+   * none of either when both are null. Never admin (a brand-new sign-up is always {@code
+   * "standard"} - see {@code PostConfirmationCreatePersonHandler}), no preferences chosen yet.
+   */
+  public Person(
+      final String id, final String name, final String cognitoSub, final String cognitoEmail) {
+    this(
+        id,
+        name,
+        cognitoSub == null ? List.of() : List.of(cognitoSub),
+        cognitoEmail == null ? List.of() : List.of(cognitoEmail),
+        false,
+        null,
+        null);
   }
 
   /** True when at least one Cognito account is linked - i.e. this is a person who can sign in. */
@@ -68,6 +104,17 @@ public record Person(
               .l(cognitoSubs.stream().map(sub -> AttributeValue.builder().s(sub).build()).toList())
               .build());
     }
+    if (!cognitoEmails.isEmpty()) {
+      item.put(
+          "cognitoEmails",
+          AttributeValue.builder()
+              .l(
+                  cognitoEmails.stream()
+                      .map(email -> AttributeValue.builder().s(email).build())
+                      .toList())
+              .build());
+    }
+    item.put("isAdmin", AttributeValue.builder().bool(isAdmin).build());
     item.put("dateFormat", AttributeValue.builder().s(dateFormat.name()).build());
     item.put("timeFormat", AttributeValue.builder().s(timeFormat.name()).build());
     return item;
@@ -77,6 +124,8 @@ public record Person(
     final Map<String, Object> map = new HashMap<>();
     map.put("id", id);
     map.put("name", name);
+    map.put("isAdmin", isAdmin);
+    map.put("linkedEmails", cognitoEmails);
     map.put("dateFormat", dateFormat.name());
     map.put("timeFormat", timeFormat.name());
     return map;
@@ -84,12 +133,18 @@ public record Person(
 
   public static Person fromItem(final Map<String, AttributeValue> item) {
     final AttributeValue cognitoSubs = item.get("cognitoSubs");
+    final AttributeValue cognitoEmails = item.get("cognitoEmails");
+    final AttributeValue isAdmin = item.get("isAdmin");
     return new Person(
         item.get("id").s(),
         item.get("name").s(),
         cognitoSubs == null
             ? List.<String>of()
             : cognitoSubs.l().stream().map(AttributeValue::s).toList(),
+        cognitoEmails == null
+            ? List.<String>of()
+            : cognitoEmails.l().stream().map(AttributeValue::s).toList(),
+        isAdmin != null && Boolean.TRUE.equals(isAdmin.bool()),
         readEnum(item.get("dateFormat"), DateFormat::valueOf, DEFAULT_DATE_FORMAT),
         readEnum(item.get("timeFormat"), TimeFormat::valueOf, DEFAULT_TIME_FORMAT));
   }

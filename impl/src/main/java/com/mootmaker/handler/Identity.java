@@ -89,9 +89,9 @@ final class Identity {
 
   /**
    * Non-throwing check for the same condition {@link #requireAdmin} enforces - for handlers like
-   * {@code UpdatePersonHandler} that allow admin access as just one of several ways a request can
-   * be authorized (the other being "this is your own record"), rather than admin being the only
-   * acceptable outcome.
+   * {@code UpdateMeetingHandler} that allow admin access as just one of several ways a request can
+   * be authorized (the other being "this is the meeting's organiser"), rather than admin being the
+   * only acceptable outcome.
    */
   static boolean isAdmin(final Map<String, Object> event) {
     return isAdmin(event, System.getenv(ADMIN_SCOPE_ENV_VAR));

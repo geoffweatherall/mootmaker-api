@@ -73,9 +73,12 @@ resource "aws_iam_role_policy" "lambda_dynamodb_access" {
   policy = data.aws_iam_policy_document.lambda_dynamodb_access.json
 }
 
-# PostConfirmationCreatePersonHandler (sets a new sign-up's default class) and UpdatePersonHandler
-# (propagates a Person rename to Cognito's own name attribute) both call AdminUpdateUserAttributes;
-# DeleteMyAccountHandler calls AdminDeleteUser to remove the caller's own Cognito user entirely.
+# PostConfirmationCreatePersonHandler (sets a new sign-up's default class), UpdateMyNameHandler and
+# RenamePersonHandler (propagate a Person rename to Cognito's own name attribute), and
+# SetPersonAdminHandler (propagates an admin grant/revoke to custom:class) all call
+# AdminUpdateUserAttributes; DeleteMyAccountHandler and DeletePersonHandler both call
+# AdminDeleteUser to remove a Cognito user entirely - the caller's own account for the former, an
+# admin-chosen target for the latter.
 data "aws_iam_policy_document" "lambda_cognito_access" {
   statement {
     actions   = ["cognito-idp:AdminUpdateUserAttributes", "cognito-idp:AdminDeleteUser"]

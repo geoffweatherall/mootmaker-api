@@ -18,7 +18,9 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
 /**
  * Cognito PostConfirmation trigger: creates a Person linked to the newly confirmed user via {@code
- * cognitoSubs} so account deletion can find and remove it, sets the {@code custom:personId} claim
+ * cognitoSubs} so account deletion can find and remove it, captures their email into {@code
+ * cognitoEmails} (surfaced over GraphQL as {@code Person.linkedEmails} - safe to capture once and
+ * never revisit, since this app has no change-email flow), sets the {@code custom:personId} claim
  * that every later request resolves the caller by, and sets the new user's {@code custom:class}
  * attribute to {@code "standard"}. The client must never be trusted to set its own class (it could
  * otherwise self-promote to admin), so this is done server-side via the Admin API - reusing this
@@ -84,6 +86,7 @@ public class PostConfirmationCreatePersonHandler
     final Map<String, Object> userAttributes = castToMap(request.get("userAttributes"));
     final String cognitoSub = (String) userAttributes.get("sub");
     final String name = (String) userAttributes.get("name");
+    final String email = (String) userAttributes.get("email");
     final String userPoolId = (String) event.get("userPoolId");
 
     try {
@@ -115,7 +118,7 @@ public class PostConfirmationCreatePersonHandler
       // IdAllocator's javadoc for how negligible that is) must fail loudly rather than silently
       // writing a different id and stranding the claim just set.
       new PersonRepository(dynamoDbClient, tableName)
-          .create(new Person(personId, name, cognitoSub));
+          .create(new Person(personId, name, cognitoSub, email));
 
       LOGGER.info("Created Person '{}' for confirmed sign-up '{}'", personId, name);
     } catch (final RuntimeException e) {

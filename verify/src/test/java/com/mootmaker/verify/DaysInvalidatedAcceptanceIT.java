@@ -78,9 +78,8 @@ class DaysInvalidatedAcceptanceIT {
     organiserId =
         client
             .execute(
-                "mutation($person: PersonInput!){ createPerson(person:$person){ person { id }"
-                    + " errors } }",
-                Map.of("person", Map.of("name", faker.name().fullName())))
+                "mutation($name: String!){ createPerson(name:$name){ person { id } errors } }",
+                Map.of("name", faker.name().fullName()))
             .get("createPerson")
             .get("person")
             .get("id")

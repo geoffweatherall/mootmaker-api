@@ -22,12 +22,11 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
 /**
  * AppSync direct-Lambda resolver for {@code Mutation.updateMeeting}. Allowed for the meeting's
- * organiser, or for anyone if the caller is admin - mirroring {@code UpdatePersonHandler}'s
- * self-or-admin shape exactly (existence checked first, so a not-found id reports {@code
- * MeetingNotFound} rather than leaking a 403; authorisation checked against the CURRENT record's
- * organiser, before any field-level errors are reported, so a non-authorised caller always gets
- * {@code Forbidden} rather than a typed validation list they were never entitled to see). Full
- * field replacement, exactly like {@code updateRoom}/{@code updatePerson}: every field in {@code
+ * organiser, or for anyone if the caller is admin (existence checked first, so a not-found id
+ * reports {@code MeetingNotFound} rather than leaking a 403; authorisation checked against the
+ * CURRENT record's organiser, before any field-level errors are reported, so a non-authorised
+ * caller always gets {@code Forbidden} rather than a typed validation list they were never entitled
+ * to see). Full field replacement, exactly like {@code updateRoom}: every field in {@code
  * MeetingInput} is applied, including reassigning the organiser or attendees.
  *
  * <p>Same-date edits reuse {@link DayRepository#mutate} exactly like {@code CreateMeetingHandler} -

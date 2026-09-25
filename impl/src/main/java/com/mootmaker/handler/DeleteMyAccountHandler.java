@@ -8,9 +8,6 @@ import com.mootmaker.cognito.CognitoIdentityProviderClientProvider;
 import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.PersonRepository;
-import com.mootmaker.model.AttendeeStatus;
-import com.mootmaker.model.Day;
-import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Person;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,29 +23,22 @@ import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
  * MyPersonHandler} does. See mootmaker/designs/archive/delete-my-account.md in the workspace root
  * for the design this implements.
  *
- * <p><b>Order of operations matters here.</b> {@link #handleRequest} deletes the Cognito user
- * first, before touching any DynamoDB data, and only proceeds to the DynamoDB cleanup if that
- * succeeds. If it were the other way round and the DynamoDB cleanup ran first, a transient Cognito
- * failure partway through would leave someone with a fully working login and no data at all - a
- * confusing empty-account state. This ordering instead fails toward the safer outcome: on any
- * failure, the account either still works with all its data intact (nothing attempted yet), or is
- * already unusable for sign-in with some data cleanup still pending, which is recoverable via
- * {@code database-repair} rather than user-visible.
+ * <p><b>Order of operations matters here - meetings, then the Person, then the Cognito account(s)
+ * LAST.</b> (A previous revision of this comment claimed the opposite order; it was wrong - this
+ * paragraph now matches what {@link #handleRequest} actually does, checked directly rather than
+ * assumed while writing {@code DeletePersonHandler} against the same ordering.) Deleting Cognito
+ * first would risk the worse failure: a version-conflicted day mutation partway through the
+ * meetings cascade would leave the caller locked out, unable to sign back in to retry, with their
+ * meetings orphaned and no self-service recovery. Doing DynamoDB cleanup first instead means a
+ * failure there still leaves a working login to retry with - and if the caller pushes through to
+ * the Cognito delete succeeding while some DynamoDB cleanup is still incomplete, that is exactly
+ * the state {@code database-repair} exists to reconcile, not a user-visible failure.
  *
- * <p>Every upcoming meeting the caller organises is cancelled (deleted, along with its
- * meeting-participants rows) - other attendees simply lose that meeting from their view, with no
- * notification (a known gap, deliberately deferred - see the design doc). Every upcoming meeting
- * the caller only attends has them removed from its attendee list instead, leaving the meeting
- * itself intact for its organiser and remaining attendees. Past meetings are left untouched
- * entirely; {@link ListMeetingsHandler} already resolves a since-deleted participant to a
- * placeholder rather than breaking, so leaving a dangling id in historical data is safe.
- *
- * <p>Each meeting's cascade (its own delete-or-update plus its participant row(s)) runs as one
- * DynamoDB transaction, matching the granularity {@link CreateMeetingHandler} already uses when
- * creating a meeting - but the meetings are not all one single transaction with each other, since a
- * prolific organiser's meeting count has no fixed upper bound and DynamoDB transactions cap at 100
- * items. A failure partway through leaves some meetings cleaned up and others not, reconcilable by
- * the same database-repair tooling referenced above.
+ * <p>Every upcoming meeting the caller organises is cancelled, and every upcoming meeting the
+ * caller only attends has them removed from its attendee list instead - see {@link
+ * UpcomingMeetings#cancelUpcomingMeetingsFor}, shared with {@code DeletePersonHandler}'s identical
+ * cascade (admin-invoked against someone else rather than the caller). Past meetings are left
+ * untouched entirely.
  */
 public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object>, Object> {
 
@@ -139,85 +129,11 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
 
   /**
    * Cancels every upcoming meeting this person organises, and removes them as an attendee from
-   * every other upcoming one. Past meetings are left untouched, as before.
-   *
-   * <p>Found by <b>scanning day items</b>, which is what replaced the {@code meeting-participants}
-   * join table. That table existed to answer one question - "every meeting this person is in, with
-   * no date range" - for this one rare operation, at the cost of a row per participant per meeting
-   * kept consistent on every write. The booking horizon and retention bound the table at 217 day
-   * items, so a scan is both trivial and, unlike a computed range of horizon dates, exact: it
-   * cannot miss a day the arithmetic got wrong.
-   *
-   * <p>Each affected day goes through {@code mutate}, so the filtering re-runs against freshly-read
-   * state and the {@code PTR#} pointers of cancelled meetings are removed in the same transaction
-   * as the day - the repository diffs the meeting ids, so no caller has to remember to.
+   * every other upcoming one. Past meetings are left untouched, as before. See {@link
+   * UpcomingMeetings}, shared with {@code DeletePersonHandler}'s identical cascade.
    */
   private void cancelUpcomingMeetings(final Person person) {
-    final String now = LocalDateTime.now().format(MeetingRecord.DATE_TIME_FORMAT);
-    final List<String> affectedDates =
-        days.scanDays().stream()
-            .filter(
-                day ->
-                    day.meetings().stream()
-                        .anyMatch(meeting -> isUpcomingAndInvolves(meeting, person.id(), now)))
-            .map(Day::date)
-            .toList();
-
-    for (final String date : affectedDates) {
-      days.mutate(
-          date,
-          day ->
-              day.withMeetings(
-                  day.meetings().stream()
-                      .filter(meeting -> !isUpcomingOrganisedBy(meeting, person.id(), now))
-                      .map(
-                          meeting ->
-                              isUpcoming(meeting, now)
-                                  ? withoutAttendee(meeting, person.id())
-                                  : meeting)
-                      .toList()));
-    }
-  }
-
-  private static boolean isUpcoming(final MeetingRecord meeting, final String now) {
-    return meeting.startTime().compareTo(now) >= 0;
-  }
-
-  private static boolean isUpcomingOrganisedBy(
-      final MeetingRecord meeting, final String personId, final String now) {
-    return isUpcoming(meeting, now) && meeting.organiserId().equals(personId);
-  }
-
-  private static boolean isUpcomingAndInvolves(
-      final MeetingRecord meeting, final String personId, final String now) {
-    return isUpcoming(meeting, now)
-        && (meeting.organiserId().equals(personId) || meeting.attendeeIds().contains(personId));
-  }
-
-  /**
-   * Removes {@code personId} from {@code attendeeIds}, and the same index from the parallel {@code
-   * attendeeStatuses} - the two lists must stay in step (see {@code MeetingRecord}'s compact
-   * constructor), so this is the one place besides {@code RespondToMeetingHandler} that has to
-   * think about both together rather than just the ids.
-   */
-  private static MeetingRecord withoutAttendee(final MeetingRecord meeting, final String personId) {
-    final int index = meeting.attendeeIds().indexOf(personId);
-    if (index < 0) {
-      return meeting;
-    }
-    final List<String> ids = new ArrayList<>(meeting.attendeeIds());
-    final List<AttendeeStatus> statuses = new ArrayList<>(meeting.attendeeStatuses());
-    ids.remove(index);
-    statuses.remove(index);
-    return new MeetingRecord(
-        meeting.id(),
-        meeting.roomId(),
-        meeting.organiserId(),
-        ids,
-        statuses,
-        meeting.subject(),
-        meeting.startTime(),
-        meeting.endTime());
+    UpcomingMeetings.cancelUpcomingMeetingsFor(days, person.id(), UpcomingMeetings.now());
   }
 
   private static Set<String> parseReservedEmails(final String csv) {

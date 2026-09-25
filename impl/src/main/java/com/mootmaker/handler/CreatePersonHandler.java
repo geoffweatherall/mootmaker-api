@@ -35,9 +35,7 @@ public class CreatePersonHandler implements RequestHandler<Map<String, Object>, 
     Identity.requireAdmin(event);
 
     final Map<String, Object> arguments = castToMap(event.get("arguments"));
-    final Map<String, Object> personInput = castToMap(arguments.get("person"));
-
-    final String name = (String) personInput.get("name");
+    final String name = (String) arguments.get("name");
 
     // Now returns a result type rather than a bare Person, so it can carry validation errors the
     // way every other mutation does - and the name rule that was silently absent is now stated.

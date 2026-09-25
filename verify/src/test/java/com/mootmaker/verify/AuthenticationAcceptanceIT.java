@@ -28,7 +28,7 @@ class AuthenticationAcceptanceIT {
   private static final String ROOMS_QUERY =
       "{\"query\":\"query { workspace { rooms { id name capacity } } }\"}";
   private static final String CREATE_PERSON_MUTATION =
-      "{\"query\":\"mutation { createPerson(person: { name: \\\"Intruder\\\" }) { person { id name"
+      "{\"query\":\"mutation { createPerson(name: \\\"Intruder\\\") { person { id name"
           + " } errors } }\"}";
 
   private static URI endpoint;

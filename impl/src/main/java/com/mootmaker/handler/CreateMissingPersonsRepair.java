@@ -95,7 +95,7 @@ final class CreateMissingPersonsRepair {
                               .build())
                       .build());
             }
-            people.create(new Person(personId, name, cognitoSub));
+            people.create(new Person(personId, name, cognitoSub, email));
           }
           repaired.incrementAndGet();
         });
