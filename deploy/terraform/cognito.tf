@@ -268,6 +268,15 @@ resource "aws_cognito_user" "e2e" {
   lifecycle {
     ignore_changes = [attributes]
   }
+
+  # Creating this user invokes PreSignUp synchronously (see lambda_config above) - Terraform has no
+  # other reason to order this after aws_lambda_permission.cognito_invoke_pre_sign_up, since nothing
+  # here references it, so without this depends_on the two can race. Lambda resource-based policies
+  # are eventually consistent like IAM roles (see time_sleep.iam_role_propagation in lambda.tf for
+  # the same class of issue), and on a fresh environment lost that race: Cognito invoked the trigger
+  # before its own permission to do so had propagated, and AdminCreateUser failed outright with
+  # UnexpectedLambdaException/AccessDeniedException. See mootmaker-api#77's first ephemeral deploy.
+  depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up]
 }
 
 resource "aws_dynamodb_table_item" "e2e_person" {
@@ -339,6 +348,9 @@ resource "aws_cognito_user" "demo" {
   lifecycle {
     ignore_changes = [attributes]
   }
+
+  # See aws_cognito_user.e2e's identical depends_on/comment above.
+  depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up]
 }
 
 # The demo user above is created directly by Terraform rather than through the sign-up/confirm
@@ -418,4 +430,7 @@ resource "aws_cognito_user" "no_person" {
   lifecycle {
     ignore_changes = [attributes]
   }
+
+  # See aws_cognito_user.e2e's identical depends_on/comment above.
+  depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up]
 }
