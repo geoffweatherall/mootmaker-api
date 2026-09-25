@@ -98,10 +98,14 @@ resource "aws_cognito_user_pool" "this" {
   # Creates the Person record for a user once their email is confirmed - see
   # PostConfirmationCreatePersonHandler for why this runs post-confirmation rather than
   # pre-sign-up (email isn't verified yet at that point).
-  # Points at the "live" alias (see lambda.tf) rather than the function directly, since SnapStart
-  # only ever applies to a published version, never $LATEST.
+  # pre_sign_up rejects a name collision before any user is created at all - see
+  # PreSignUpNameCollisionHandler's own doc for why that job needs a different trigger point than
+  # post_confirmation above.
+  # Both point at the "live" alias (see lambda.tf) rather than the function directly, since
+  # SnapStart only ever applies to a published version, never $LATEST.
   lambda_config {
     post_confirmation = aws_lambda_alias.post_confirmation_create_person_live.arn
+    pre_sign_up       = aws_lambda_alias.pre_sign_up_name_collision_live.arn
   }
 }
 
@@ -113,6 +117,15 @@ resource "aws_lambda_permission" "cognito_invoke_post_confirmation" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.post_confirmation_create_person.function_name
   qualifier     = aws_lambda_alias.post_confirmation_create_person_live.name
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = aws_cognito_user_pool.this.arn
+}
+
+resource "aws_lambda_permission" "cognito_invoke_pre_sign_up" {
+  statement_id  = "AllowCognitoInvokePreSignUp"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.pre_sign_up_name_collision.function_name
+  qualifier     = aws_lambda_alias.pre_sign_up_name_collision_live.name
   principal     = "cognito-idp.amazonaws.com"
   source_arn    = aws_cognito_user_pool.this.arn
 }

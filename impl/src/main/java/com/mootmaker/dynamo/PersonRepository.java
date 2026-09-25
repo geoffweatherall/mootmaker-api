@@ -49,6 +49,25 @@ public final class PersonRepository {
     return BatchGet.scan(dynamoDbClient, tableName).stream().map(Person::fromItem).toList();
   }
 
+  /**
+   * Case- and whitespace-insensitive name lookup, for the createPerson/sign-up duplicate-name guard
+   * (mootmaker-api#70) - "willy wombat" collides with " Willy Wombat" as much as an exact match
+   * does, since a case/whitespace-only difference is exactly the kind of human error this exists to
+   * catch, not a legitimate distinct person. A full scan, not an index - the same "small and
+   * slow-moving" whole-table read every other Person listing in this codebase already does (see
+   * {@code Query.workspace.people}).
+   */
+  public Optional<Person> findByNameIgnoringCaseAndWhitespace(final String name) {
+    final String normalized = normalize(name);
+    return listAll().stream()
+        .filter(person -> normalize(person.name()).equals(normalized))
+        .findFirst();
+  }
+
+  private static String normalize(final String name) {
+    return name.trim().toLowerCase(Locale.ROOT);
+  }
+
   public void put(final Person person) {
     BatchGet.put(dynamoDbClient, tableName, person.toItem());
   }

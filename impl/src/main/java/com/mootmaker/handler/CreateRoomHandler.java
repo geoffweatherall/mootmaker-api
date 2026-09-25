@@ -7,6 +7,7 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.RoomRepository;
 import com.mootmaker.model.Room;
+import com.mootmaker.model.RoomColor;
 import com.mootmaker.model.RoomError;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
@@ -38,6 +39,8 @@ public class CreateRoomHandler implements RequestHandler<Map<String, Object>, Ob
 
     final String name = (String) roomInput.get("name");
     final int capacity = ((Number) roomInput.get("capacity")).intValue();
+    final RoomColor color =
+        roomInput.get("color") == null ? null : RoomColor.valueOf((String) roomInput.get("color"));
 
     final List<String> errors = new ArrayList<>();
     if (name == null || name.isBlank()) {
@@ -59,7 +62,7 @@ public class CreateRoomHandler implements RequestHandler<Map<String, Object>, Ob
       return result;
     }
 
-    final Room room = new RoomRepository(dynamoDbClient, tableName).create(name, capacity);
+    final Room room = new RoomRepository(dynamoDbClient, tableName).create(name, capacity, color);
 
     result.put("room", room.toResponseMap());
     result.put("rooms", allRooms());

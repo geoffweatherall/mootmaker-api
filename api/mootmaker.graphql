@@ -113,12 +113,28 @@ type Room {
    id: ID!
    name: String!
    capacity: Int!
+   "Null means no colour was ever explicitly chosen - clients fall back to their own deterministic assignment (e.g. by sorted position) the same way every room behaved before this field existed. Never assigned automatically server-side; only set by an admin explicitly picking one."
+   color: RoomColor
 }
 
 input RoomInput {
    name: String!
    "Must be 2 or more."
    capacity: Int!
+   "Optional. Omitting it (or explicitly null) leaves the room with no explicit colour - see Room.color."
+   color: RoomColor
+}
+
+"One of a fixed 8-hue palette, validated for accessibility in both light and dark mode - not an arbitrary colour, so clients don't need their own contrast validation. Two rooms may share a value; nothing prevents or warns about it, the same way two rooms may already share a name."
+enum RoomColor {
+    Blue
+    Orange
+    Aqua
+    Yellow
+    Magenta
+    Green
+    Violet
+    Red
 }
 
 "Room and person mutations return the whole collection alongside the changed entity. A normalising client cache updates an entity by id everywhere it is referenced, but returning one room does NOT add it to a cached `rooms` list - that is a separate cache field. Returning the list makes the mutation self-sufficient, and both collections are small enough that it costs nothing."
@@ -168,6 +184,14 @@ type Person {
     dateFormat: DateFormat!
     "How this person prefers times rendered and parsed by clients. Never null; defaults to TwentyFourHour for anyone who has never chosen."
     timeFormat: TimeFormat!
+    "Which day a date-picker calendar grid should start its weeks on. Never null; defaults to Monday for anyone who has never chosen - deliberately not inferred from locale, the same reasoning as dateFormat/timeFormat's own defaults. Does not affect PersonCalendarPage's own weekly agenda, which is a fixed Monday-Friday business-day view unrelated to this."
+    weekStart: WeekStart!
+}
+
+"Which day a calendar week starts on."
+enum WeekStart {
+    Monday
+    Sunday
 }
 
 "How a client renders and parses dates. Display only - this API always speaks ISO-8601."
@@ -188,10 +212,11 @@ enum TimeFormat {
     AmPm
 }
 
-"Both formats are required - updateMyPreferences replaces the caller's whole preference pair, it does not patch one of them."
+"All three are required - updateMyPreferences replaces the caller's whole preference set, it does not patch one of them."
 input PreferencesInput {
     dateFormat: DateFormat!
     timeFormat: TimeFormat!
+    weekStart: WeekStart!
 }
 
 type UpdateMyPreferencesResult {
@@ -251,6 +276,8 @@ type DeletePersonResult {
 
 enum PersonError {
     NameRequired
+    "createPerson only: another person already has this name (compared case- and whitespace-insensitively) - almost always the same person being added twice by mistake rather than two people who happen to share a name. See mootmaker-api#70."
+    NameAlreadyExists
     "renamePerson/setPersonAdmin/deletePerson only: id did not match any existing person."
     PersonNotFound
     "updateMyName only: the caller has no linked Person, so there is nothing to rename."

@@ -31,6 +31,7 @@ class PersonTest {
 
     assertEquals(DateFormat.Iso, person.dateFormat());
     assertEquals(TimeFormat.TwentyFourHour, person.timeFormat());
+    assertEquals(WeekStart.Monday, person.weekStart());
   }
 
   @Test
@@ -38,11 +39,13 @@ class PersonTest {
     final Map<String, AttributeValue> item = new HashMap<>(itemWithoutPreferences());
     item.put("dateFormat", AttributeValue.builder().s("British").build());
     item.put("timeFormat", AttributeValue.builder().s("AmPm").build());
+    item.put("weekStart", AttributeValue.builder().s("Sunday").build());
 
     final Person person = Person.fromItem(item);
 
     assertEquals(DateFormat.British, person.dateFormat());
     assertEquals(TimeFormat.AmPm, person.timeFormat());
+    assertEquals(WeekStart.Sunday, person.weekStart());
   }
 
   @Test
@@ -65,10 +68,12 @@ class PersonTest {
             List.of("ada@example.com"),
             false,
             null,
+            null,
             null);
 
     assertEquals(DateFormat.Iso, person.dateFormat());
     assertEquals(TimeFormat.TwentyFourHour, person.timeFormat());
+    assertEquals(WeekStart.Monday, person.weekStart());
   }
 
   @Test
@@ -81,7 +86,8 @@ class PersonTest {
             List.of("ada@example.com"),
             false,
             DateFormat.Usa,
-            TimeFormat.AmPm);
+            TimeFormat.AmPm,
+            WeekStart.Sunday);
 
     final Person restored = Person.fromItem(original.toItem());
 
@@ -98,12 +104,14 @@ class PersonTest {
             List.of(),
             false,
             DateFormat.British,
-            TimeFormat.AmPm);
+            TimeFormat.AmPm,
+            WeekStart.Sunday);
 
     final Map<String, Object> response = person.toResponseMap();
 
     assertEquals("British", response.get("dateFormat"));
     assertEquals("AmPm", response.get("timeFormat"));
+    assertEquals("Sunday", response.get("weekStart"));
   }
 
   @Test
@@ -124,6 +132,7 @@ class PersonTest {
             List.of("ada@example.com", "ada@work.example.com"),
             true,
             null,
+            null,
             null);
 
     final Person restored = Person.fromItem(original.toItem());
@@ -137,7 +146,14 @@ class PersonTest {
   void exposesAdminStatusAndLinkedEmailsOverGraphQl() {
     final Person person =
         new Person(
-            "person-1", "Ada", List.of("sub-1"), List.of("ada@example.com"), true, null, null);
+            "person-1",
+            "Ada",
+            List.of("sub-1"),
+            List.of("ada@example.com"),
+            true,
+            null,
+            null,
+            null);
 
     final Map<String, Object> response = person.toResponseMap();
 

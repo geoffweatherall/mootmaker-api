@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import module java.base;
 
 import com.mootmaker.model.Room;
+import com.mootmaker.model.RoomColor;
 import com.mootmaker.model.RoomError;
 import com.mootmaker.testsupport.FakeDynamoDbClient;
 import org.junit.jupiter.api.Test;
@@ -16,9 +17,15 @@ import org.junit.jupiter.api.Test;
 class CreateRoomHandlerTest {
 
   private static Map<String, Object> roomArguments(final String name, final int capacity) {
+    return roomArguments(name, capacity, null);
+  }
+
+  private static Map<String, Object> roomArguments(
+      final String name, final int capacity, final String color) {
     final Map<String, Object> roomInput = new HashMap<>();
     roomInput.put("name", name);
     roomInput.put("capacity", capacity);
+    roomInput.put("color", color);
     final Map<String, Object> arguments = new HashMap<>();
     arguments.put("room", roomInput);
     final Map<String, Object> event = new HashMap<>();
@@ -56,6 +63,21 @@ class CreateRoomHandlerTest {
     assertEquals(room.get("id"), persisted.id());
     assertEquals("Conference A", persisted.name());
     assertEquals(8, persisted.capacity());
+    assertNull(persisted.color(), "no colour chosen - clients fall back to their own assignment");
+  }
+
+  @Test
+  void createsRoomWithAnExplicitlyChosenColour() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final CreateRoomHandler handler = new CreateRoomHandler(fakeClient, "Rooms");
+
+    final Map<String, Object> result = invoke(handler, roomArguments("Conference A", 8, "Violet"));
+
+    @SuppressWarnings("unchecked")
+    final Map<String, Object> room = (Map<String, Object>) result.get("room");
+    assertEquals("Violet", room.get("color"));
+    final Room persisted = Room.fromItem(fakeClient.tables.get("Rooms").getFirst());
+    assertEquals(RoomColor.Violet, persisted.color());
   }
 
   @Test

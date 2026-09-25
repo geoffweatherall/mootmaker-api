@@ -89,7 +89,8 @@ public class RenamePersonHandler implements RequestHandler<Map<String, Object>, 
             current.get().cognitoEmails(),
             current.get().isAdmin(),
             current.get().dateFormat(),
-            current.get().timeFormat());
+            current.get().timeFormat(),
+            current.get().weekStart());
     people.put(updated);
 
     for (final String cognitoSub : updated.cognitoSubs()) {

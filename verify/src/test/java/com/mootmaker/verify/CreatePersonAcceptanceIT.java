@@ -3,6 +3,7 @@ package com.mootmaker.verify;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.is;
 
 import module java.base;
 
@@ -57,5 +58,35 @@ class CreatePersonAcceptanceIT {
     // shared environment may legitimately still have other (real, signed-up) people present.
     assertThat(peopleIds, hasItem(createdId));
     LOG.info("Person '{}' was successfully returned by the people query", personName);
+  }
+
+  @Test
+  void nameCollisionWithAnExistingPersonIsRejected() {
+    LOG.info("Resetting the database before the test");
+    DatabaseReset.reset();
+
+    final String personName = faker.name().fullName();
+    final String createPersonMutation =
+        "mutation CreatePerson($name: String!) { createPerson(name: $name) { person { id }"
+            + " errors } }";
+
+    LOG.info("Creating person '{}'", personName);
+    client.execute(createPersonMutation, Map.of("name", personName));
+
+    LOG.info("Creating a second person with the exact same name '{}'", personName);
+    final JsonNode collisionResult =
+        client.execute(createPersonMutation, Map.of("name", personName));
+    assertThat(collisionResult.get("createPerson").get("person").isNull(), is(true));
+    assertThat(
+        collisionResult.get("createPerson").get("errors").get(0).asText(),
+        equalTo(PersonError.NameAlreadyExists.name()));
+
+    LOG.info("Creating a third person with the same name, different case and surrounding spaces");
+    final JsonNode caseInsensitiveResult =
+        client.execute(
+            createPersonMutation, Map.of("name", " " + personName.toUpperCase(Locale.ROOT) + " "));
+    assertThat(
+        caseInsensitiveResult.get("createPerson").get("errors").get(0).asText(),
+        equalTo(PersonError.NameAlreadyExists.name()));
   }
 }

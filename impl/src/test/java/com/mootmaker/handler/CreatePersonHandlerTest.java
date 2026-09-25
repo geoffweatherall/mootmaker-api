@@ -70,6 +70,32 @@ class CreatePersonHandlerTest {
   }
 
   @Test
+  void rejectsANameCollisionWithAnExistingPerson() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    fakeClient.tables.put(
+        "People", new ArrayList<>(List.of(new Person("person-1", "Willy Wombat").toItem())));
+    final CreatePersonHandler handler = new CreatePersonHandler(fakeClient, "People");
+
+    final Map<String, Object> result = invoke(handler, personArguments("Willy Wombat"));
+
+    assertNull(result.get("person"));
+    assertEquals(List.of("NameAlreadyExists"), result.get("errors"));
+    assertEquals(1, fakeClient.tables.get("People").size(), "no second Person was written");
+  }
+
+  @Test
+  void rejectsANameCollisionIgnoringCaseAndSurroundingWhitespace() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    fakeClient.tables.put(
+        "People", new ArrayList<>(List.of(new Person("person-1", "Willy Wombat").toItem())));
+    final CreatePersonHandler handler = new CreatePersonHandler(fakeClient, "People");
+
+    final Map<String, Object> result = invoke(handler, personArguments("  willy wombat "));
+
+    assertEquals(List.of("NameAlreadyExists"), result.get("errors"));
+  }
+
+  @Test
   void rejectsUnauthenticatedRequests() {
     final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
     final CreatePersonHandler handler = new CreatePersonHandler(fakeClient, "People");

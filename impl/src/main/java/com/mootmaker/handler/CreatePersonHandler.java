@@ -40,14 +40,24 @@ public class CreatePersonHandler implements RequestHandler<Map<String, Object>, 
     // Now returns a result type rather than a bare Person, so it can carry validation errors the
     // way every other mutation does - and the name rule that was silently absent is now stated.
     final Map<String, Object> result = new HashMap<>();
+    final PersonRepository people = new PersonRepository(dynamoDbClient, tableName);
+    final List<String> errors = new ArrayList<>();
     if (name == null || name.isBlank()) {
+      errors.add(PersonError.NameRequired.name());
+    } else if (people.findByNameIgnoringCaseAndWhitespace(name).isPresent()) {
+      // Rejected outright rather than silently linked or merged - see mootmaker-api#70. A name
+      // collision is almost always the same person being added twice by mistake, best caught
+      // here, explicitly, rather than left to accumulate as an indistinguishable duplicate.
+      errors.add(PersonError.NameAlreadyExists.name());
+    }
+    if (!errors.isEmpty()) {
       result.put("person", null);
-      result.put("errors", List.of(PersonError.NameRequired.name()));
+      result.put("errors", errors);
       result.put("people", allPeople());
       return result;
     }
 
-    final Person person = new PersonRepository(dynamoDbClient, tableName).createWithNewId(name);
+    final Person person = people.createWithNewId(name);
 
     result.put("person", person.toResponseMap());
     result.put("errors", List.of());

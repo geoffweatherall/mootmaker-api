@@ -138,3 +138,38 @@ resource "aws_lambda_alias" "post_confirmation_create_person_live" {
   function_name    = aws_lambda_function.post_confirmation_create_person.function_name
   function_version = aws_lambda_function.post_confirmation_create_person.version
 }
+
+# Cognito's PreSignUp trigger - a separate function from post_confirmation_create_person above,
+# deliberately: different job (rejecting a collision outright, before any user exists, versus
+# creating a Person for one that's just been confirmed) and PreSignUpNameCollisionHandler's own
+# doc explains why PostConfirmation can't do this job itself (a thrown exception there is logged
+# and swallowed, not surfaced - the account already exists by then).
+resource "aws_lambda_function" "pre_sign_up_name_collision" {
+  function_name    = "${local.resource_prefix}-pre-sign-up-name-collision"
+  role             = aws_iam_role.lambda_exec.arn
+  handler          = "com.mootmaker.handler.PreSignUpNameCollisionHandler::handleRequest"
+  runtime          = "java25"
+  filename         = local.lambda_jar_path
+  source_code_hash = local.lambda_jar_hash
+  memory_size      = 512
+  timeout          = 15
+  # See post_confirmation_create_person's identical comment on publish/snap_start/the "live" alias.
+  publish = true
+
+  snap_start {
+    apply_on = "PublishedVersions"
+  }
+
+  environment {
+    variables = local.lambda_env_vars
+  }
+
+  # See post_confirmation_create_person's identical comment on log-group-before-function ordering.
+  depends_on = [aws_cloudwatch_log_group.lambda, time_sleep.iam_role_propagation]
+}
+
+resource "aws_lambda_alias" "pre_sign_up_name_collision_live" {
+  name             = "live"
+  function_name    = aws_lambda_function.pre_sign_up_name_collision.function_name
+  function_version = aws_lambda_function.pre_sign_up_name_collision.version
+}

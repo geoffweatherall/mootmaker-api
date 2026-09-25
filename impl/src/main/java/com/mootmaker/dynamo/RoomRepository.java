@@ -3,6 +3,7 @@ package com.mootmaker.dynamo;
 import module java.base;
 
 import com.mootmaker.model.Room;
+import com.mootmaker.model.RoomColor;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
@@ -56,9 +57,9 @@ public final class RoomRepository {
    * UpdateRoomHandler}). Retries with a newly drawn id on the negligible chance of a collision -
    * see {@link IdAllocator}.
    */
-  public Room create(final String name, final int capacity) {
+  public Room create(final String name, final int capacity, final RoomColor color) {
     for (int attempt = 1; attempt <= MAX_CREATE_ATTEMPTS; attempt++) {
-      final Room room = new Room(IdAllocator.newId(), name, capacity);
+      final Room room = new Room(IdAllocator.newId(), name, capacity, color);
       try {
         dynamoDbClient.putItem(
             PutItemRequest.builder()
