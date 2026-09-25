@@ -265,6 +265,11 @@ resource "aws_dynamodb_table_item" "e2e_person" {
     id          = { S = local.e2e_person_id }
     name        = { S = "E2E Tester" }
     cognitoSubs = { L = [{ S = aws_cognito_user.e2e.sub }] }
+    # Created directly here rather than through sign-up, so PostConfirmationCreatePersonHandler
+    # never runs and would otherwise leave this unset - see Person.java's own doc on why these are
+    # persisted copies, not derived at read time. isAdmin is deliberately absent (defaults false via
+    # Person.fromItem): this account's custom:class is "standard" above.
+    cognitoEmails = { L = [{ S = "e2e-tests@example.com" }] }
   })
 }
 
@@ -339,6 +344,12 @@ resource "aws_dynamodb_table_item" "demo_person" {
     id          = { S = local.demo_person_id }
     name        = { S = "Demo Strater" }
     cognitoSubs = { L = [{ S = aws_cognito_user.demo.sub }] }
+    # Created directly here rather than through sign-up, so PostConfirmationCreatePersonHandler
+    # never runs and would otherwise leave these unset - see Person.java's own doc on why these are
+    # persisted copies, not derived at read time. Without them the Persons admin page showed the
+    # demo admin's own card as an unlinked guest: no Admin badge, no email, "Not signed up yet".
+    cognitoEmails = { L = [{ S = "demo@mootmaker.com" }] }
+    isAdmin       = { BOOL = true }
   })
 }
 
