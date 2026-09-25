@@ -168,10 +168,46 @@ resource "aws_appsync_resolver" "create_person" {
   response_template = local.direct_lambda_response_template
 }
 
-resource "aws_appsync_resolver" "update_person" {
+resource "aws_appsync_resolver" "delete_room" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Mutation"
-  field             = "updatePerson"
+  field             = "deleteRoom"
+  data_source       = aws_appsync_datasource.resolvers.name
+  request_template  = local.direct_lambda_request_template
+  response_template = local.direct_lambda_response_template
+}
+
+resource "aws_appsync_resolver" "update_my_name" {
+  api_id            = aws_appsync_graphql_api.this.id
+  type              = "Mutation"
+  field             = "updateMyName"
+  data_source       = aws_appsync_datasource.resolvers.name
+  request_template  = local.direct_lambda_request_template
+  response_template = local.direct_lambda_response_template
+}
+
+resource "aws_appsync_resolver" "rename_person" {
+  api_id            = aws_appsync_graphql_api.this.id
+  type              = "Mutation"
+  field             = "renamePerson"
+  data_source       = aws_appsync_datasource.resolvers.name
+  request_template  = local.direct_lambda_request_template
+  response_template = local.direct_lambda_response_template
+}
+
+resource "aws_appsync_resolver" "set_person_admin" {
+  api_id            = aws_appsync_graphql_api.this.id
+  type              = "Mutation"
+  field             = "setPersonAdmin"
+  data_source       = aws_appsync_datasource.resolvers.name
+  request_template  = local.direct_lambda_request_template
+  response_template = local.direct_lambda_response_template
+}
+
+resource "aws_appsync_resolver" "delete_person" {
+  api_id            = aws_appsync_graphql_api.this.id
+  type              = "Mutation"
+  field             = "deletePerson"
   data_source       = aws_appsync_datasource.resolvers.name
   request_template  = local.direct_lambda_request_template
   response_template = local.direct_lambda_response_template
