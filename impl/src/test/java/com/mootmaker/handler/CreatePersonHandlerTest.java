@@ -16,7 +16,7 @@ class CreatePersonHandlerTest {
 
   private static Map<String, Object> personArguments(final String name) {
     final Map<String, Object> arguments = new HashMap<>();
-    arguments.put("person", Map.of("name", name));
+    arguments.put("name", name);
     final Map<String, Object> event = new HashMap<>();
     event.put("arguments", arguments);
     event.put("identity", Map.of("sub", "test-user", "claims", Map.of("custom:class", "admin")));

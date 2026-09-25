@@ -17,7 +17,7 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
  * AppSync direct-Lambda resolver for {@code Mutation.updateMyPreferences}: sets the caller's own
  * date/time display preferences.
  *
- * <p>Self-only, with no admin override - deliberately unlike {@link UpdatePersonHandler}, which an
+ * <p>Self-only, with no admin override - deliberately unlike {@link RenamePersonHandler}, which an
  * admin may use on someone else's Person to rename them. A personal display preference is not
  * profile data an admin has any business setting on someone else's behalf, so the target is always
  * the Person linked to {@code identity.sub} and there is no id argument to get wrong.
@@ -63,15 +63,18 @@ public class UpdateMyPreferencesHandler implements RequestHandler<Map<String, Ob
     final DateFormat dateFormat = DateFormat.valueOf((String) preferences.get("dateFormat"));
     final TimeFormat timeFormat = TimeFormat.valueOf((String) preferences.get("timeFormat"));
 
-    // Carries name and linked Cognito accounts forward - PutItem fully replaces the item, so
-    // building this
-    // from the preferences alone would wipe the caller's name and unlink their Cognito login.
-    // The mirror image of UpdatePersonHandler's care in the other direction.
+    // Carries every field this mutation doesn't own forward - PutItem fully replaces the item, so
+    // building this from the preferences alone would wipe the caller's name, unlink their Cognito
+    // login, lose their linked emails, and demote an admin. The mirror image of RenamePersonHandler
+    // and SetPersonAdminHandler's care in the other direction - see mootmaker-api#71 for what
+    // forgetting this looks like.
     final Person updated =
         new Person(
             current.get().id(),
             current.get().name(),
             current.get().cognitoSubs(),
+            current.get().cognitoEmails(),
+            current.get().isAdmin(),
             dateFormat,
             timeFormat);
     dynamoDbClient.putItem(
