@@ -7,5 +7,6 @@ package com.mootmaker.verify;
 enum RoomError {
   NameRequired,
   CapacityTooLow,
-  RoomNotFound
+  RoomNotFound,
+  RoomHasUpcomingMeetings
 }

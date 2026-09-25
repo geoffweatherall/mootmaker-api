@@ -36,7 +36,7 @@ class SelectionAwareMeetingsAcceptanceIT {
       "mutation CreateRoom($room: RoomInput!) { createRoom(room: $room) { room { id name capacity }"
           + " errors } }";
   private static final String CREATE_PERSON_MUTATION =
-      "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { person { id"
+      "mutation CreatePerson($name: String!) { createPerson(name: $name) { person { id"
           + " name } errors } }";
   private static final String CREATE_MEETING_MUTATION =
       "mutation CreateMeeting($meeting: MeetingInput!) { createMeeting(meeting: $meeting) { meeting"
@@ -99,8 +99,7 @@ class SelectionAwareMeetingsAcceptanceIT {
   }
 
   private static String createPerson(final String name) {
-    final JsonNode result =
-        client.execute(CREATE_PERSON_MUTATION, Map.of("person", Map.of("name", name)));
+    final JsonNode result = client.execute(CREATE_PERSON_MUTATION, Map.of("name", name));
     return result.get("createPerson").get("person").get("id").asText();
   }
 

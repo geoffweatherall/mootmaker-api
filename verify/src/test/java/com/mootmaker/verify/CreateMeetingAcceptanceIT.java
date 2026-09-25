@@ -21,7 +21,7 @@ class CreateMeetingAcceptanceIT {
       "mutation CreateRoom($room: RoomInput!) { createRoom(room: $room) { room { id name capacity }"
           + " errors } }";
   private static final String CREATE_PERSON_MUTATION =
-      "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { person { id"
+      "mutation CreatePerson($name: String!) { createPerson(name: $name) { person { id"
           + " name } errors } }";
   private static final String MEETING_FIELDS =
       "id room { id name capacity } organiser { id name } attendees { person { id name } status }"
@@ -51,13 +51,13 @@ class CreateMeetingAcceptanceIT {
     final String organiserName = faker.name().fullName();
     LOG.info("Creating organiser '{}'", organiserName);
     final JsonNode organiserResult =
-        client.execute(CREATE_PERSON_MUTATION, Map.of("person", Map.of("name", organiserName)));
+        client.execute(CREATE_PERSON_MUTATION, Map.of("name", organiserName));
     final String organiserId = organiserResult.get("createPerson").get("person").get("id").asText();
 
     final String attendeeName = faker.name().fullName();
     LOG.info("Creating attendee '{}'", attendeeName);
     final JsonNode attendeeResult =
-        client.execute(CREATE_PERSON_MUTATION, Map.of("person", Map.of("name", attendeeName)));
+        client.execute(CREATE_PERSON_MUTATION, Map.of("name", attendeeName));
     final String attendeeId = attendeeResult.get("createPerson").get("person").get("id").asText();
 
     final String subject = faker.company().catchPhrase();

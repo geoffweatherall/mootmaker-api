@@ -36,9 +36,9 @@ class CreatePersonAcceptanceIT {
     LOG.info("Creating person '{}'", personName);
     final JsonNode createResult =
         client.execute(
-            "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { person"
+            "mutation CreatePerson($name: String!) { createPerson(name: $name) { person"
                 + " { id name } errors } }",
-            Map.of("person", Map.of("name", personName)));
+            Map.of("name", personName));
 
     final String createdId = createResult.get("createPerson").get("person").get("id").asText();
     LOG.info("Created person with id '{}'", createdId);

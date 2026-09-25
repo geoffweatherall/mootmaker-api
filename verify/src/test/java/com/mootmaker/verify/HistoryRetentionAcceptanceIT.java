@@ -53,7 +53,7 @@ class HistoryRetentionAcceptanceIT {
   private static final String CREATE_ROOM_MUTATION =
       "mutation CreateRoom($room: RoomInput!) { createRoom(room: $room) { room { id } errors } }";
   private static final String CREATE_PERSON_MUTATION =
-      "mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { person { id }"
+      "mutation CreatePerson($name: String!) { createPerson(name: $name) { person { id }"
           + " errors } }";
   private static final String CREATE_MEETING_MUTATION =
       "mutation CreateMeeting($meeting: MeetingInput!) { createMeeting(meeting: $meeting) { meeting"
@@ -84,8 +84,7 @@ class HistoryRetentionAcceptanceIT {
             .asText();
     organiserId =
         client
-            .execute(
-                CREATE_PERSON_MUTATION, Map.of("person", Map.of("name", faker.name().fullName())))
+            .execute(CREATE_PERSON_MUTATION, Map.of("name", faker.name().fullName()))
             .get("createPerson")
             .get("person")
             .get("id")

@@ -6,5 +6,10 @@ package com.mootmaker.verify;
  */
 enum PersonError {
   NameRequired,
-  PersonNotFound
+  PersonNotFound,
+  NoLinkedPerson,
+  CannotDeleteSelf,
+  ReservedAccount,
+  NoLinkedAccount,
+  CannotRevokeOwnAdminAccess
 }
