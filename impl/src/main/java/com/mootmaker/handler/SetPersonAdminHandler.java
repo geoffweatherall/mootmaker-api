@@ -117,7 +117,8 @@ public class SetPersonAdminHandler implements RequestHandler<Map<String, Object>
             current.get().cognitoEmails(),
             isAdmin,
             current.get().dateFormat(),
-            current.get().timeFormat());
+            current.get().timeFormat(),
+            current.get().weekStart());
     people.put(updated);
 
     boolean cognitoSyncFailed = false;

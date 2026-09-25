@@ -22,8 +22,8 @@ class CreateRoomAcceptanceIT {
   private static final Logger LOG = LoggerFactory.getLogger(CreateRoomAcceptanceIT.class);
 
   private static final String CREATE_ROOM_MUTATION =
-      "mutation CreateRoom($room: RoomInput!) { createRoom(room: $room) { room { id name capacity }"
-          + " errors } }";
+      "mutation CreateRoom($room: RoomInput!) { createRoom(room: $room) { room { id name capacity"
+          + " color } errors } }";
 
   private static GraphQlClient client;
   private static Faker faker;
@@ -65,6 +65,33 @@ class CreateRoomAcceptanceIT {
     assertThat(rooms.get(0).get("name").asText(), equalTo(roomName));
     assertThat(rooms.get(0).get("capacity").asInt(), equalTo(capacity));
     LOG.info("Room '{}' was successfully returned by the rooms query", roomName);
+  }
+
+  @Test
+  void roomIsCreatedWithNoColourWhenNoneIsChosen() {
+    LOG.info("Checking a room created without a colour has none");
+    final JsonNode createResult =
+        client.execute(
+            CREATE_ROOM_MUTATION,
+            Map.of("room", Map.of("name", faker.address().city() + " Room", "capacity", 4)));
+
+    final JsonNode createRoomPayload = createResult.get("createRoom");
+    assertThat(createRoomPayload.get("errors").size(), equalTo(0));
+    assertThat(createRoomPayload.get("room").get("color").isNull(), is(true));
+  }
+
+  @Test
+  void roomIsCreatedWithAnExplicitlyChosenColour() {
+    LOG.info("Checking a room can be created with an explicitly chosen colour");
+    final Map<String, Object> room = new HashMap<>();
+    room.put("name", faker.address().city() + " Room");
+    room.put("capacity", 4);
+    room.put("color", "Violet");
+    final JsonNode createResult = client.execute(CREATE_ROOM_MUTATION, Map.of("room", room));
+
+    final JsonNode createRoomPayload = createResult.get("createRoom");
+    assertThat(createRoomPayload.get("errors").size(), equalTo(0));
+    assertThat(createRoomPayload.get("room").get("color").asText(), equalTo("Violet"));
   }
 
   @Test

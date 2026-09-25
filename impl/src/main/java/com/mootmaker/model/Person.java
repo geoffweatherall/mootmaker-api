@@ -30,11 +30,11 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  * source every request checks; this field only exists so the Persons admin screen can render an
  * "Admin" badge without a live Cognito lookup per person.
  *
- * <p>{@code dateFormat}/{@code timeFormat} are the owner's display preferences, exposed over
- * GraphQL as non-null. The DynamoDB attributes behind them are optional - every Person written
- * before the preferences feature existed lacks them, and guest Persons never sign in to set one -
- * so {@link #fromItem} substitutes the defaults. That substitution is the single point holding the
- * schema's non-null guarantee up; see {@code PersonTest}.
+ * <p>{@code dateFormat}/{@code timeFormat}/{@code weekStart} are the owner's display preferences,
+ * exposed over GraphQL as non-null. The DynamoDB attributes behind them are optional - every Person
+ * written before the preferences feature existed lacks them, and guest Persons never sign in to set
+ * one - so {@link #fromItem} substitutes the defaults. That substitution is the single point
+ * holding the schema's non-null guarantee up; see {@code PersonTest}.
  */
 public record Person(
     String id,
@@ -43,10 +43,12 @@ public record Person(
     List<String> cognitoEmails,
     boolean isAdmin,
     DateFormat dateFormat,
-    TimeFormat timeFormat) {
+    TimeFormat timeFormat,
+    WeekStart weekStart) {
 
   private static final DateFormat DEFAULT_DATE_FORMAT = DateFormat.Iso;
   private static final TimeFormat DEFAULT_TIME_FORMAT = TimeFormat.TwentyFourHour;
+  private static final WeekStart DEFAULT_WEEK_START = WeekStart.Monday;
 
   /**
    * Normalises null preferences to the defaults, so a Person can never carry a null one however it
@@ -56,6 +58,7 @@ public record Person(
   public Person {
     dateFormat = dateFormat == null ? DEFAULT_DATE_FORMAT : dateFormat;
     timeFormat = timeFormat == null ? DEFAULT_TIME_FORMAT : timeFormat;
+    weekStart = weekStart == null ? DEFAULT_WEEK_START : weekStart;
     cognitoSubs = cognitoSubs == null ? List.of() : List.copyOf(cognitoSubs);
     cognitoEmails = cognitoEmails == null ? List.of() : List.copyOf(cognitoEmails);
   }
@@ -84,6 +87,7 @@ public record Person(
         cognitoSub == null ? List.of() : List.of(cognitoSub),
         cognitoEmail == null ? List.of() : List.of(cognitoEmail),
         false,
+        null,
         null,
         null);
   }
@@ -117,6 +121,7 @@ public record Person(
     item.put("isAdmin", AttributeValue.builder().bool(isAdmin).build());
     item.put("dateFormat", AttributeValue.builder().s(dateFormat.name()).build());
     item.put("timeFormat", AttributeValue.builder().s(timeFormat.name()).build());
+    item.put("weekStart", AttributeValue.builder().s(weekStart.name()).build());
     return item;
   }
 
@@ -128,6 +133,7 @@ public record Person(
     map.put("linkedEmails", cognitoEmails);
     map.put("dateFormat", dateFormat.name());
     map.put("timeFormat", timeFormat.name());
+    map.put("weekStart", weekStart.name());
     return map;
   }
 
@@ -146,7 +152,8 @@ public record Person(
             : cognitoEmails.l().stream().map(AttributeValue::s).toList(),
         isAdmin != null && Boolean.TRUE.equals(isAdmin.bool()),
         readEnum(item.get("dateFormat"), DateFormat::valueOf, DEFAULT_DATE_FORMAT),
-        readEnum(item.get("timeFormat"), TimeFormat::valueOf, DEFAULT_TIME_FORMAT));
+        readEnum(item.get("timeFormat"), TimeFormat::valueOf, DEFAULT_TIME_FORMAT),
+        readEnum(item.get("weekStart"), WeekStart::valueOf, DEFAULT_WEEK_START));
   }
 
   /**

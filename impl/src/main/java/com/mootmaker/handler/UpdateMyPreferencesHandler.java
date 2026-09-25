@@ -10,6 +10,7 @@ import com.mootmaker.model.DateFormat;
 import com.mootmaker.model.Person;
 import com.mootmaker.model.PreferencesError;
 import com.mootmaker.model.TimeFormat;
+import com.mootmaker.model.WeekStart;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
@@ -22,9 +23,9 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
  * profile data an admin has any business setting on someone else's behalf, so the target is always
  * the Person linked to {@code identity.sub} and there is no id argument to get wrong.
  *
- * <p>Both formats are non-null in {@code PreferencesInput}, so AppSync rejects a missing or null
- * one before this runs: the mutation replaces the whole preference pair rather than patching one of
- * them, and the only failure left to report is having no linked Person at all.
+ * <p>All three preferences are non-null in {@code PreferencesInput}, so AppSync rejects a missing
+ * or null one before this runs: the mutation replaces the whole preference set rather than patching
+ * one of them, and the only failure left to report is having no linked Person at all.
  *
  * <p>Purely presentational. This does not affect the ISO-8601 format the API uses for every
  * date/time it accepts and returns.
@@ -62,6 +63,7 @@ public class UpdateMyPreferencesHandler implements RequestHandler<Map<String, Ob
     final Map<String, Object> preferences = castToMap(arguments.get("preferences"));
     final DateFormat dateFormat = DateFormat.valueOf((String) preferences.get("dateFormat"));
     final TimeFormat timeFormat = TimeFormat.valueOf((String) preferences.get("timeFormat"));
+    final WeekStart weekStart = WeekStart.valueOf((String) preferences.get("weekStart"));
 
     // Carries every field this mutation doesn't own forward - PutItem fully replaces the item, so
     // building this from the preferences alone would wipe the caller's name, unlink their Cognito
@@ -76,7 +78,8 @@ public class UpdateMyPreferencesHandler implements RequestHandler<Map<String, Ob
             current.get().cognitoEmails(),
             current.get().isAdmin(),
             dateFormat,
-            timeFormat);
+            timeFormat,
+            weekStart);
     dynamoDbClient.putItem(
         PutItemRequest.builder().tableName(tableName).item(updated.toItem()).build());
 

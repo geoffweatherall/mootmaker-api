@@ -6,6 +6,8 @@ package com.mootmaker.model;
  */
 public enum PersonError {
   NameRequired,
+  /** createPerson only: another person already has this name (case/whitespace-insensitive). */
+  NameAlreadyExists,
   /** renamePerson/setPersonAdmin/deletePerson only: id did not match any existing person. */
   PersonNotFound,
   /** updateMyName only: the caller has no linked Person, so there is nothing to rename. */

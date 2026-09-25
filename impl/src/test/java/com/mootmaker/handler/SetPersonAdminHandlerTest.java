@@ -67,6 +67,7 @@ class SetPersonAdminHandlerTest {
             List.of("ada@example.com", "ada@work.example.com"),
             false,
             null,
+            null,
             null);
     final FakeDynamoDbClient dynamoDbClient = clientWithPerson(person);
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
@@ -91,7 +92,14 @@ class SetPersonAdminHandlerTest {
   void revokesAdminFromSomeoneElse() {
     final Person person =
         new Person(
-            "person-1", "Ada", List.of("sub-1"), List.of("ada@example.com"), true, null, null);
+            "person-1",
+            "Ada",
+            List.of("sub-1"),
+            List.of("ada@example.com"),
+            true,
+            null,
+            null,
+            null);
     final FakeDynamoDbClient dynamoDbClient = clientWithPerson(person);
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
     final SetPersonAdminHandler handler =
@@ -129,7 +137,14 @@ class SetPersonAdminHandlerTest {
     final Person self = new Person("admin-1", "Grace", "sub-1", "grace@example.com");
     final Person selfWithAdmin =
         new Person(
-            self.id(), self.name(), self.cognitoSubs(), self.cognitoEmails(), true, null, null);
+            self.id(),
+            self.name(),
+            self.cognitoSubs(),
+            self.cognitoEmails(),
+            true,
+            null,
+            null,
+            null);
     final FakeDynamoDbClient dynamoDbClient = clientWithPerson(selfWithAdmin);
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
     final SetPersonAdminHandler handler =

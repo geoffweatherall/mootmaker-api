@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import module java.base;
 
 import com.mootmaker.model.Room;
+import com.mootmaker.model.RoomColor;
 import com.mootmaker.model.RoomError;
 import com.mootmaker.testsupport.FakeDynamoDbClient;
 import org.junit.jupiter.api.Test;
@@ -17,9 +18,15 @@ class UpdateRoomHandlerTest {
 
   private static Map<String, Object> updateArguments(
       final String id, final String name, final int capacity) {
+    return updateArguments(id, name, capacity, null);
+  }
+
+  private static Map<String, Object> updateArguments(
+      final String id, final String name, final int capacity, final String color) {
     final Map<String, Object> roomInput = new HashMap<>();
     roomInput.put("name", name);
     roomInput.put("capacity", capacity);
+    roomInput.put("color", color);
     final Map<String, Object> arguments = new HashMap<>();
     arguments.put("id", id);
     arguments.put("room", roomInput);
@@ -40,6 +47,20 @@ class UpdateRoomHandlerTest {
     final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
     fakeClient.tables.put("Rooms", new ArrayList<>(List.of(new Room(id, name, capacity).toItem())));
     return fakeClient;
+  }
+
+  @Test
+  void updatesAnExistingRoomsColour() {
+    final FakeDynamoDbClient fakeClient = clientWithRoom("room-1", "Conference A", 8);
+    final UpdateRoomHandler handler = new UpdateRoomHandler(fakeClient, "Rooms");
+
+    final Map<String, Object> result =
+        invoke(handler, updateArguments("room-1", "Conference A", 8, "Aqua"));
+
+    @SuppressWarnings("unchecked")
+    final Map<String, Object> room = (Map<String, Object>) result.get("room");
+    assertEquals("Aqua", room.get("color"));
+    assertEquals(RoomColor.Aqua, Room.fromItem(fakeClient.tables.get("Rooms").getFirst()).color());
   }
 
   @Test

@@ -26,6 +26,7 @@ locals {
   lambda_log_groups = toset([
     "${local.resource_prefix}-resolvers",
     "${local.resource_prefix}-post-confirmation-create-person",
+    "${local.resource_prefix}-pre-sign-up-name-collision",
     "${local.resource_prefix}-database-reset",
     "${local.resource_prefix}-database-repair",
     "${local.resource_prefix}-history-cleanup",

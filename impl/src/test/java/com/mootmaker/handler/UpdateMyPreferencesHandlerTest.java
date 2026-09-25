@@ -24,11 +24,21 @@ class UpdateMyPreferencesHandlerTest {
    */
   private static Map<String, Object> event(
       final String sub, final String dateFormat, final String timeFormat) {
+    return event(sub, dateFormat, timeFormat, "Monday");
+  }
+
+  private static Map<String, Object> event(
+      final String sub, final String dateFormat, final String timeFormat, final String weekStart) {
     return Map.of(
         "identity",
             Map.of("sub", sub, "claims", Map.of("custom:personId", sub.replace("sub-", "person-"))),
         "arguments",
-            Map.of("preferences", Map.of("dateFormat", dateFormat, "timeFormat", timeFormat)));
+            Map.of(
+                "preferences",
+                Map.of(
+                    "dateFormat", dateFormat,
+                    "timeFormat", timeFormat,
+                    "weekStart", weekStart)));
   }
 
   @SuppressWarnings("unchecked")
@@ -49,16 +59,17 @@ class UpdateMyPreferencesHandlerTest {
   }
 
   @Test
-  void setsBothPreferencesOnTheCallersOwnPerson() {
+  void setsAllThreePreferencesOnTheCallersOwnPerson() {
     final FakeDynamoDbClient fakeClient =
         clientWith(new Person("person-1", "Ada Lovelace", "sub-1"));
     final UpdateMyPreferencesHandler handler = new UpdateMyPreferencesHandler(fakeClient, "People");
 
-    final Object result = handler.handleRequest(event("sub-1", "British", "AmPm"), null);
+    final Object result = handler.handleRequest(event("sub-1", "British", "AmPm", "Sunday"), null);
 
     assertTrue(errorsOf(result).isEmpty());
     assertEquals("British", personOf(result).get("dateFormat"));
     assertEquals("AmPm", personOf(result).get("timeFormat"));
+    assertEquals("Sunday", personOf(result).get("weekStart"));
   }
 
   @Test
@@ -67,11 +78,12 @@ class UpdateMyPreferencesHandlerTest {
         clientWith(new Person("person-1", "Ada Lovelace", "sub-1"));
     final UpdateMyPreferencesHandler handler = new UpdateMyPreferencesHandler(fakeClient, "People");
 
-    handler.handleRequest(event("sub-1", "Usa", "AmPm"), null);
+    handler.handleRequest(event("sub-1", "Usa", "AmPm", "Sunday"), null);
 
     final Person stored = Person.fromItem(fakeClient.tables.get("People").getFirst());
     assertEquals(DateFormat.Usa, stored.dateFormat());
     assertEquals(TimeFormat.AmPm, stored.timeFormat());
+    assertEquals(com.mootmaker.model.WeekStart.Sunday, stored.weekStart());
   }
 
   /**

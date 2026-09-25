@@ -7,6 +7,7 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.RoomRepository;
 import com.mootmaker.model.Room;
+import com.mootmaker.model.RoomColor;
 import com.mootmaker.model.RoomError;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -43,6 +44,8 @@ public class UpdateRoomHandler implements RequestHandler<Map<String, Object>, Ob
 
     final String name = (String) roomInput.get("name");
     final int capacity = ((Number) roomInput.get("capacity")).intValue();
+    final RoomColor color =
+        roomInput.get("color") == null ? null : RoomColor.valueOf((String) roomInput.get("color"));
 
     // Collects every broken rule rather than stopping at the first, same as CreateRoomHandler -
     // deliberately checks existence even when name/capacity are already invalid, so a caller
@@ -70,7 +73,7 @@ public class UpdateRoomHandler implements RequestHandler<Map<String, Object>, Ob
       return result;
     }
 
-    final Room room = new Room(id, name, capacity);
+    final Room room = new Room(id, name, capacity, color);
     dynamoDbClient.putItem(
         PutItemRequest.builder().tableName(tableName).item(room.toItem()).build());
 
