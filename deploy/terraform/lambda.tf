@@ -184,14 +184,43 @@ resource "aws_lambda_alias" "pre_sign_up_name_collision_live" {
 # it: nothing in this apply invokes PostConfirmation synchronously - only a later, real sign-up does,
 # by which time the snapshot is long since ready. PreSignUp has no such luxury.
 #
+# This is a null_resource + local-exec poll, not a time_sleep like iam_role_propagation above -
+# deliberately, and only after a fixed sleep proved unreliable in practice. A first attempt used
+# time_sleep with a 60s duration; it passed locally (twice) but still failed in mootmaker-release's
+# CI with the identical ResourceConflictException, because that run deploys mootmaker-api three times
+# in parallel (release.yml builds api/webapp/demo-data concurrently, and both webapp and demo-data
+# also deploy api as a dependency - see mootmaker#41's identical theory about parallel SnapStart
+# publishing under contention). Snapshot creation time isn't a constant; it scales with how much
+# other SnapStart work the account is doing at the same moment, so a fixed guess can never be safe at
+# every concurrency level, only lucky at whatever level it was tuned against. Polling the actual
+# readiness signal (SnapStart.OptimizationStatus turning "On" - confirmed via `aws lambda
+# get-function --qualifier <version>` against a real, ready function) waits exactly as long as
+# needed and no longer, regardless of contention.
+#
 # Triggers on the published version, matching time_sleep.iam_role_propagation's own reasoning: an
 # unchanged function on an existing environment re-applies without paying this again, only a fresh
 # publish (a new environment, or a real code change) does.
-resource "time_sleep" "pre_sign_up_snapstart_ready" {
-  create_duration = "60s"
-
+resource "null_resource" "pre_sign_up_snapstart_ready" {
   triggers = {
     version = aws_lambda_function.pre_sign_up_name_collision.version
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -euo pipefail
+      for i in $(seq 1 120); do
+        status="$(aws lambda get-function-configuration \
+          --function-name '${aws_lambda_function.pre_sign_up_name_collision.function_name}' \
+          --qualifier '${aws_lambda_function.pre_sign_up_name_collision.version}' \
+          --query 'SnapStart.OptimizationStatus' --output text)"
+        if [ "$status" = "On" ]; then
+          exit 0
+        fi
+        sleep 5
+      done
+      echo "Timed out after 10m waiting for pre-sign-up-name-collision's SnapStart snapshot to become ready (last status: $status)" >&2
+      exit 1
+    EOT
   }
 
   depends_on = [aws_lambda_alias.pre_sign_up_name_collision_live]

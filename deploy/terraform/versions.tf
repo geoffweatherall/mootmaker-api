@@ -15,6 +15,11 @@ terraform {
       source  = "hashicorp/time"
       version = "~> 0.12"
     }
+    # Only for the SnapStart-readiness poll in lambda.tf.
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 
   # Bucket/key/region/locking are supplied via backend.hcl (see
