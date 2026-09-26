@@ -185,17 +185,25 @@ resource "aws_lambda_alias" "pre_sign_up_name_collision_live" {
 # by which time the snapshot is long since ready. PreSignUp has no such luxury.
 #
 # This is a null_resource + local-exec poll, not a time_sleep like iam_role_propagation above -
-# deliberately, and only after a fixed sleep proved unreliable in practice. A first attempt used
-# time_sleep with a 60s duration; it passed locally (twice) but still failed in mootmaker-release's
-# CI with the identical ResourceConflictException, because that run deploys mootmaker-api three times
-# in parallel (release.yml builds api/webapp/demo-data concurrently, and both webapp and demo-data
-# also deploy api as a dependency - see mootmaker#41's identical theory about parallel SnapStart
-# publishing under contention). Snapshot creation time isn't a constant; it scales with how much
-# other SnapStart work the account is doing at the same moment, so a fixed guess can never be safe at
-# every concurrency level, only lucky at whatever level it was tuned against. Polling the actual
-# readiness signal (SnapStart.OptimizationStatus turning "On" - confirmed via `aws lambda
-# get-function --qualifier <version>` against a real, ready function) waits exactly as long as
-# needed and no longer, regardless of contention.
+# deliberately, and only after two earlier attempts both proved unreliable in practice:
+#  1. time_sleep with a 60s duration passed locally (twice) but still failed in mootmaker-release's
+#     CI with the identical ResourceConflictException, because that run deploys mootmaker-api three
+#     times in parallel (release.yml builds api/webapp/demo-data concurrently, and both webapp and
+#     demo-data also deploy api as a dependency - see mootmaker#41's identical theory about parallel
+#     SnapStart publishing under contention). Snapshot creation time isn't a constant, so a fixed
+#     guess can only ever be lucky at the concurrency level it was tuned against.
+#  2. Polling SnapStart.OptimizationStatus (via `aws lambda get-function-configuration`) still failed
+#     the same way, immediately after reporting "On" - that field turns out to describe this
+#     version's SnapStart *configuration* (is optimization turned on for it at all), not whether its
+#     snapshot has actually finished being prepared. It reads "On" the instant the version exists,
+#     regardless of real invoke-readiness, so it never actually waited for anything.
+#
+# What's left, and what this does instead, is the one signal that can't lie: a real invocation.
+# PreSignUpNameCollisionHandler returns its event unchanged for any triggerSource other than
+# "PreSignUp_SignUp" (see its own handleRequest) without touching DynamoDB, so `{}` is a genuinely
+# harmless, side-effect-free probe - this repeatedly invokes the function with it until the AWS CLI
+# stops reporting ResourceConflictException, which is the exact failure this exists to prevent, not
+# a proxy for it.
 #
 # Triggers on the published version, matching time_sleep.iam_role_propagation's own reasoning: an
 # unchanged function on an existing environment re-applies without paying this again, only a fresh
@@ -214,16 +222,15 @@ resource "null_resource" "pre_sign_up_snapstart_ready" {
     command = <<-EOT
       set -eu
       for i in $(seq 1 120); do
-        status="$(aws lambda get-function-configuration \
+        if aws lambda invoke \
           --function-name '${aws_lambda_function.pre_sign_up_name_collision.function_name}' \
           --qualifier '${aws_lambda_function.pre_sign_up_name_collision.version}' \
-          --query 'SnapStart.OptimizationStatus' --output text)"
-        if [ "$status" = "On" ]; then
+          --payload '{}' /dev/null >/dev/null 2>&1; then
           exit 0
         fi
         sleep 5
       done
-      echo "Timed out after 10m waiting for pre-sign-up-name-collision's SnapStart snapshot to become ready (last status: $status)" >&2
+      echo "Timed out after 10m waiting to invoke pre-sign-up-name-collision (still not ready)" >&2
       exit 1
     EOT
   }
