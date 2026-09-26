@@ -277,11 +277,11 @@ resource "aws_cognito_user" "e2e" {
   #    same class of issue). Lost that race on a fresh environment: Cognito invoked the trigger
   #    before its own permission to do so had propagated, and AdminCreateUser failed outright with
   #    UnexpectedLambdaException/AccessDeniedException.
-  #  - time_sleep.pre_sign_up_snapstart_ready (lambda.tf): a freshly published SnapStart version
+  #  - null_resource.pre_sign_up_snapstart_ready (lambda.tf): a freshly published SnapStart version
   #    needs its own extra time before it can be invoked at all, regardless of permissions. Lost
   #    this race too, once the first was fixed: ResourceConflictException instead.
   # See mootmaker-api#77's and #78's first ephemeral deploys.
-  depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up, time_sleep.pre_sign_up_snapstart_ready]
+  depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up, null_resource.pre_sign_up_snapstart_ready]
 }
 
 resource "aws_dynamodb_table_item" "e2e_person" {
@@ -355,7 +355,7 @@ resource "aws_cognito_user" "demo" {
   }
 
   # See aws_cognito_user.e2e's identical depends_on/comment above.
-  depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up, time_sleep.pre_sign_up_snapstart_ready]
+  depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up, null_resource.pre_sign_up_snapstart_ready]
 }
 
 # The demo user above is created directly by Terraform rather than through the sign-up/confirm
@@ -437,5 +437,5 @@ resource "aws_cognito_user" "no_person" {
   }
 
   # See aws_cognito_user.e2e's identical depends_on/comment above.
-  depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up, time_sleep.pre_sign_up_snapstart_ready]
+  depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up, null_resource.pre_sign_up_snapstart_ready]
 }
