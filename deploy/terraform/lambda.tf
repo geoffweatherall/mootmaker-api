@@ -206,8 +206,13 @@ resource "null_resource" "pre_sign_up_snapstart_ready" {
   }
 
   provisioner "local-exec" {
+    # POSIX sh, not bash: Terraform's local-exec runs via /bin/sh -c on Unix, and GitHub's Ubuntu
+    # runners point that at dash, which has no -o pipefail (confirmed for real: "set: Illegal
+    # option -o pipefail" - passed locally only because this workstation's /bin/sh happens to be
+    # bash). Dropped rather than switched to an explicit bash interpreter, since nothing here pipes
+    # anyway - set -eu alone already covers every failure mode this script has.
     command = <<-EOT
-      set -euo pipefail
+      set -eu
       for i in $(seq 1 120); do
         status="$(aws lambda get-function-configuration \
           --function-name '${aws_lambda_function.pre_sign_up_name_collision.function_name}' \
