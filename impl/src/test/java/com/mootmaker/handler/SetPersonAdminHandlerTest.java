@@ -118,7 +118,8 @@ class SetPersonAdminHandlerTest {
   }
 
   /**
-   * As RenamePersonHandlerTest's regressionMootmakerApi71... - see designs/person-avatar-photos.md.
+   * As RenamePersonHandlerTest's regressionMootmakerApi71... - see
+   * designs/archive/person-avatar-photos.md.
    */
   @Test
   void carriesPhotoUrlForwardWhenGrantingAdmin() {

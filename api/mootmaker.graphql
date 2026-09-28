@@ -65,7 +65,7 @@ type Mutation {
  updateRoom(id: ID!, room: RoomInput!): UpdateRoomResult!
  "Admin only. Rejects with RoomHasUpcomingMeetings if any meeting from today onward is still booked in this room - reassign or cancel those first. A hard delete otherwise: MeetingResponse.resolveRoom already falls back to a 'Deleted room' placeholder for any (necessarily past) meeting still referencing this id, the same way resolvePerson already does for deleteMyAccount."
  deleteRoom(id: ID!): DeleteRoomResult!
- "Admin only. photoUrl is a path relative to the webapp's own origin (e.g. \"avatars/female-07.jpg\") - set today only by mootmaker-demo-data, from its bundled stock library. There is no upload UI, so every other caller omits it and the person falls back to initials."
+ "Admin only. photoUrl is a path relative to the webapp's own origin (e.g. \"/avatars/female-07.jpg\") - set today only by mootmaker-demo-data, from its bundled stock library. There is no upload UI, so every other caller omits it and the person falls back to initials."
  createPerson(name: String!, photoUrl: String): CreatePersonResult!
  "Self-only - sets the caller's own name. Requires a linked Person, same as updateMyPreferences."
  updateMyName(name: String!): UpdateMyNameResult!
@@ -186,7 +186,7 @@ type Person {
     timeFormat: TimeFormat!
     "Which day a date-picker calendar grid should start its weeks on. Never null; defaults to Monday for anyone who has never chosen - deliberately not inferred from locale, the same reasoning as dateFormat/timeFormat's own defaults. Does not affect PersonCalendarPage's own weekly agenda, which is a fixed Monday-Friday business-day view unrelated to this."
     weekStart: WeekStart!
-    "Path to this person's avatar photo, relative to the webapp's own origin (e.g. \"avatars/female-07.jpg\") - not an absolute URL. Null for anyone with no photo, which today is everyone except people mootmaker-demo-data created from its bundled stock library; there is no upload feature yet, so a null here always falls back to an initials avatar."
+    "Path to this person's avatar photo, relative to the webapp's own origin (e.g. \"/avatars/female-07.jpg\") - not an absolute URL. Null for anyone with no photo, which today is everyone except people mootmaker-demo-data created from its bundled stock library; there is no upload feature yet, so a null here always falls back to an initials avatar."
     photoUrl: String
 }
 
