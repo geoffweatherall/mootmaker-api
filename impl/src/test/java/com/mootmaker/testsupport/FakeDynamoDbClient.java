@@ -25,6 +25,8 @@ import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsResponse;
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
 import software.amazon.awssdk.services.dynamodb.model.Update;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemResponse;
 
 /**
  * Minimal in-memory test double covering only the operations the handlers under test use. {@code
@@ -234,10 +236,7 @@ public class FakeDynamoDbClient implements DynamoDbClient {
     return existing != null && expected.equals(existing.get(attrName));
   }
 
-  /**
-   * Only "SET #alias = :value" (a single assignment) is modelled - the only shape {@code
-   * DayRepository}'s pointer repoint issues.
-   */
+  /** The {@code Update} action inside a transaction - see {@link #applySet}. */
   private void applyUpdate(final Update update) {
     final List<Map<String, AttributeValue>> items =
         tables.computeIfAbsent(update.tableName(), _ -> new ArrayList<>());
@@ -246,23 +245,89 @@ public class FakeDynamoDbClient implements DynamoDbClient {
     if (existing == null) {
       throw new IllegalStateException("FakeDynamoDbClient: update on missing item " + update.key());
     }
-    final String expr = update.updateExpression();
-    if (expr == null || !expr.startsWith("SET ") || expr.contains(",")) {
-      throw new UnsupportedOperationException(
-          "FakeDynamoDbClient does not model the update expression: " + expr);
-    }
-    final Map<String, String> names =
-        update.expressionAttributeNames() == null ? Map.of() : update.expressionAttributeNames();
-    final String assignment = expr.substring(4).trim();
-    final int eq = assignment.indexOf(" = ");
-    final String attrName = attributeName(assignment.substring(0, eq).trim(), names);
-    final AttributeValue newValue =
-        update.expressionAttributeValues().get(assignment.substring(eq + 3).trim());
-
-    final Map<String, AttributeValue> updated = new HashMap<>(existing);
-    updated.put(attrName, newValue);
+    final Map<String, AttributeValue> updated =
+        applySet(
+            existing,
+            update.updateExpression(),
+            update.expressionAttributeNames(),
+            update.expressionAttributeValues());
     items.removeIf(item -> matchesKey(item, update.key()));
     items.add(updated);
+  }
+
+  /**
+   * A standalone {@code UpdateItem}, as {@code PersonRepository}'s attribute-level writes issue.
+   *
+   * <p>Models the one condition those use, {@code attribute_exists(id)}, because what it guards is
+   * the whole reason they set it: real {@code UpdateItem} on a missing key <em>creates</em> the
+   * item from whatever the expression sets, which would conjure a Person with no name. A fake that
+   * quietly created the item instead would hide exactly the bug the condition exists to prevent.
+   */
+  @Override
+  public synchronized UpdateItemResponse updateItem(final UpdateItemRequest request) {
+    final List<Map<String, AttributeValue>> items =
+        tables.computeIfAbsent(request.tableName(), _ -> new ArrayList<>());
+    final Map<String, AttributeValue> existing =
+        items.stream().filter(item -> matchesKey(item, request.key())).findFirst().orElse(null);
+
+    final String condition = request.conditionExpression();
+    if (condition != null) {
+      if (!condition.equals("attribute_exists(id)")) {
+        throw new UnsupportedOperationException(
+            "FakeDynamoDbClient does not model the update condition: " + condition);
+      }
+      if (existing == null) {
+        throw ConditionalCheckFailedException.builder()
+            .message("The conditional request failed")
+            .build();
+      }
+    }
+    if (existing == null) {
+      throw new IllegalStateException(
+          "FakeDynamoDbClient: update on missing item " + request.key());
+    }
+
+    final Map<String, AttributeValue> updated =
+        applySet(
+            existing,
+            request.updateExpression(),
+            request.expressionAttributeNames(),
+            request.expressionAttributeValues());
+    items.removeIf(item -> matchesKey(item, request.key()));
+    items.add(updated);
+    return UpdateItemResponse.builder().attributes(updated).build();
+  }
+
+  /**
+   * Applies a {@code SET #a = :x, #b = :y} expression to a copy of {@code existing}, returning the
+   * result. Only SET is modelled - no REMOVE, ADD or DELETE, and no arithmetic - because that is
+   * all this codebase issues. Anything else throws rather than silently doing nothing.
+   *
+   * <p>Attributes not named by the expression are copied through untouched, which is the whole
+   * property {@code PersonRepository} relies on and what a whole-item PutItem could not give.
+   */
+  private static Map<String, AttributeValue> applySet(
+      final Map<String, AttributeValue> existing,
+      final String expression,
+      final Map<String, String> attributeNames,
+      final Map<String, AttributeValue> attributeValues) {
+    if (expression == null || !expression.startsWith("SET ")) {
+      throw new UnsupportedOperationException(
+          "FakeDynamoDbClient does not model the update expression: " + expression);
+    }
+    final Map<String, String> names = attributeNames == null ? Map.of() : attributeNames;
+    final Map<String, AttributeValue> updated = new HashMap<>(existing);
+    for (final String assignment : expression.substring(4).split(",")) {
+      final int eq = assignment.indexOf(" = ");
+      if (eq < 0) {
+        throw new UnsupportedOperationException(
+            "FakeDynamoDbClient does not model the assignment: " + assignment);
+      }
+      updated.put(
+          attributeName(assignment.substring(0, eq).trim(), names),
+          attributeValues.get(assignment.substring(eq + 3).trim()));
+    }
+    return updated;
   }
 
   @Override

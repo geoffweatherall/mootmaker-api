@@ -2,12 +2,18 @@ package com.mootmaker.dynamo;
 
 import module java.base;
 
+import com.mootmaker.model.DateFormat;
 import com.mootmaker.model.Person;
+import com.mootmaker.model.TimeFormat;
+import com.mootmaker.model.WeekStart;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.ReturnValue;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemResponse;
 
 /**
  * People, by id. An instance rather than the static utility it used to be, matching {@link
@@ -68,8 +74,99 @@ public final class PersonRepository {
     return name.trim().toLowerCase(Locale.ROOT);
   }
 
+  /**
+   * Writes the whole item, replacing every attribute. Only for callers that genuinely own the
+   * entire Person - creation, and {@code database-repair}. Anything changing a subset of fields
+   * wants one of the {@code update*} methods below instead; see their shared javadoc for why.
+   */
   public void put(final Person person) {
     BatchGet.put(dynamoDbClient, tableName, person.toItem());
+  }
+
+  /** Sets a person's name, leaving every other attribute untouched. */
+  public Person updateName(final String id, final String name) {
+    return update(id, "SET #name = :name", Map.of("#name", "name"), Map.of(":name", string(name)));
+  }
+
+  /** Sets a person's admin flag, leaving every other attribute untouched. */
+  public Person updateIsAdmin(final String id, final boolean isAdmin) {
+    return update(
+        id,
+        "SET #isAdmin = :isAdmin",
+        Map.of("#isAdmin", "isAdmin"),
+        Map.of(":isAdmin", AttributeValue.builder().bool(isAdmin).build()));
+  }
+
+  /**
+   * Sets all three display preferences together, leaving every other attribute untouched. They move
+   * as a set because {@code updateMyPreferences} submits them as one, and because {@link Person}'s
+   * compact constructor normalises a null preference to its default - so there is no "unset" state
+   * to express, and every write is a SET rather than a REMOVE.
+   */
+  public Person updatePreferences(
+      final String id,
+      final DateFormat dateFormat,
+      final TimeFormat timeFormat,
+      final WeekStart weekStart) {
+    return update(
+        id,
+        "SET #dateFormat = :dateFormat, #timeFormat = :timeFormat, #weekStart = :weekStart",
+        Map.of(
+            "#dateFormat", "dateFormat",
+            "#timeFormat", "timeFormat",
+            "#weekStart", "weekStart"),
+        Map.of(
+            ":dateFormat", string(dateFormat.name()),
+            ":timeFormat", string(timeFormat.name()),
+            ":weekStart", string(weekStart.name())));
+  }
+
+  /**
+   * Applies an attribute-level {@code UpdateItem}, returning the person as stored afterwards.
+   *
+   * <p>This exists so a mutation can change the fields it owns without naming the ones it does not.
+   * Every one of these used to be a read-modify-{@code PutItem}, which fully replaces the item, so
+   * each handler had to rebuild the whole record and carry every unrelated field forward by hand -
+   * and forgetting one silently erased it. That is mootmaker-api#71, and it recurred when {@code
+   * photoUrl} was added and four separate handlers each needed the same line. An {@code UpdateItem}
+   * cannot express that bug: an attribute nobody names is an attribute nobody can lose.
+   *
+   * <p><b>The condition is not optional.</b> {@code UpdateItem} on a key that does not exist
+   * <em>creates</em> the item from whatever the expression sets - which would leave a Person with,
+   * say, only an id and an isAdmin flag, and no name. {@code attribute_exists(id)} turns that into
+   * a {@link ConditionalCheckFailedException} instead. {@code PutItem} had no equivalent trap,
+   * which is exactly why it is worth stating here.
+   *
+   * <p>Attribute names go through {@code #placeholders} throughout. {@code name} is a DynamoDB
+   * reserved word and genuinely requires it; the others do not, today, and are aliased anyway so
+   * that adding a field which happens to be reserved cannot quietly break a new expression.
+   *
+   * @throws ConditionalCheckFailedException if no person with this id exists
+   */
+  private Person update(
+      final String id,
+      final String updateExpression,
+      final Map<String, String> attributeNames,
+      final Map<String, AttributeValue> attributeValues) {
+    final UpdateItemResponse response =
+        dynamoDbClient.updateItem(
+            UpdateItemRequest.builder()
+                .tableName(tableName)
+                .key(Map.of("id", string(id)))
+                .updateExpression(updateExpression)
+                .conditionExpression("attribute_exists(id)")
+                .expressionAttributeNames(attributeNames)
+                .expressionAttributeValues(attributeValues)
+                // The stored item is the authority on what the caller should be told, and it costs
+                // nothing extra here - so handlers report what was written rather than what they
+                // hoped was written.
+                .returnValues(ReturnValue.ALL_NEW)
+                .build());
+    return Person.fromItem(response.attributes());
+  }
+
+  private static AttributeValue string(final String value) {
+    return AttributeValue.builder().s(value).build();
   }
 
   /**

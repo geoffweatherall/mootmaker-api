@@ -78,21 +78,10 @@ public class RenamePersonHandler implements RequestHandler<Map<String, Object>, 
       return result;
     }
 
-    // Carries every field this mutation doesn't own forward - PutItem fully replaces the item, so
-    // building this from just (id, name) would unlink the target's Cognito login, lose their
-    // linked emails, and demote them. See mootmaker-api#71 for what forgetting this looks like.
-    final Person updated =
-        new Person(
-            id,
-            name,
-            current.get().cognitoSubs(),
-            current.get().cognitoEmails(),
-            current.get().isAdmin(),
-            current.get().dateFormat(),
-            current.get().timeFormat(),
-            current.get().weekStart(),
-            current.get().photoUrl());
-    people.put(updated);
+    // Names the one field this mutation owns; every other attribute is left alone by the update
+    // itself rather than carried forward by hand. See PersonRepository#update - this used to be a
+    // rebuild-the-whole-record PutItem, and mootmaker-api#71 is what forgetting a field cost.
+    final Person updated = people.updateName(id, name);
 
     for (final String cognitoSub : updated.cognitoSubs()) {
       propagateNameToCognito(cognitoSub, name);
