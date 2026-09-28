@@ -107,7 +107,10 @@ class UpdateMyPreferencesHandlerTest {
     assertEquals(List.of("sub-1"), Person.fromItem(stored).cognitoSubs());
   }
 
-  /** As above, for photoUrl - see designs/person-avatar-photos.md's Trade-offs and decisions. */
+  /**
+   * As above, for photoUrl - see designs/archive/person-avatar-photos.md's Trade-offs and
+   * decisions.
+   */
   @Test
   void carriesPhotoUrlForwardUntouched() {
     final FakeDynamoDbClient fakeClient =

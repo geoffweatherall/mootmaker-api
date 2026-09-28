@@ -37,10 +37,10 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  * holding the schema's non-null guarantee up; see {@code PersonTest}.
  *
  * <p>{@code photoUrl} is a path relative to the webapp's own origin (e.g. {@code
- * "avatars/female-07.jpg"}), not an absolute URL - see designs/person-avatar-photos.md. Optional
- * and nullable, unlike the preferences above: there is no default photo, so null genuinely means
- * "show initials" rather than "hasn't chosen yet". Set today only by {@code createPerson}, and only
- * ever by mootmaker-demo-data in practice - there is no upload UI.
+ * "/avatars/female-07.jpg"}), not an absolute URL - see designs/archive/person-avatar-photos.md.
+ * Optional and nullable, unlike the preferences above: there is no default photo, so null genuinely
+ * means "show initials" rather than "hasn't chosen yet". Set today only by {@code createPerson},
+ * and only ever by mootmaker-demo-data in practice - there is no upload UI.
  */
 public record Person(
     String id,

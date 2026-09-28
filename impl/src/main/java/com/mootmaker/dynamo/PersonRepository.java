@@ -101,7 +101,7 @@ public final class PersonRepository {
 
   /**
    * As {@link #createWithNewId(String)}, with an avatar photo - see
-   * designs/person-avatar-photos.md. {@code photoUrl} is null for every caller except
+   * designs/archive/person-avatar-photos.md. {@code photoUrl} is null for every caller except
    * mootmaker-demo-data today.
    */
   public Person createWithNewId(final String name, final String photoUrl) {
