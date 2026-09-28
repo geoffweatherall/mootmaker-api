@@ -15,8 +15,13 @@ import org.junit.jupiter.api.Test;
 class CreatePersonHandlerTest {
 
   private static Map<String, Object> personArguments(final String name) {
+    return personArguments(name, null);
+  }
+
+  private static Map<String, Object> personArguments(final String name, final String photoUrl) {
     final Map<String, Object> arguments = new HashMap<>();
     arguments.put("name", name);
+    arguments.put("photoUrl", photoUrl);
     final Map<String, Object> event = new HashMap<>();
     event.put("arguments", arguments);
     event.put("identity", Map.of("sub", "test-user", "claims", Map.of("custom:class", "admin")));
@@ -53,6 +58,28 @@ class CreatePersonHandlerTest {
     final Person persisted = Person.fromItem(fakeClient.tables.get("People").getFirst());
     assertEquals(person.get("id"), persisted.id());
     assertEquals("Ada Lovelace", persisted.name());
+  }
+
+  @Test
+  void createsPersonWithAPhotoUrlWhenGiven() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final CreatePersonHandler handler = new CreatePersonHandler(fakeClient, "People");
+
+    invoke(handler, personArguments("Ada Lovelace", "avatars/female-01.jpg"));
+
+    final Person persisted = Person.fromItem(fakeClient.tables.get("People").getFirst());
+    assertEquals("avatars/female-01.jpg", persisted.photoUrl());
+  }
+
+  @Test
+  void createsPersonWithNoPhotoUrlWhenOmitted() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final CreatePersonHandler handler = new CreatePersonHandler(fakeClient, "People");
+
+    invoke(handler, personArguments("Ada Lovelace"));
+
+    final Person persisted = Person.fromItem(fakeClient.tables.get("People").getFirst());
+    assertNull(persisted.photoUrl());
   }
 
   @Test

@@ -68,6 +68,7 @@ class SetPersonAdminHandlerTest {
             false,
             null,
             null,
+            null,
             null);
     final FakeDynamoDbClient dynamoDbClient = clientWithPerson(person);
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
@@ -99,6 +100,7 @@ class SetPersonAdminHandlerTest {
             true,
             null,
             null,
+            null,
             null);
     final FakeDynamoDbClient dynamoDbClient = clientWithPerson(person);
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
@@ -113,6 +115,34 @@ class SetPersonAdminHandlerTest {
     assertFalse(Person.fromItem(dynamoDbClient.tables.get(TABLE_NAME).getFirst()).isAdmin());
     assertEquals(
         "standard", cognitoClient.updateRequests.getFirst().userAttributes().getFirst().value());
+  }
+
+  /**
+   * As RenamePersonHandlerTest's regressionMootmakerApi71... - see designs/person-avatar-photos.md.
+   */
+  @Test
+  void carriesPhotoUrlForwardWhenGrantingAdmin() {
+    final Person person =
+        new Person(
+            "person-1",
+            "Ada",
+            List.of("sub-1"),
+            List.of("ada@example.com"),
+            false,
+            null,
+            null,
+            null,
+            "avatars/female-01.jpg");
+    final FakeDynamoDbClient dynamoDbClient = clientWithPerson(person);
+    final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
+    final SetPersonAdminHandler handler =
+        new SetPersonAdminHandler(dynamoDbClient, cognitoClient, TABLE_NAME, USER_POOL_ID);
+
+    invoke(handler, event("person-1", true, "admin-person"));
+
+    assertEquals(
+        "avatars/female-01.jpg",
+        Person.fromItem(dynamoDbClient.tables.get(TABLE_NAME).getFirst()).photoUrl());
   }
 
   @Test
@@ -142,6 +172,7 @@ class SetPersonAdminHandlerTest {
             self.cognitoSubs(),
             self.cognitoEmails(),
             true,
+            null,
             null,
             null,
             null);

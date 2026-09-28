@@ -107,6 +107,29 @@ class UpdateMyPreferencesHandlerTest {
     assertEquals(List.of("sub-1"), Person.fromItem(stored).cognitoSubs());
   }
 
+  /** As above, for photoUrl - see designs/person-avatar-photos.md's Trade-offs and decisions. */
+  @Test
+  void carriesPhotoUrlForwardUntouched() {
+    final FakeDynamoDbClient fakeClient =
+        clientWith(
+            new Person(
+                "person-1",
+                "Ada Lovelace",
+                List.of("sub-1"),
+                List.of(),
+                false,
+                null,
+                null,
+                null,
+                "avatars/female-01.jpg"));
+    final UpdateMyPreferencesHandler handler = new UpdateMyPreferencesHandler(fakeClient, "People");
+
+    handler.handleRequest(event("sub-1", "British", "AmPm"), null);
+
+    final Person stored = Person.fromItem(fakeClient.tables.get("People").getFirst());
+    assertEquals("avatars/female-01.jpg", stored.photoUrl());
+  }
+
   @Test
   void reportsNoLinkedPersonWhenTheCallerHasNoPersonOfTheirOwn() {
     final FakeDynamoDbClient fakeClient =

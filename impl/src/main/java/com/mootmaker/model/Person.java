@@ -35,6 +35,12 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  * written before the preferences feature existed lacks them, and guest Persons never sign in to set
  * one - so {@link #fromItem} substitutes the defaults. That substitution is the single point
  * holding the schema's non-null guarantee up; see {@code PersonTest}.
+ *
+ * <p>{@code photoUrl} is a path relative to the webapp's own origin (e.g. {@code
+ * "avatars/female-07.jpg"}), not an absolute URL - see designs/person-avatar-photos.md. Optional
+ * and nullable, unlike the preferences above: there is no default photo, so null genuinely means
+ * "show initials" rather than "hasn't chosen yet". Set today only by {@code createPerson}, and only
+ * ever by mootmaker-demo-data in practice - there is no upload UI.
  */
 public record Person(
     String id,
@@ -44,7 +50,8 @@ public record Person(
     boolean isAdmin,
     DateFormat dateFormat,
     TimeFormat timeFormat,
-    WeekStart weekStart) {
+    WeekStart weekStart,
+    String photoUrl) {
 
   private static final DateFormat DEFAULT_DATE_FORMAT = DateFormat.Iso;
   private static final TimeFormat DEFAULT_TIME_FORMAT = TimeFormat.TwentyFourHour;
@@ -89,6 +96,7 @@ public record Person(
         false,
         null,
         null,
+        null,
         null);
   }
 
@@ -122,6 +130,9 @@ public record Person(
     item.put("dateFormat", AttributeValue.builder().s(dateFormat.name()).build());
     item.put("timeFormat", AttributeValue.builder().s(timeFormat.name()).build());
     item.put("weekStart", AttributeValue.builder().s(weekStart.name()).build());
+    if (photoUrl != null) {
+      item.put("photoUrl", AttributeValue.builder().s(photoUrl).build());
+    }
     return item;
   }
 
@@ -134,6 +145,7 @@ public record Person(
     map.put("dateFormat", dateFormat.name());
     map.put("timeFormat", timeFormat.name());
     map.put("weekStart", weekStart.name());
+    map.put("photoUrl", photoUrl);
     return map;
   }
 
@@ -141,6 +153,7 @@ public record Person(
     final AttributeValue cognitoSubs = item.get("cognitoSubs");
     final AttributeValue cognitoEmails = item.get("cognitoEmails");
     final AttributeValue isAdmin = item.get("isAdmin");
+    final AttributeValue photoUrl = item.get("photoUrl");
     return new Person(
         item.get("id").s(),
         item.get("name").s(),
@@ -153,7 +166,8 @@ public record Person(
         isAdmin != null && Boolean.TRUE.equals(isAdmin.bool()),
         readEnum(item.get("dateFormat"), DateFormat::valueOf, DEFAULT_DATE_FORMAT),
         readEnum(item.get("timeFormat"), TimeFormat::valueOf, DEFAULT_TIME_FORMAT),
-        readEnum(item.get("weekStart"), WeekStart::valueOf, DEFAULT_WEEK_START));
+        readEnum(item.get("weekStart"), WeekStart::valueOf, DEFAULT_WEEK_START),
+        photoUrl == null ? null : photoUrl.s());
   }
 
   /**

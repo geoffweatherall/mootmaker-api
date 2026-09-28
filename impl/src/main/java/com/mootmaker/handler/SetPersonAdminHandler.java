@@ -118,7 +118,8 @@ public class SetPersonAdminHandler implements RequestHandler<Map<String, Object>
             isAdmin,
             current.get().dateFormat(),
             current.get().timeFormat(),
-            current.get().weekStart());
+            current.get().weekStart(),
+            current.get().photoUrl());
     people.put(updated);
 
     boolean cognitoSyncFailed = false;

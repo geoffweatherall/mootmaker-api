@@ -75,6 +75,7 @@ class DeletePersonHandlerTest {
             false,
             null,
             null,
+            null,
             null);
     final FakeDynamoDbClient dynamoDbClient = clientWithPerson(target);
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();

@@ -74,7 +74,8 @@ class UpdateMyNameHandlerTest {
             true,
             com.mootmaker.model.DateFormat.British,
             com.mootmaker.model.TimeFormat.AmPm,
-            com.mootmaker.model.WeekStart.Sunday);
+            com.mootmaker.model.WeekStart.Sunday,
+            "avatars/male-01.jpg");
     final FakeDynamoDbClient dynamoDbClient = clientWithPerson(person);
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
     final UpdateMyNameHandler handler =
@@ -89,6 +90,7 @@ class UpdateMyNameHandlerTest {
     assertEquals(com.mootmaker.model.DateFormat.British, persisted.dateFormat());
     assertEquals(com.mootmaker.model.TimeFormat.AmPm, persisted.timeFormat());
     assertEquals(com.mootmaker.model.WeekStart.Sunday, persisted.weekStart());
+    assertEquals("avatars/male-01.jpg", persisted.photoUrl());
   }
 
   @Test

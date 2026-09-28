@@ -69,6 +69,7 @@ class PersonTest {
             false,
             null,
             null,
+            null,
             null);
 
     assertEquals(DateFormat.Iso, person.dateFormat());
@@ -87,11 +88,19 @@ class PersonTest {
             false,
             DateFormat.Usa,
             TimeFormat.AmPm,
-            WeekStart.Sunday);
+            WeekStart.Sunday,
+            "avatars/female-01.jpg");
 
     final Person restored = Person.fromItem(original.toItem());
 
     assertEquals(original, restored);
+  }
+
+  @Test
+  void defaultsToNullPhotoUrlWhenTheAttributeIsAbsent() {
+    final Person person = Person.fromItem(itemWithoutPreferences());
+
+    assertEquals(null, person.photoUrl());
   }
 
   @Test
@@ -105,7 +114,8 @@ class PersonTest {
             false,
             DateFormat.British,
             TimeFormat.AmPm,
-            WeekStart.Sunday);
+            WeekStart.Sunday,
+            null);
 
     final Map<String, Object> response = person.toResponseMap();
 
@@ -133,6 +143,7 @@ class PersonTest {
             true,
             null,
             null,
+            null,
             null);
 
     final Person restored = Person.fromItem(original.toItem());
@@ -153,12 +164,32 @@ class PersonTest {
             true,
             null,
             null,
+            null,
             null);
 
     final Map<String, Object> response = person.toResponseMap();
 
     assertEquals(true, response.get("isAdmin"));
     assertEquals(List.of("ada@example.com"), response.get("linkedEmails"));
+  }
+
+  @Test
+  void exposesPhotoUrlOverGraphQl() {
+    final Person person =
+        new Person(
+            "person-1",
+            "Ada",
+            List.of(),
+            List.of(),
+            false,
+            null,
+            null,
+            null,
+            "avatars/male-03.jpg");
+
+    final Map<String, Object> response = person.toResponseMap();
+
+    assertEquals("avatars/male-03.jpg", response.get("photoUrl"));
   }
 
   @Test
