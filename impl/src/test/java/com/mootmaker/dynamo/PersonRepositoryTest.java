@@ -59,6 +59,17 @@ class PersonRepositoryTest {
   }
 
   @Test
+  void createWithNewIdSetsThePhotoUrlWhenGiven() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final PersonRepository repository = new PersonRepository(fakeClient, TABLE);
+
+    final Person person = repository.createWithNewId("Ada Lovelace", "avatars/female-01.jpg");
+
+    assertEquals("avatars/female-01.jpg", person.photoUrl());
+    assertEquals(person, Person.fromItem(fakeClient.tables.get(TABLE).getFirst()));
+  }
+
+  @Test
   @DisplayName("createWithNewId retries with a freshly drawn id when the first one collides")
   void createWithNewIdRetriesOnAnIdCollision() {
     final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();

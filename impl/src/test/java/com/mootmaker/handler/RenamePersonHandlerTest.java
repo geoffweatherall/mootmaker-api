@@ -89,7 +89,8 @@ class RenamePersonHandlerTest {
             true,
             com.mootmaker.model.DateFormat.Usa,
             com.mootmaker.model.TimeFormat.AmPm,
-            com.mootmaker.model.WeekStart.Sunday);
+            com.mootmaker.model.WeekStart.Sunday,
+            "avatars/female-01.jpg");
     final FakeDynamoDbClient dynamoDbClient = clientWithPerson(person);
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
     final RenamePersonHandler handler =
@@ -103,6 +104,7 @@ class RenamePersonHandlerTest {
     assertEquals(com.mootmaker.model.DateFormat.Usa, persisted.dateFormat());
     assertEquals(com.mootmaker.model.TimeFormat.AmPm, persisted.timeFormat());
     assertEquals(com.mootmaker.model.WeekStart.Sunday, persisted.weekStart());
+    assertEquals("avatars/female-01.jpg", persisted.photoUrl());
   }
 
   @Test

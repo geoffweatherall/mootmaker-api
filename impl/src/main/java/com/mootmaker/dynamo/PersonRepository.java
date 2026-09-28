@@ -96,8 +96,19 @@ public final class PersonRepository {
    * simply be retried with a newly drawn one.
    */
   public Person createWithNewId(final String name) {
+    return createWithNewId(name, null);
+  }
+
+  /**
+   * As {@link #createWithNewId(String)}, with an avatar photo - see
+   * designs/person-avatar-photos.md. {@code photoUrl} is null for every caller except
+   * mootmaker-demo-data today.
+   */
+  public Person createWithNewId(final String name, final String photoUrl) {
     for (int attempt = 1; attempt <= MAX_CREATE_ATTEMPTS; attempt++) {
-      final Person person = new Person(IdAllocator.newId(), name);
+      final Person person =
+          new Person(
+              IdAllocator.newId(), name, List.of(), List.of(), false, null, null, null, photoUrl);
       try {
         create(person);
         return person;

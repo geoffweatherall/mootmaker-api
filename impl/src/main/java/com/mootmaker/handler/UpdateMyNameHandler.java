@@ -88,7 +88,8 @@ public class UpdateMyNameHandler implements RequestHandler<Map<String, Object>, 
             current.get().isAdmin(),
             current.get().dateFormat(),
             current.get().timeFormat(),
-            current.get().weekStart());
+            current.get().weekStart(),
+            current.get().photoUrl());
     people.put(updated);
 
     for (final String cognitoSub : updated.cognitoSubs()) {

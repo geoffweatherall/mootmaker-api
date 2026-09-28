@@ -79,7 +79,8 @@ public class UpdateMyPreferencesHandler implements RequestHandler<Map<String, Ob
             current.get().isAdmin(),
             dateFormat,
             timeFormat,
-            weekStart);
+            weekStart,
+            current.get().photoUrl());
     dynamoDbClient.putItem(
         PutItemRequest.builder().tableName(tableName).item(updated.toItem()).build());
 
