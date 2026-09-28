@@ -12,7 +12,6 @@ import com.mootmaker.model.PreferencesError;
 import com.mootmaker.model.TimeFormat;
 import com.mootmaker.model.WeekStart;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * AppSync direct-Lambda resolver for {@code Mutation.updateMyPreferences}: sets the caller's own
@@ -65,24 +64,13 @@ public class UpdateMyPreferencesHandler implements RequestHandler<Map<String, Ob
     final TimeFormat timeFormat = TimeFormat.valueOf((String) preferences.get("timeFormat"));
     final WeekStart weekStart = WeekStart.valueOf((String) preferences.get("weekStart"));
 
-    // Carries every field this mutation doesn't own forward - PutItem fully replaces the item, so
-    // building this from the preferences alone would wipe the caller's name, unlink their Cognito
-    // login, lose their linked emails, and demote an admin. The mirror image of RenamePersonHandler
-    // and SetPersonAdminHandler's care in the other direction - see mootmaker-api#71 for what
-    // forgetting this looks like.
+    // Names only the three fields this mutation owns - see RenamePersonHandler's identical comment
+    // and PersonRepository#update. This handler also stops reaching past the repository to the
+    // DynamoDB client directly, which was the one place a person was written without going through
+    // PersonRepository at all.
     final Person updated =
-        new Person(
-            current.get().id(),
-            current.get().name(),
-            current.get().cognitoSubs(),
-            current.get().cognitoEmails(),
-            current.get().isAdmin(),
-            dateFormat,
-            timeFormat,
-            weekStart,
-            current.get().photoUrl());
-    dynamoDbClient.putItem(
-        PutItemRequest.builder().tableName(tableName).item(updated.toItem()).build());
+        new PersonRepository(dynamoDbClient, tableName)
+            .updatePreferences(current.get().id(), dateFormat, timeFormat, weekStart);
 
     result.put("person", updated.toResponseMap());
     result.put("errors", List.of());

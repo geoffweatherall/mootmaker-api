@@ -107,20 +107,9 @@ public class SetPersonAdminHandler implements RequestHandler<Map<String, Object>
       return result;
     }
 
-    // Carries every field this mutation doesn't own forward - see RenamePersonHandler's identical
-    // comment; mootmaker-api#71 is what forgetting this looks like.
-    final Person updated =
-        new Person(
-            id,
-            current.get().name(),
-            current.get().cognitoSubs(),
-            current.get().cognitoEmails(),
-            isAdmin,
-            current.get().dateFormat(),
-            current.get().timeFormat(),
-            current.get().weekStart(),
-            current.get().photoUrl());
-    people.put(updated);
+    // Names the one field this mutation owns - see RenamePersonHandler's identical comment and
+    // PersonRepository#update.
+    final Person updated = people.updateIsAdmin(id, isAdmin);
 
     boolean cognitoSyncFailed = false;
     for (final String cognitoSub : updated.cognitoSubs()) {

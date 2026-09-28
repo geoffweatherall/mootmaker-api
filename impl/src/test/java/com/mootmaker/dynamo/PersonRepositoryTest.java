@@ -1,12 +1,16 @@
 package com.mootmaker.dynamo;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import module java.base;
 
+import com.mootmaker.model.DateFormat;
 import com.mootmaker.model.Person;
+import com.mootmaker.model.TimeFormat;
+import com.mootmaker.model.WeekStart;
 import com.mootmaker.testsupport.FakeDynamoDbClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -92,6 +96,114 @@ class PersonRepositoryTest {
     final IllegalStateException thrown =
         assertThrows(IllegalStateException.class, () -> repository.createWithNewId("Ada Lovelace"));
     assertTrue(thrown.getMessage().contains("attempts"), thrown.getMessage());
+    assertTrue(fakeClient.tables.getOrDefault(TABLE, List.of()).isEmpty());
+  }
+
+  // --- Attribute-level updates ---------------------------------------------------------
+  //
+  // These replaced read-modify-PutItem, where each caller had to rebuild the whole record and
+  // carry every field it did not own forward by hand. The handler-level tests still assert that
+  // nothing is lost; what follows asserts it at the level where it is now structurally true, so
+  // the guarantee is pinned to the repository rather than to four handlers all remembering.
+
+  /** A person with every field populated, so an update that clobbers anything is visible. */
+  private static Person fullyPopulated() {
+    return new Person(
+        "person-1",
+        "Ada Lovelace",
+        List.of("sub-1", "sub-2"),
+        List.of("ada@example.com"),
+        true,
+        DateFormat.British,
+        TimeFormat.AmPm,
+        WeekStart.Sunday,
+        "v1/person-1/abc123");
+  }
+
+  @Test
+  void updateNameChangesOnlyTheName() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final PersonRepository repository = new PersonRepository(fakeClient, TABLE);
+    repository.create(fullyPopulated());
+
+    final Person updated = repository.updateName("person-1", "Ada King");
+
+    final Person expected =
+        new Person(
+            "person-1",
+            "Ada King",
+            List.of("sub-1", "sub-2"),
+            List.of("ada@example.com"),
+            true,
+            DateFormat.British,
+            TimeFormat.AmPm,
+            WeekStart.Sunday,
+            "v1/person-1/abc123");
+    assertEquals(expected, updated);
+    assertEquals(updated, Person.fromItem(fakeClient.tables.get(TABLE).getFirst()));
+  }
+
+  @Test
+  void updateIsAdminChangesOnlyTheAdminFlag() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final PersonRepository repository = new PersonRepository(fakeClient, TABLE);
+    repository.create(fullyPopulated());
+
+    final Person updated = repository.updateIsAdmin("person-1", false);
+
+    assertFalse(updated.isAdmin());
+    assertEquals("Ada Lovelace", updated.name());
+    assertEquals(List.of("sub-1", "sub-2"), updated.cognitoSubs());
+    assertEquals(List.of("ada@example.com"), updated.cognitoEmails());
+    assertEquals("v1/person-1/abc123", updated.photoUrl());
+    assertEquals(DateFormat.British, updated.dateFormat());
+  }
+
+  @Test
+  void updatePreferencesChangesOnlyTheThreePreferences() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final PersonRepository repository = new PersonRepository(fakeClient, TABLE);
+    repository.create(fullyPopulated());
+
+    final Person updated =
+        repository.updatePreferences(
+            "person-1", DateFormat.Iso, TimeFormat.TwentyFourHour, WeekStart.Monday);
+
+    assertEquals(DateFormat.Iso, updated.dateFormat());
+    assertEquals(TimeFormat.TwentyFourHour, updated.timeFormat());
+    assertEquals(WeekStart.Monday, updated.weekStart());
+    assertEquals("Ada Lovelace", updated.name());
+    assertTrue(updated.isAdmin());
+    assertEquals("v1/person-1/abc123", updated.photoUrl());
+    assertEquals(List.of("sub-1", "sub-2"), updated.cognitoSubs());
+  }
+
+  @Test
+  @DisplayName("an update returns what was actually stored, not what the caller assembled")
+  void updateReturnsTheStoredItem() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final PersonRepository repository = new PersonRepository(fakeClient, TABLE);
+    repository.create(fullyPopulated());
+
+    final Person returned = repository.updateName("person-1", "Ada King");
+
+    assertEquals(Person.fromItem(fakeClient.tables.get(TABLE).getFirst()), returned);
+  }
+
+  /**
+   * The trap PutItem never had. A real {@code UpdateItem} on a key that does not exist CREATES the
+   * item from whatever the expression sets - here, a Person carrying a name and nothing else, no id
+   * having been written by any caller. {@code attribute_exists(id)} is what turns that into a
+   * failure, and this asserts both halves: it throws, and the table is still empty afterwards.
+   */
+  @Test
+  @DisplayName("updating a person who does not exist fails, and creates no partial record")
+  void updateOnAMissingPersonFailsAndWritesNothing() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final PersonRepository repository = new PersonRepository(fakeClient, TABLE);
+
+    assertThrows(
+        ConditionalCheckFailedException.class, () -> repository.updateName("ghost", "Nobody"));
     assertTrue(fakeClient.tables.getOrDefault(TABLE, List.of()).isEmpty());
   }
 }

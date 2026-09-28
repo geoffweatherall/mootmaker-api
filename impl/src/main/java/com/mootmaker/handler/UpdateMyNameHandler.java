@@ -76,21 +76,9 @@ public class UpdateMyNameHandler implements RequestHandler<Map<String, Object>, 
       return result;
     }
 
-    // Carries every field this mutation doesn't own forward - PutItem fully replaces the item, so
-    // building this from just (id, name) would unlink the caller's Cognito login, lose their
-    // linked emails, and demote them. See mootmaker-api#71 for what forgetting this looks like.
-    final Person updated =
-        new Person(
-            current.get().id(),
-            name,
-            current.get().cognitoSubs(),
-            current.get().cognitoEmails(),
-            current.get().isAdmin(),
-            current.get().dateFormat(),
-            current.get().timeFormat(),
-            current.get().weekStart(),
-            current.get().photoUrl());
-    people.put(updated);
+    // Names the one field this mutation owns - see RenamePersonHandler's identical comment and
+    // PersonRepository#update.
+    final Person updated = people.updateName(current.get().id(), name);
 
     for (final String cognitoSub : updated.cognitoSubs()) {
       propagateNameToCognito(cognitoSub, name);
