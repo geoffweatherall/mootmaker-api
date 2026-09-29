@@ -62,6 +62,28 @@ data "aws_iam_policy_document" "database_reset_access" {
     actions   = ["cognito-idp:ListUsers", "cognito-idp:AdminDeleteUser"]
     resources = [aws_cognito_user_pool.this.arn]
   }
+
+  # Wiping people without wiping their avatars would leave every object in the bucket orphaned,
+  # referenced by nothing and deleted by nothing. See avatars.tf.
+  #
+  # Unlike the resolver role (iam.tf), this one DOES need ListBucket: emptying a bucket means
+  # enumerating it, and there is no stored key list to work from once the Person items are gone.
+  # ListBucket is granted on the bucket itself, DeleteObject on its contents - two different
+  # resource ARNs, which is a standard way to get this wrong.
+  #
+  # Empties the bucket; never deletes it. The bucket is a Terraform resource, so a reset that
+  # removed it would put Terraform and reality out of step until the next apply.
+  statement {
+    sid       = "DatabaseResetAvatarList"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.avatars.arn]
+  }
+
+  statement {
+    sid       = "DatabaseResetAvatarDelete"
+    actions   = ["s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.avatars.arn}/*"]
+  }
 }
 
 resource "aws_iam_role_policy" "database_reset_access" {
@@ -101,6 +123,9 @@ resource "aws_lambda_function" "database_reset" {
       # production-ness from the environment argument rather than trusting the caller.
       ALLOW_COGNITO_WIPE      = tostring(var.environment != "production")
       RESERVED_ACCOUNT_EMAILS = local.reserved_account_emails
+      # Which bucket to empty of avatars. No AVATARS_BASE_URL here: reset deletes objects by key
+      # and never builds a URL, so giving it one would only invite something to start.
+      AVATARS_BUCKET_NAME = aws_s3_bucket.avatars.bucket
     })
   }
 

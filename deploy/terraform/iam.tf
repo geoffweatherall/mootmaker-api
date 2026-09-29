@@ -79,6 +79,30 @@ resource "aws_iam_role_policy" "lambda_dynamodb_access" {
   policy = data.aws_iam_policy_document.lambda_dynamodb_access.json
 }
 
+# Person avatars - see avatars.tf and mootmaker/designs/person-avatar-upload-refactor.md.
+#
+# Deliberately object-level only, with no s3:ListBucket: nothing in the API enumerates this bucket.
+# Every read and write is by a key the API already holds, either one it just generated or one it
+# read back off a Person. Granting List would let a bug (or a compromised resolver) walk every
+# avatar in the environment for no capability the code actually needs.
+data "aws_iam_policy_document" "lambda_avatars_access" {
+  statement {
+    # PutObject: ConfirmAvatarUploadHandler writes the normalised image.
+    # GetObject: it first reads back the staged upload to decode and re-encode it.
+    # DeleteObject: the staged upload is removed once consumed, and setting or removing an avatar
+    #   deletes whatever else sits under that person's prefix - "at most one avatar per person" is
+    #   an invariant on the prefix, not something the caller is trusted to maintain.
+    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.avatars.arn}/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_avatars_access" {
+  name   = "${local.resource_prefix}-lambda-avatars-access"
+  role   = aws_iam_role.lambda_exec.id
+  policy = data.aws_iam_policy_document.lambda_avatars_access.json
+}
+
 # PostConfirmationCreatePersonHandler (sets a new sign-up's default class), UpdateMyNameHandler and
 # RenamePersonHandler (propagate a Person rename to Cognito's own name attribute), and
 # SetPersonAdminHandler (propagates an admin grant/revoke to custom:class) all call
