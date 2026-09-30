@@ -51,6 +51,14 @@ locals {
     # failing. Deliberately the raw AppSync URL rather than the custom domain, so a broadcast does
     # not depend on DNS or the ACM certificate being healthy.
     GRAPHQL_ENDPOINT = aws_appsync_graphql_api.this.uris["GRAPHQL"]
+
+    # Person avatars - see avatars.tf. AVATARS_BASE_URL is what resolvers prepend to a stored
+    # `v1/<personId>/<sha256>` to build Person.avatarUrl, and it is configuration rather than
+    # something Java reconstructs from the environment name: the production hostname drops the
+    # environment segment, so a rule expressed twice would be wrong in exactly one environment -
+    # the one that matters.
+    AVATARS_BUCKET_NAME = aws_s3_bucket.avatars.bucket
+    AVATARS_BASE_URL    = local.avatars_base_url
   })
 }
 

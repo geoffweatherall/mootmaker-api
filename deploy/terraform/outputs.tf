@@ -78,3 +78,13 @@ output "no_person_user_password" {
   value       = one(random_password.no_person_user[*].result)
   sensitive   = true
 }
+
+output "avatars_base_url" {
+  description = "Origin that person avatars are served from, e.g. https://avatars.mootmaker.com in production and https://avatars.<environment>.mootmaker.com elsewhere (see avatars.tf). Person.avatarUrl already arrives fully resolved, so the webapp never needs this - it exists for acceptance tests and tooling that want to assert on the host itself, or fetch an object directly."
+  value       = local.avatars_base_url
+}
+
+output "avatars_bucket_name" {
+  description = "S3 bucket holding person avatars: staged uploads under uploads/, served images under avatars/ (see avatars.tf). Exposed for acceptance tests that need to assert on what was actually stored, rather than on what the API said it stored."
+  value       = aws_s3_bucket.avatars.bucket
+}
