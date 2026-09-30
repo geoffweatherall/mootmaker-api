@@ -143,7 +143,7 @@ class SetPersonAdminHandlerTest {
 
     assertEquals(
         "avatars/female-01.jpg",
-        Person.fromItem(dynamoDbClient.tables.get(TABLE_NAME).getFirst()).photoUrl());
+        Person.fromItem(dynamoDbClient.tables.get(TABLE_NAME).getFirst()).avatarUrl());
   }
 
   @Test

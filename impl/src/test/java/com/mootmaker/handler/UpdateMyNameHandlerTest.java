@@ -90,7 +90,7 @@ class UpdateMyNameHandlerTest {
     assertEquals(com.mootmaker.model.DateFormat.British, persisted.dateFormat());
     assertEquals(com.mootmaker.model.TimeFormat.AmPm, persisted.timeFormat());
     assertEquals(com.mootmaker.model.WeekStart.Sunday, persisted.weekStart());
-    assertEquals("avatars/male-01.jpg", persisted.photoUrl());
+    assertEquals("avatars/male-01.jpg", persisted.avatarUrl());
   }
 
   @Test

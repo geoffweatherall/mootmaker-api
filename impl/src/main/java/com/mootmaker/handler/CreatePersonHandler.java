@@ -36,7 +36,6 @@ public class CreatePersonHandler implements RequestHandler<Map<String, Object>, 
 
     final Map<String, Object> arguments = castToMap(event.get("arguments"));
     final String name = (String) arguments.get("name");
-    final String photoUrl = (String) arguments.get("photoUrl");
 
     // Now returns a result type rather than a bare Person, so it can carry validation errors the
     // way every other mutation does - and the name rule that was silently absent is now stated.
@@ -58,7 +57,7 @@ public class CreatePersonHandler implements RequestHandler<Map<String, Object>, 
       return result;
     }
 
-    final Person person = people.createWithNewId(name, photoUrl);
+    final Person person = people.createWithNewId(name);
 
     result.put("person", person.toResponseMap());
     result.put("errors", List.of());

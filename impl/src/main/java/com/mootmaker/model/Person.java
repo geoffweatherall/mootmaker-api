@@ -2,6 +2,7 @@ package com.mootmaker.model;
 
 import module java.base;
 
+import com.mootmaker.avatar.AvatarUrls;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 /**
@@ -36,11 +37,12 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  * one - so {@link #fromItem} substitutes the defaults. That substitution is the single point
  * holding the schema's non-null guarantee up; see {@code PersonTest}.
  *
- * <p>{@code photoUrl} is a path relative to the webapp's own origin (e.g. {@code
- * "/avatars/female-07.jpg"}), not an absolute URL - see designs/archive/person-avatar-photos.md.
- * Optional and nullable, unlike the preferences above: there is no default photo, so null genuinely
- * means "show initials" rather than "hasn't chosen yet". Set today only by {@code createPerson},
- * and only ever by mootmaker-demo-data in practice - there is no upload UI.
+ * <p>{@code avatarUrl} holds the STORED key, {@code v1/<personId>/<sha256>} - not a URL, despite
+ * the name it carries in the schema. {@link com.mootmaker.avatar.AvatarUrls} turns it into the
+ * absolute URL a client receives, on the way out only; see that class for why the host is
+ * configuration rather than data. Optional and nullable, unlike the preferences above: there is no
+ * default avatar, so null genuinely means "show initials" rather than "hasn't chosen yet". Written
+ * only by the avatar upload mutations - see mootmaker/designs/person-avatar-upload-refactor.md.
  */
 public record Person(
     String id,
@@ -51,7 +53,7 @@ public record Person(
     DateFormat dateFormat,
     TimeFormat timeFormat,
     WeekStart weekStart,
-    String photoUrl) {
+    String avatarUrl) {
 
   private static final DateFormat DEFAULT_DATE_FORMAT = DateFormat.Iso;
   private static final TimeFormat DEFAULT_TIME_FORMAT = TimeFormat.TwentyFourHour;
@@ -130,13 +132,27 @@ public record Person(
     item.put("dateFormat", AttributeValue.builder().s(dateFormat.name()).build());
     item.put("timeFormat", AttributeValue.builder().s(timeFormat.name()).build());
     item.put("weekStart", AttributeValue.builder().s(weekStart.name()).build());
-    if (photoUrl != null) {
-      item.put("photoUrl", AttributeValue.builder().s(photoUrl).build());
+    if (avatarUrl != null) {
+      item.put("avatarUrl", AttributeValue.builder().s(avatarUrl).build());
     }
     return item;
   }
 
+  /**
+   * Uses the environment's avatar host - see the overload for why that is not always what tests
+   * want.
+   */
   public Map<String, Object> toResponseMap() {
+    return toResponseMap(AvatarUrls.fromEnvironment());
+  }
+
+  /**
+   * The GraphQL shape of this Person. {@code avatarUrl} leaves here as a fully-resolved absolute
+   * URL, built from the stored key by {@code avatarUrls} - the stored value itself never reaches a
+   * client. Taking the resolver explicitly is what lets a test assert on the URL without depending
+   * on an environment variable being set.
+   */
+  public Map<String, Object> toResponseMap(final AvatarUrls avatarUrls) {
     final Map<String, Object> map = new HashMap<>();
     map.put("id", id);
     map.put("name", name);
@@ -145,7 +161,7 @@ public record Person(
     map.put("dateFormat", dateFormat.name());
     map.put("timeFormat", timeFormat.name());
     map.put("weekStart", weekStart.name());
-    map.put("photoUrl", photoUrl);
+    map.put("avatarUrl", avatarUrls.absolute(avatarUrl));
     return map;
   }
 
@@ -153,7 +169,7 @@ public record Person(
     final AttributeValue cognitoSubs = item.get("cognitoSubs");
     final AttributeValue cognitoEmails = item.get("cognitoEmails");
     final AttributeValue isAdmin = item.get("isAdmin");
-    final AttributeValue photoUrl = item.get("photoUrl");
+    final AttributeValue avatarUrl = item.get("avatarUrl");
     return new Person(
         item.get("id").s(),
         item.get("name").s(),
@@ -167,7 +183,7 @@ public record Person(
         readEnum(item.get("dateFormat"), DateFormat::valueOf, DEFAULT_DATE_FORMAT),
         readEnum(item.get("timeFormat"), TimeFormat::valueOf, DEFAULT_TIME_FORMAT),
         readEnum(item.get("weekStart"), WeekStart::valueOf, DEFAULT_WEEK_START),
-        photoUrl == null ? null : photoUrl.s());
+        avatarUrl == null ? null : avatarUrl.s());
   }
 
   /**

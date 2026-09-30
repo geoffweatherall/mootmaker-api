@@ -2,6 +2,7 @@ package com.mootmaker.dynamo;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -62,15 +63,21 @@ class PersonRepositoryTest {
     assertEquals(person, Person.fromItem(fakeClient.tables.get(TABLE).getFirst()));
   }
 
+  /**
+   * Creation never sets an avatar. It used to, via a second argument that mootmaker-demo-data
+   * passed a bundled filename to - which meant an unvalidated, caller-supplied path reached
+   * storage. Avatars now arrive only through the upload mutations, so every one has been decoded
+   * and re-encoded by this API before any client sees it.
+   */
   @Test
-  void createWithNewIdSetsThePhotoUrlWhenGiven() {
+  void createWithNewIdNeverSetsAnAvatar() {
     final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
     final PersonRepository repository = new PersonRepository(fakeClient, TABLE);
 
-    final Person person = repository.createWithNewId("Ada Lovelace", "avatars/female-01.jpg");
+    final Person person = repository.createWithNewId("Ada Lovelace");
 
-    assertEquals("avatars/female-01.jpg", person.photoUrl());
-    assertEquals(person, Person.fromItem(fakeClient.tables.get(TABLE).getFirst()));
+    assertNull(person.avatarUrl());
+    assertNull(Person.fromItem(fakeClient.tables.get(TABLE).getFirst()).avatarUrl());
   }
 
   @Test
@@ -155,7 +162,7 @@ class PersonRepositoryTest {
     assertEquals("Ada Lovelace", updated.name());
     assertEquals(List.of("sub-1", "sub-2"), updated.cognitoSubs());
     assertEquals(List.of("ada@example.com"), updated.cognitoEmails());
-    assertEquals("v1/person-1/abc123", updated.photoUrl());
+    assertEquals("v1/person-1/abc123", updated.avatarUrl());
     assertEquals(DateFormat.British, updated.dateFormat());
   }
 
@@ -174,7 +181,7 @@ class PersonRepositoryTest {
     assertEquals(WeekStart.Monday, updated.weekStart());
     assertEquals("Ada Lovelace", updated.name());
     assertTrue(updated.isAdmin());
-    assertEquals("v1/person-1/abc123", updated.photoUrl());
+    assertEquals("v1/person-1/abc123", updated.avatarUrl());
     assertEquals(List.of("sub-1", "sub-2"), updated.cognitoSubs());
   }
 

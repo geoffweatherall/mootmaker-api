@@ -65,8 +65,8 @@ type Mutation {
  updateRoom(id: ID!, room: RoomInput!): UpdateRoomResult!
  "Admin only. Rejects with RoomHasUpcomingMeetings if any meeting from today onward is still booked in this room - reassign or cancel those first. A hard delete otherwise: MeetingResponse.resolveRoom already falls back to a 'Deleted room' placeholder for any (necessarily past) meeting still referencing this id, the same way resolvePerson already does for deleteMyAccount."
  deleteRoom(id: ID!): DeleteRoomResult!
- "Admin only. photoUrl is a path relative to the webapp's own origin (e.g. \"/avatars/female-07.jpg\") - set today only by mootmaker-demo-data, from its bundled stock library. There is no upload UI, so every other caller omits it and the person falls back to initials."
- createPerson(name: String!, photoUrl: String): CreatePersonResult!
+ "Admin only. Creates a guest Person with no linked Cognito account. An avatar is never set here - it arrives through requestAvatarUpload/confirmAvatarUpload, so that every avatar in the system has been validated and normalised by this API rather than taken on a caller's word."
+ createPerson(name: String!): CreatePersonResult!
  "Self-only - sets the caller's own name. Requires a linked Person, same as updateMyPreferences."
  updateMyName(name: String!): UpdateMyNameResult!
  "Admin only. Renames another person."
@@ -186,8 +186,8 @@ type Person {
     timeFormat: TimeFormat!
     "Which day a date-picker calendar grid should start its weeks on. Never null; defaults to Monday for anyone who has never chosen - deliberately not inferred from locale, the same reasoning as dateFormat/timeFormat's own defaults. Does not affect PersonCalendarPage's own weekly agenda, which is a fixed Monday-Friday business-day view unrelated to this."
     weekStart: WeekStart!
-    "Path to this person's avatar photo, relative to the webapp's own origin (e.g. \"/avatars/female-07.jpg\") - not an absolute URL. Null for anyone with no photo, which today is everyone except people mootmaker-demo-data created from its bundled stock library; there is no upload feature yet, so a null here always falls back to an initials avatar."
-    photoUrl: String
+    "Absolute URL of this person's avatar image, e.g. \"https://avatars.mootmaker.com/v1/abc12345/3f9a....jpg\" - fully resolved, so a client never has to know where avatars are hosted. Immutable: the path contains a hash of the image, so a different avatar is a different URL and this one can be cached indefinitely. Null for anyone with no avatar, which falls back to an initials avatar in every client."
+    avatarUrl: String
 }
 
 "Which day a calendar week starts on."
