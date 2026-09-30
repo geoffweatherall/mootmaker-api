@@ -122,6 +122,26 @@ public final class PersonRepository {
   }
 
   /**
+   * Sets or clears a person's avatar, leaving every other attribute untouched. {@code storedKey} is
+   * the {@code v1/<personId>/<sha256>} form - see {@code AvatarUrls} - and null removes the
+   * attribute outright rather than storing an empty value, so "no avatar" has exactly one
+   * representation.
+   *
+   * <p>Only the avatar mutations call this, and only after the image it names has been written.
+   * Nothing else may: this attribute is a claim that a validated object exists.
+   */
+  public Person updateAvatarUrl(final String id, final String storedKey) {
+    if (storedKey == null) {
+      return update(id, "REMOVE #avatarUrl", Map.of("#avatarUrl", "avatarUrl"), Map.of());
+    }
+    return update(
+        id,
+        "SET #avatarUrl = :avatarUrl",
+        Map.of("#avatarUrl", "avatarUrl"),
+        Map.of(":avatarUrl", string(storedKey)));
+  }
+
+  /**
    * Applies an attribute-level {@code UpdateItem}, returning the person as stored afterwards.
    *
    * <p>This exists so a mutation can change the fields it owns without naming the ones it does not.
@@ -148,20 +168,23 @@ public final class PersonRepository {
       final String updateExpression,
       final Map<String, String> attributeNames,
       final Map<String, AttributeValue> attributeValues) {
-    final UpdateItemResponse response =
-        dynamoDbClient.updateItem(
-            UpdateItemRequest.builder()
-                .tableName(tableName)
-                .key(Map.of("id", string(id)))
-                .updateExpression(updateExpression)
-                .conditionExpression("attribute_exists(id)")
-                .expressionAttributeNames(attributeNames)
-                .expressionAttributeValues(attributeValues)
-                // The stored item is the authority on what the caller should be told, and it costs
-                // nothing extra here - so handlers report what was written rather than what they
-                // hoped was written.
-                .returnValues(ReturnValue.ALL_NEW)
-                .build());
+    final UpdateItemRequest.Builder request =
+        UpdateItemRequest.builder()
+            .tableName(tableName)
+            .key(Map.of("id", string(id)))
+            .updateExpression(updateExpression)
+            .conditionExpression("attribute_exists(id)")
+            .expressionAttributeNames(attributeNames)
+            // The stored item is the authority on what the caller should be told, and it costs
+            // nothing extra here - so handlers report what was written rather than what they
+            // hoped was written.
+            .returnValues(ReturnValue.ALL_NEW);
+    // A REMOVE has no values, and DynamoDB rejects an ExpressionAttributeValues that is present
+    // but empty rather than treating it as absent - so it must be left off, not sent as {}.
+    if (!attributeValues.isEmpty()) {
+      request.expressionAttributeValues(attributeValues);
+    }
+    final UpdateItemResponse response = dynamoDbClient.updateItem(request.build());
     return Person.fromItem(response.attributes());
   }
 

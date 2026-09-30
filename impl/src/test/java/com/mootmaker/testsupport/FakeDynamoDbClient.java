@@ -286,6 +286,13 @@ public class FakeDynamoDbClient implements DynamoDbClient {
       throw new IllegalStateException(
           "FakeDynamoDbClient: update on missing item " + request.key());
     }
+    // Real DynamoDB rejects a present-but-empty ExpressionAttributeValues with a
+    // ValidationException rather than treating it as absent - which a REMOVE, having no values,
+    // walks straight into unless the caller leaves the field off entirely.
+    if (request.hasExpressionAttributeValues() && request.expressionAttributeValues().isEmpty()) {
+      throw new IllegalArgumentException(
+          "ValidationException: ExpressionAttributeValues must not be empty");
+    }
 
     final Map<String, AttributeValue> updated =
         applySet(
@@ -299,9 +306,10 @@ public class FakeDynamoDbClient implements DynamoDbClient {
   }
 
   /**
-   * Applies a {@code SET #a = :x, #b = :y} expression to a copy of {@code existing}, returning the
-   * result. Only SET is modelled - no REMOVE, ADD or DELETE, and no arithmetic - because that is
-   * all this codebase issues. Anything else throws rather than silently doing nothing.
+   * Applies a {@code SET #a = :x, #b = :y} or a {@code REMOVE #a, #b} expression to a copy of
+   * {@code existing}, returning the result. One clause per expression - no mixing the two, no ADD
+   * or DELETE, and no arithmetic - because that is all this codebase issues. Anything else throws
+   * rather than silently doing nothing.
    *
    * <p>Attributes not named by the expression are copied through untouched, which is the whole
    * property {@code PersonRepository} relies on and what a whole-item PutItem could not give.
@@ -311,12 +319,18 @@ public class FakeDynamoDbClient implements DynamoDbClient {
       final String expression,
       final Map<String, String> attributeNames,
       final Map<String, AttributeValue> attributeValues) {
+    final Map<String, String> names = attributeNames == null ? Map.of() : attributeNames;
+    final Map<String, AttributeValue> updated = new HashMap<>(existing);
+    if (expression != null && expression.startsWith("REMOVE ")) {
+      for (final String token : expression.substring(7).split(",")) {
+        updated.remove(attributeName(token.trim(), names));
+      }
+      return updated;
+    }
     if (expression == null || !expression.startsWith("SET ")) {
       throw new UnsupportedOperationException(
           "FakeDynamoDbClient does not model the update expression: " + expression);
     }
-    final Map<String, String> names = attributeNames == null ? Map.of() : attributeNames;
-    final Map<String, AttributeValue> updated = new HashMap<>(existing);
     for (final String assignment : expression.substring(4).split(",")) {
       final int eq = assignment.indexOf(" = ");
       if (eq < 0) {

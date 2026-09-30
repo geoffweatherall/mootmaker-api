@@ -186,6 +186,53 @@ class PersonRepositoryTest {
   }
 
   @Test
+  void updateAvatarUrlChangesOnlyTheAvatar() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final PersonRepository repository = new PersonRepository(fakeClient, TABLE);
+    repository.create(fullyPopulated());
+
+    final Person updated = repository.updateAvatarUrl("person-1", "v1/person-1/def456");
+
+    assertEquals("v1/person-1/def456", updated.avatarUrl());
+    assertEquals("Ada Lovelace", updated.name());
+    assertTrue(updated.isAdmin());
+    assertEquals(DateFormat.British, updated.dateFormat());
+    assertEquals(List.of("sub-1", "sub-2"), updated.cognitoSubs());
+    assertEquals(List.of("ada@example.com"), updated.cognitoEmails());
+  }
+
+  /**
+   * A REMOVE carries no values, and real DynamoDB rejects an ExpressionAttributeValues that is
+   * present but empty - the fake models that, so this fails if the repository ever sends one.
+   */
+  @Test
+  @DisplayName("a null avatar removes the attribute outright, leaving everything else")
+  void updateAvatarUrlWithNullRemovesTheAttribute() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final PersonRepository repository = new PersonRepository(fakeClient, TABLE);
+    repository.create(fullyPopulated());
+
+    final Person updated = repository.updateAvatarUrl("person-1", null);
+
+    assertNull(updated.avatarUrl());
+    assertFalse(fakeClient.tables.get(TABLE).getFirst().containsKey("avatarUrl"));
+    assertEquals("Ada Lovelace", updated.name());
+    assertTrue(updated.isAdmin());
+    assertEquals(WeekStart.Sunday, updated.weekStart());
+  }
+
+  @Test
+  @DisplayName("clearing the avatar of a person who does not exist creates no record either")
+  void removingAnAvatarFromAMissingPersonFailsAndWritesNothing() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    final PersonRepository repository = new PersonRepository(fakeClient, TABLE);
+
+    assertThrows(
+        ConditionalCheckFailedException.class, () -> repository.updateAvatarUrl("ghost", null));
+    assertTrue(fakeClient.tables.getOrDefault(TABLE, List.of()).isEmpty());
+  }
+
+  @Test
   @DisplayName("an update returns what was actually stored, not what the caller assembled")
   void updateReturnsTheStoredItem() {
     final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
