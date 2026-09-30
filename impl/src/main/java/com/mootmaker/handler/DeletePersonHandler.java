@@ -4,6 +4,7 @@ import module java.base;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.mootmaker.avatar.AvatarStore;
 import com.mootmaker.cognito.CognitoIdentityProviderClientProvider;
 import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
@@ -23,6 +24,13 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
  * DeleteMyAccountHandler}'s own doc comment for why that direction fails toward the safer outcome),
  * just targeting someone else's Person instead of the caller's own.
  *
+ * <p>The person's avatar goes too, and goes <b>before</b> the Person record - the opposite of the
+ * order {@code confirmAvatarUpload} uses, deliberately. There, stopping part-way should leave a
+ * stray object rather than a Person pointing at nothing. Here the stray object would be a deleted
+ * person's picture, still publicly served, under a prefix no later call can ever reach: a retry
+ * answers {@code PersonNotFound} and sweeps nothing. Deleting the image first means stopping
+ * part-way leaves a Person with a broken avatar and a retry that finishes the job.
+ *
  * <p>Two guards, both checked before any write:
  *
  * <ul>
@@ -41,6 +49,7 @@ public class DeletePersonHandler implements RequestHandler<Map<String, Object>, 
   private final CognitoIdentityProviderClient cognitoClient;
   private final PersonRepository people;
   private final DayRepository days;
+  private final AvatarStore avatars;
   private final String userPoolId;
   private final Set<String> reservedAccountEmails;
 
@@ -51,7 +60,8 @@ public class DeletePersonHandler implements RequestHandler<Map<String, Object>, 
         System.getenv().getOrDefault("PEOPLE_TABLE_NAME", "People"),
         System.getenv().getOrDefault("MEETINGS_TABLE_NAME", "Meetings"),
         System.getenv("COGNITO_USER_POOL_ID"),
-        parseReservedEmails(System.getenv("RESERVED_ACCOUNT_EMAILS")));
+        parseReservedEmails(System.getenv("RESERVED_ACCOUNT_EMAILS")),
+        AvatarStore.fromEnvironment());
   }
 
   DeletePersonHandler(
@@ -60,10 +70,12 @@ public class DeletePersonHandler implements RequestHandler<Map<String, Object>, 
       final String peopleTableName,
       final String meetingsTableName,
       final String userPoolId,
-      final Set<String> reservedAccountEmails) {
+      final Set<String> reservedAccountEmails,
+      final AvatarStore avatars) {
     this.cognitoClient = cognitoClient;
     this.people = new PersonRepository(dynamoDbClient, peopleTableName);
     this.days = new DayRepository(dynamoDbClient, meetingsTableName);
+    this.avatars = avatars;
     this.userPoolId = userPoolId;
     this.reservedAccountEmails = reservedAccountEmails;
   }
@@ -99,9 +111,11 @@ public class DeletePersonHandler implements RequestHandler<Map<String, Object>, 
       return result;
     }
 
-    // ORDER MATTERS - meetings, then the Person, then the Cognito account(s) LAST. See this
-    // handler's own doc comment, and DeleteMyAccountHandler's identical reasoning for why.
+    // ORDER MATTERS - meetings, then the avatar, then the Person, then the Cognito account(s)
+    // LAST. See this handler's own doc comment, and DeleteMyAccountHandler's identical reasoning
+    // for why.
     UpcomingMeetings.cancelUpcomingMeetingsFor(days, id, UpcomingMeetings.now());
+    avatars.deleteAllAvatars(id);
     people.deleteById(id);
     for (final String cognitoSub : target.get().cognitoSubs()) {
       cognitoClient.adminDeleteUser(
