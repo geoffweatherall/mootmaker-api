@@ -108,7 +108,7 @@ class UpdateMyPreferencesHandlerTest {
   }
 
   /**
-   * As above, for photoUrl - see designs/archive/person-avatar-photos.md's Trade-offs and
+   * As above, for avatarUrl - see designs/archive/person-avatar-photos.md's Trade-offs and
    * decisions.
    */
   @Test
@@ -130,7 +130,7 @@ class UpdateMyPreferencesHandlerTest {
     handler.handleRequest(event("sub-1", "British", "AmPm"), null);
 
     final Person stored = Person.fromItem(fakeClient.tables.get("People").getFirst());
-    assertEquals("avatars/female-01.jpg", stored.photoUrl());
+    assertEquals("avatars/female-01.jpg", stored.avatarUrl());
   }
 
   @Test

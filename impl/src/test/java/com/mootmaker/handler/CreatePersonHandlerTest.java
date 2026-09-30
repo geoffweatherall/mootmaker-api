@@ -10,6 +10,7 @@ import module java.base;
 
 import com.mootmaker.model.Person;
 import com.mootmaker.testsupport.FakeDynamoDbClient;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class CreatePersonHandlerTest {
@@ -18,10 +19,10 @@ class CreatePersonHandlerTest {
     return personArguments(name, null);
   }
 
-  private static Map<String, Object> personArguments(final String name, final String photoUrl) {
+  private static Map<String, Object> personArguments(final String name, final String avatarUrl) {
     final Map<String, Object> arguments = new HashMap<>();
     arguments.put("name", name);
-    arguments.put("photoUrl", photoUrl);
+    arguments.put("avatarUrl", avatarUrl);
     final Map<String, Object> event = new HashMap<>();
     event.put("arguments", arguments);
     event.put("identity", Map.of("sub", "test-user", "claims", Map.of("custom:class", "admin")));
@@ -61,25 +62,18 @@ class CreatePersonHandlerTest {
   }
 
   @Test
-  void createsPersonWithAPhotoUrlWhenGiven() {
+  @DisplayName("never sets an avatar, even if a caller tries to supply one")
+  void createsPersonWithNoAvatar() {
     final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
     final CreatePersonHandler handler = new CreatePersonHandler(fakeClient, "People");
 
-    invoke(handler, personArguments("Ada Lovelace", "avatars/female-01.jpg"));
+    // Deliberately still sends an avatarUrl argument. The schema no longer declares one, so AppSync
+    // would reject it before this handler ran - but a handler that quietly honoured an undeclared
+    // argument would be a way back to unvalidated, caller-supplied paths reaching storage.
+    invoke(handler, personArguments("Ada Lovelace", "v1/person-1/deadbeef"));
 
     final Person persisted = Person.fromItem(fakeClient.tables.get("People").getFirst());
-    assertEquals("avatars/female-01.jpg", persisted.photoUrl());
-  }
-
-  @Test
-  void createsPersonWithNoPhotoUrlWhenOmitted() {
-    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
-    final CreatePersonHandler handler = new CreatePersonHandler(fakeClient, "People");
-
-    invoke(handler, personArguments("Ada Lovelace"));
-
-    final Person persisted = Person.fromItem(fakeClient.tables.get("People").getFirst());
-    assertNull(persisted.photoUrl());
+    assertNull(persisted.avatarUrl());
   }
 
   @Test

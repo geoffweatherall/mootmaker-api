@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import module java.base;
 
+import com.mootmaker.avatar.AvatarUrls;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
@@ -100,7 +102,7 @@ class PersonTest {
   void defaultsToNullPhotoUrlWhenTheAttributeIsAbsent() {
     final Person person = Person.fromItem(itemWithoutPreferences());
 
-    assertEquals(null, person.photoUrl());
+    assertEquals(null, person.avatarUrl());
   }
 
   @Test
@@ -174,22 +176,18 @@ class PersonTest {
   }
 
   @Test
-  void exposesPhotoUrlOverGraphQl() {
+  @DisplayName("exposes a fully-resolved absolute avatar URL, never the stored key")
+  void exposesAvatarUrlOverGraphQl() {
     final Person person =
         new Person(
-            "person-1",
-            "Ada",
-            List.of(),
-            List.of(),
-            false,
-            null,
-            null,
-            null,
-            "avatars/male-03.jpg");
+            "person-1", "Ada", List.of(), List.of(), false, null, null, null, "v1/person-1/abc123");
 
-    final Map<String, Object> response = person.toResponseMap();
+    // The explicit overload rather than the environment-derived one: the point of this assertion
+    // is the composition rule, and it should not depend on an env var being set under test.
+    final Map<String, Object> response =
+        person.toResponseMap(new AvatarUrls("https://avatars.example.com"));
 
-    assertEquals("avatars/male-03.jpg", response.get("photoUrl"));
+    assertEquals("https://avatars.example.com/v1/person-1/abc123.jpg", response.get("avatarUrl"));
   }
 
   @Test
