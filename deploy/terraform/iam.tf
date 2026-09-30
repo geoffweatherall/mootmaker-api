@@ -80,20 +80,36 @@ resource "aws_iam_role_policy" "lambda_dynamodb_access" {
 }
 
 # Person avatars - see avatars.tf and mootmaker/designs/person-avatar-upload-refactor.md.
-#
-# Deliberately object-level only, with no s3:ListBucket: nothing in the API enumerates this bucket.
-# Every read and write is by a key the API already holds, either one it just generated or one it
-# read back off a Person. Granting List would let a bug (or a compromised resolver) walk every
-# avatar in the environment for no capability the code actually needs.
 data "aws_iam_policy_document" "lambda_avatars_access" {
   statement {
+    sid = "AvatarObjects"
     # PutObject: ConfirmAvatarUploadHandler writes the normalised image.
     # GetObject: it first reads back the staged upload to decode and re-encode it.
-    # DeleteObject: the staged upload is removed once consumed, and setting or removing an avatar
-    #   deletes whatever else sits under that person's prefix - "at most one avatar per person" is
-    #   an invariant on the prefix, not something the caller is trusted to maintain.
+    # DeleteObject: setting or removing an avatar deletes whatever else sits under that person's
+    #   prefix. Staged uploads are NOT deleted by the API - confirmAvatarUpload has to stay
+    #   retryable, so the lifecycle rule in avatars.tf expires them instead.
     actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
     resources = ["${aws_s3_bucket.avatars.arn}/*"]
+  }
+
+  statement {
+    sid = "AvatarListing"
+    # Two independent needs, either of which alone justifies this:
+    #
+    # 1. "At most one avatar per person" is an invariant on the person's PREFIX, so AvatarStore
+    #    lists the prefix and deletes what it finds rather than trusting the Person record to name
+    #    the old object. That is what sweeps up an object orphaned by a crash between writing the
+    #    image and updating the record - which the record, by definition, does not know about.
+    # 2. Without s3:ListBucket, S3 answers GetObject on a missing key with 403 AccessDenied rather
+    #    than 404 NoSuchKey, so as not to reveal whether the key exists. confirmAvatarUpload relies
+    #    on telling those apart: a missing staged upload is a typed UploadNotFound the client can
+    #    render, and must not be indistinguishable from a genuinely broken permission.
+    #
+    # An earlier revision of this file withheld List on the grounds that nothing enumerated the
+    # bucket. Both points above postdate it. What List exposes is object keys, which are person ids
+    # and image hashes - the same values every signed-in user already receives in Person.avatarUrl.
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.avatars.arn]
   }
 }
 

@@ -108,4 +108,56 @@ class IdentityTest {
   void isAdminReturnsFalseForAnUnauthenticatedEventWithoutThrowing() {
     assertFalse(Identity.isAdmin(Map.of(), ADMIN_SCOPE));
   }
+
+  // --- requireAdminOrSelf: the avatar mutations' rule -----------------------------------
+
+  @Test
+  void requireAdminOrSelfAllowsAnAdminActingOnAnyone() {
+    final Map<String, Object> event = eventWithClaims(Map.of("custom:class", "admin"));
+
+    assertDoesNotThrow(() -> Identity.requireAdminOrSelf(event, "person-1", ADMIN_SCOPE));
+  }
+
+  @Test
+  void requireAdminOrSelfAllowsTheToolingClientsAdminScope() {
+    final Map<String, Object> event = eventWithClaims(Map.of("scope", ADMIN_SCOPE));
+
+    assertDoesNotThrow(() -> Identity.requireAdminOrSelf(event, "person-1", ADMIN_SCOPE));
+  }
+
+  @Test
+  void requireAdminOrSelfAllowsAStandardUserActingOnThemselves() {
+    final Map<String, Object> event =
+        eventWithClaims(Map.of("custom:class", "standard", "custom:personId", "person-1"));
+
+    assertDoesNotThrow(() -> Identity.requireAdminOrSelf(event, "person-1", ADMIN_SCOPE));
+  }
+
+  @Test
+  void requireAdminOrSelfRejectsAStandardUserActingOnSomeoneElse() {
+    final Map<String, Object> event =
+        eventWithClaims(Map.of("custom:class", "standard", "custom:personId", "person-2"));
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> Identity.requireAdminOrSelf(event, "person-1", ADMIN_SCOPE));
+  }
+
+  @Test
+  void requireAdminOrSelfRejectsAUserWithNoLinkedPerson() {
+    final Map<String, Object> event = eventWithClaims(Map.of("custom:class", "standard"));
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> Identity.requireAdminOrSelf(event, "person-1", ADMIN_SCOPE));
+    assertThrows(
+        IllegalStateException.class, () -> Identity.requireAdminOrSelf(event, null, ADMIN_SCOPE));
+  }
+
+  @Test
+  void requireAdminOrSelfRejectsAnUnauthenticatedRequest() {
+    assertThrows(
+        IllegalStateException.class,
+        () -> Identity.requireAdminOrSelf(Map.of(), "person-1", ADMIN_SCOPE));
+  }
 }

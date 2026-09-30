@@ -108,6 +108,58 @@ Authorization: {{accessToken}}
   }
 }
 
+### Set a person's avatar, step 1 of 3: ask where to upload it. Admin, or the caller's own person.
+### Replace personId with a real id from the "List people" request above, and contentLength with
+### the EXACT size in bytes of the file sent in step 2 (`stat -c %s avatar.png`). Only image/jpeg
+### and image/png are accepted, up to 2097152 bytes. Nothing about the person changes yet.
+# @name requestAvatarUpload
+POST {{graphqlUrl}}
+Content-Type: application/json
+Authorization: {{accessToken}}
+
+{
+  "query": "mutation Request($personId: ID!, $contentType: String!, $contentLength: Int!) { requestAvatarUpload(personId: $personId, contentType: $contentType, contentLength: $contentLength) { upload { uploadId url contentType contentLength expiresAt } errors } }",
+  "variables": {
+    "personId": "aB3dE5fG",
+    "contentType": "image/png",
+    "contentLength": 12345
+  }
+}
+
+### Set a person's avatar, step 2 of 3: PUT the image straight to S3. No Authorization header -
+### the URL is presigned, and sending one makes S3 reject the request. Content-Type and the body's
+### size must match step 1 exactly, or S3 answers 403 SignatureDoesNotMatch.
+PUT {{requestAvatarUpload.response.body.$.data.requestAvatarUpload.upload.url}}
+Content-Type: image/png
+
+< ./avatar.png
+
+### Set a person's avatar, step 3 of 3: validate, normalise and set it. A rejected image comes back
+### here, in "errors" (e.g. NotAnImage, ImageTooSmall), with "person" null. Safe to re-run.
+POST {{graphqlUrl}}
+Content-Type: application/json
+Authorization: {{accessToken}}
+
+{
+  "query": "mutation Confirm($personId: ID!, $uploadId: ID!) { confirmAvatarUpload(personId: $personId, uploadId: $uploadId) { person { id name avatarUrl } errors } }",
+  "variables": {
+    "personId": "aB3dE5fG",
+    "uploadId": "{{requestAvatarUpload.response.body.$.data.requestAvatarUpload.upload.uploadId}}"
+  }
+}
+
+### Remove a person's avatar. Admin, or the caller's own person. Succeeds if they have none.
+POST {{graphqlUrl}}
+Content-Type: application/json
+Authorization: {{accessToken}}
+
+{
+  "query": "mutation Remove($personId: ID!) { removeAvatar(personId: $personId) { person { id avatarUrl } errors } }",
+  "variables": {
+    "personId": "aB3dE5fG"
+  }
+}
+
 ### Create a meeting
 ### Replace roomId/organiserId/attendeeIds below with real ids from the "List rooms" / "List people" requests above.
 ### startTime/endTime must fall on a 15 minute boundary (e.g. :00, :15, :30, :45).
