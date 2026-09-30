@@ -114,10 +114,26 @@ class AvatarUploadAcceptanceIT {
         HttpResponse.BodyHandlers.ofByteArray());
   }
 
+  /**
+   * Retries once if the connection drops before any response arrives. The client pools connections,
+   * and S3 closes one that sits idle - here, typically across a database reset - so the next
+   * request on it fails with no bytes read. The JDK retries that on its own only for GET and HEAD.
+   * Every request this suite sends through here is safe to repeat: a PUT to a presigned URL writes
+   * the same object again. mootmaker-demo-data's upload does the same.
+   */
   private static <T> HttpResponse<T> send(
       final HttpRequest request, final HttpResponse.BodyHandler<T> handler) {
     try {
-      return http.send(request, handler);
+      try {
+        return http.send(request, handler);
+      } catch (final IOException firstAttempt) {
+        LOG.info(
+            "Retrying {} {} after: {}",
+            request.method(),
+            request.uri().getHost(),
+            firstAttempt.toString());
+        return http.send(request, handler);
+      }
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     } catch (final InterruptedException e) {
@@ -338,6 +354,32 @@ class AvatarUploadAcceptanceIT {
     DatabaseReset.reset();
 
     assertThat(get(avatarUrl).statusCode(), anyOf(equalTo(403), equalTo(404)));
+  }
+
+  /**
+   * The object this upload would create already exists: the same image, uploaded again as a wholly
+   * new upload, lands on the same key, since the key is the person plus the image's hash. That must
+   * be an ordinary success, not an error - S3 overwrites, and nothing in the write may be made
+   * conditional. Checked here rather than only in a unit test because the property belongs to S3
+   * and the bucket's configuration, which a unit test fakes.
+   */
+  @Test
+  void uploadingAnImageWhoseAvatarAlreadyExistsSucceeds() {
+    DatabaseReset.reset();
+    final String personId = createPerson();
+    final byte[] source = png(128, Color.ORANGE);
+
+    final String first = setAvatar(personId, source);
+    LOG.info("Uploading the same image again as a new upload, onto the existing object {}", first);
+    // setAvatar asserts every step - request, PUT and confirm - reports no error.
+    final String second = setAvatar(personId, source);
+
+    assertThat("same person and image, so the same object", second, equalTo(first));
+    assertThat(avatarUrlFromWorkspace(personId), equalTo(first));
+    assertThat(
+        "the avatar must still be there after being written over",
+        get(first).statusCode(),
+        equalTo(200));
   }
 
   // --- Rejections: structured errors, never a 500 -----------------------------------------

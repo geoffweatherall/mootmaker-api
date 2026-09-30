@@ -126,8 +126,13 @@ public final class AvatarStore {
   /**
    * Writes a normalised avatar where the distribution will serve it from.
    *
-   * <p>Idempotent: the key is a pure function of the person and the source bytes, so repeating this
-   * overwrites an object with itself.
+   * <p><b>The object already existing is normal, and must never be an error.</b> The key is a pure
+   * function of the person and the source bytes, so it is already there whenever a confirm is
+   * retried, whenever someone uploads the same image again, and whenever an object was orphaned by
+   * an earlier interrupted attempt. An unconditional PutObject simply replaces it. Do not make this
+   * write conditional ({@code If-None-Match}), and do not turn on object lock for the bucket:
+   * either would turn each of those ordinary cases into a failed upload. {@code
+   * AvatarUploadAcceptanceIT} checks this against real S3.
    */
   public void putAvatar(final String storedKey, final byte[] jpeg) {
     s3.putObject(
