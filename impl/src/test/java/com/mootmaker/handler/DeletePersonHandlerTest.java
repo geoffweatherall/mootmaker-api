@@ -14,7 +14,12 @@ import com.mootmaker.model.PersonError;
 import com.mootmaker.testsupport.DayFixtures;
 import com.mootmaker.testsupport.FakeCognitoIdentityProviderClient;
 import com.mootmaker.testsupport.FakeDynamoDbClient;
+import com.mootmaker.testsupport.FakeS3Client;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 class DeletePersonHandlerTest {
 
@@ -81,7 +86,13 @@ class DeletePersonHandlerTest {
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
     final DeletePersonHandler handler =
         new DeletePersonHandler(
-            dynamoDbClient, cognitoClient, PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of());
+            dynamoDbClient,
+            cognitoClient,
+            PEOPLE_TABLE,
+            MEETINGS_TABLE,
+            USER_POOL_ID,
+            Set.of(),
+            AvatarHandlerFixtures.store(new FakeS3Client()));
 
     final Map<String, Object> result = invoke(handler, event("person-a", "admin-person"));
 
@@ -123,7 +134,13 @@ class DeletePersonHandlerTest {
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
     final DeletePersonHandler handler =
         new DeletePersonHandler(
-            dynamoDbClient, cognitoClient, PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of());
+            dynamoDbClient,
+            cognitoClient,
+            PEOPLE_TABLE,
+            MEETINGS_TABLE,
+            USER_POOL_ID,
+            Set.of(),
+            AvatarHandlerFixtures.store(new FakeS3Client()));
 
     invoke(handler, event("person-a", "admin-person"));
 
@@ -152,7 +169,13 @@ class DeletePersonHandlerTest {
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
     final DeletePersonHandler handler =
         new DeletePersonHandler(
-            dynamoDbClient, cognitoClient, PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of());
+            dynamoDbClient,
+            cognitoClient,
+            PEOPLE_TABLE,
+            MEETINGS_TABLE,
+            USER_POOL_ID,
+            Set.of(),
+            AvatarHandlerFixtures.store(new FakeS3Client()));
 
     invoke(handler, event("person-a", "admin-person"));
 
@@ -166,7 +189,13 @@ class DeletePersonHandlerTest {
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
     final DeletePersonHandler handler =
         new DeletePersonHandler(
-            dynamoDbClient, cognitoClient, PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of());
+            dynamoDbClient,
+            cognitoClient,
+            PEOPLE_TABLE,
+            MEETINGS_TABLE,
+            USER_POOL_ID,
+            Set.of(),
+            AvatarHandlerFixtures.store(new FakeS3Client()));
 
     final Map<String, Object> result = invoke(handler, event("admin-1", "admin-1"));
 
@@ -189,7 +218,8 @@ class DeletePersonHandlerTest {
             PEOPLE_TABLE,
             MEETINGS_TABLE,
             USER_POOL_ID,
-            Set.of("demo@mootmaker.com"));
+            Set.of("demo@mootmaker.com"),
+            AvatarHandlerFixtures.store(new FakeS3Client()));
 
     final Map<String, Object> result = invoke(handler, event("demo-person", "admin-person"));
 
@@ -206,7 +236,13 @@ class DeletePersonHandlerTest {
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
     final DeletePersonHandler handler =
         new DeletePersonHandler(
-            dynamoDbClient, cognitoClient, PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of());
+            dynamoDbClient,
+            cognitoClient,
+            PEOPLE_TABLE,
+            MEETINGS_TABLE,
+            USER_POOL_ID,
+            Set.of(),
+            AvatarHandlerFixtures.store(new FakeS3Client()));
 
     final Map<String, Object> result = invoke(handler, event("missing", "admin-person"));
 
@@ -222,11 +258,104 @@ class DeletePersonHandlerTest {
     final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
     final DeletePersonHandler handler =
         new DeletePersonHandler(
-            dynamoDbClient, cognitoClient, PEOPLE_TABLE, MEETINGS_TABLE, USER_POOL_ID, Set.of());
+            dynamoDbClient,
+            cognitoClient,
+            PEOPLE_TABLE,
+            MEETINGS_TABLE,
+            USER_POOL_ID,
+            Set.of(),
+            AvatarHandlerFixtures.store(new FakeS3Client()));
 
     final Map<String, Object> event = eventAsNonAdmin("person-a");
 
     assertThrows(IllegalStateException.class, () -> handler.handleRequest(event, null));
     assertFalse(dynamoDbClient.tables.get(PEOPLE_TABLE).isEmpty());
+  }
+
+  // --- The avatar goes with the person --------------------------------------------------
+
+  /** An S3 whose deletes fail, standing in for an outage part-way through a deletion. */
+  private static FakeS3Client s3WhoseDeletesFail() {
+    return new FakeS3Client() {
+      @Override
+      public synchronized DeleteObjectResponse deleteObject(final DeleteObjectRequest request) {
+        throw S3Exception.builder().message("simulated S3 outage").build();
+      }
+    };
+  }
+
+  @Test
+  @DisplayName("deleting a person deletes their avatar, and nobody else's identical one")
+  void deletesThePersonsAvatarAndOnlyTheirs() {
+    final FakeDynamoDbClient dynamoDbClient =
+        clientWithPerson(new Person("person-a", "Ada", "sub-a", "ada@example.com"));
+    final FakeS3Client s3 = new FakeS3Client();
+    s3.stage("avatars/v1/person-a/samehash.jpg", new byte[] {1}, "image/jpeg");
+    s3.stage("avatars/v1/person-b/samehash.jpg", new byte[] {1}, "image/jpeg");
+    final DeletePersonHandler handler =
+        new DeletePersonHandler(
+            dynamoDbClient,
+            new FakeCognitoIdentityProviderClient(),
+            PEOPLE_TABLE,
+            MEETINGS_TABLE,
+            USER_POOL_ID,
+            Set.of(),
+            AvatarHandlerFixtures.store(s3));
+
+    invoke(handler, event("person-a", "admin-person"));
+
+    assertEquals(Set.of("avatars/v1/person-b/samehash.jpg"), s3.objects.keySet());
+  }
+
+  /**
+   * The order is the point. Were the record deleted first, a failure here would strand the image
+   * under a prefix no retry can reach - a retry answers PersonNotFound and sweeps nothing - and a
+   * deleted person's picture would stay publicly served. Record-last means a retry finishes it.
+   */
+  @Test
+  @DisplayName("if the avatar cannot be deleted, the person is left in place to retry against")
+  void avatarIsDeletedBeforeThePersonRecord() {
+    final FakeDynamoDbClient dynamoDbClient =
+        clientWithPerson(new Person("person-a", "Ada", "sub-a", "ada@example.com"));
+    final FakeS3Client s3 = s3WhoseDeletesFail();
+    s3.stage("avatars/v1/person-a/hash.jpg", new byte[] {1}, "image/jpeg");
+    final FakeCognitoIdentityProviderClient cognitoClient = new FakeCognitoIdentityProviderClient();
+    final DeletePersonHandler handler =
+        new DeletePersonHandler(
+            dynamoDbClient,
+            cognitoClient,
+            PEOPLE_TABLE,
+            MEETINGS_TABLE,
+            USER_POOL_ID,
+            Set.of(),
+            AvatarHandlerFixtures.store(s3));
+
+    assertThrows(S3Exception.class, () -> invoke(handler, event("person-a", "admin-person")));
+
+    assertFalse(dynamoDbClient.tables.get(PEOPLE_TABLE).isEmpty(), "the record must survive");
+    assertTrue(cognitoClient.deleteRequests.isEmpty(), "and so must the login");
+  }
+
+  @Test
+  void aRefusedDeletionLeavesTheAvatarAlone() {
+    final FakeDynamoDbClient dynamoDbClient =
+        clientWithPerson(new Person("demo-person", "Demo", "sub-demo", "demo@mootmaker.com"));
+    final FakeS3Client s3 = new FakeS3Client();
+    s3.stage("avatars/v1/demo-person/hash.jpg", new byte[] {1}, "image/jpeg");
+    final DeletePersonHandler handler =
+        new DeletePersonHandler(
+            dynamoDbClient,
+            new FakeCognitoIdentityProviderClient(),
+            PEOPLE_TABLE,
+            MEETINGS_TABLE,
+            USER_POOL_ID,
+            Set.of("demo@mootmaker.com"),
+            AvatarHandlerFixtures.store(s3));
+
+    invoke(handler, event("demo-person", "admin-person"));
+    invoke(handler, event("demo-person", "demo-person"));
+
+    assertEquals(1, s3.objects.size());
+    assertTrue(s3.deletedKeys.isEmpty());
   }
 }

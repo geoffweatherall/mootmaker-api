@@ -4,6 +4,7 @@ import module java.base;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.mootmaker.avatar.AvatarStore;
 import com.mootmaker.cognito.CognitoIdentityProviderClientProvider;
 import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
@@ -39,6 +40,11 @@ import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
  * UpcomingMeetings#cancelUpcomingMeetingsFor}, shared with {@code DeletePersonHandler}'s identical
  * cascade (admin-invoked against someone else rather than the caller). Past meetings are left
  * untouched entirely.
+ *
+ * <p>The caller's avatar is deleted between the meetings and the Person - before the record, for
+ * the reason {@code DeletePersonHandler} gives. It is keyed off the token's {@code custom:personId}
+ * claim rather than off the Person record having been found, so a retry after a failure that had
+ * already removed the record still sweeps the image.
  */
 public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object>, Object> {
 
@@ -48,6 +54,7 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
   private final CognitoIdentityProviderClient cognitoClient;
   private final String peopleTableName;
   private final DayRepository days;
+  private final AvatarStore avatars;
   private final String userPoolId;
   private final Set<String> reservedAccountEmails;
 
@@ -58,7 +65,8 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
         System.getenv().getOrDefault("PEOPLE_TABLE_NAME", "People"),
         System.getenv().getOrDefault("MEETINGS_TABLE_NAME", "Meetings"),
         System.getenv("COGNITO_USER_POOL_ID"),
-        parseReservedEmails(System.getenv("RESERVED_ACCOUNT_EMAILS")));
+        parseReservedEmails(System.getenv("RESERVED_ACCOUNT_EMAILS")),
+        AvatarStore.fromEnvironment());
   }
 
   DeleteMyAccountHandler(
@@ -67,7 +75,9 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
       final String peopleTableName,
       final String meetingsTableName,
       final String userPoolId,
-      final Set<String> reservedAccountEmails) {
+      final Set<String> reservedAccountEmails,
+      final AvatarStore avatars) {
+    this.avatars = avatars;
     this.dynamoDbClient = dynamoDbClient;
     this.cognitoClient = cognitoClient;
     this.peopleTableName = peopleTableName;
@@ -97,11 +107,14 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
             .flatMap(new PersonRepository(dynamoDbClient, peopleTableName)::findById);
 
     // ORDER MATTERS, for the same reason the retention job advances its boundary before deleting.
-    // Meetings, then the Person, then the Cognito accounts LAST. The intermediate state this leaves
+    // Meetings, the avatar, then the Person, then the Cognito accounts LAST. The intermediate state
+    // this leaves
     // - Person gone, login still works - is recoverable. The reverse is not: if Cognito went first
     // and a day rewrite then lost a version conflict, the user could no longer sign in to retry and
     // their meetings would be orphaned with no owner.
     person.ifPresent(this::cancelUpcomingMeetings);
+    // Before the Person record, and off the claim rather than the record - see the class comment.
+    Identity.personId(event).ifPresent(avatars::deleteAllAvatars);
     person.ifPresent(
         p ->
             dynamoDbClient.deleteItem(

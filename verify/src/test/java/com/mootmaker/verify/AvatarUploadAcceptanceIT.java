@@ -295,6 +295,51 @@ class AvatarUploadAcceptanceIT {
         equalTo(first.get("person").get("avatarUrl").asText()));
   }
 
+  // --- Deletion ---------------------------------------------------------------------------
+  //
+  // None of these fetches the avatar before deleting it, and that is deliberate. The distribution
+  // caches a fetched avatar at the edge and deleting the object does not purge it, so a fetch
+  // first would make the fetch afterwards prove nothing about S3. Never having been requested, the
+  // URL's first request goes to the origin.
+
+  private static final String DELETE_PERSON_MUTATION =
+      "mutation DeletePerson($id: ID!) { deletePerson(id: $id) { errors } }";
+
+  @Test
+  void removingAnAvatarDeletesTheImage() {
+    DatabaseReset.reset();
+    final String personId = createPerson();
+    final String avatarUrl = setAvatar(personId, png(128, Color.PINK));
+
+    client.execute(REMOVE_AVATAR_MUTATION, Map.of("personId", personId));
+
+    assertThat(get(avatarUrl).statusCode(), anyOf(equalTo(403), equalTo(404)));
+  }
+
+  @Test
+  void deletingAPersonDeletesTheirAvatar() {
+    DatabaseReset.reset();
+    final String personId = createPerson();
+    final String avatarUrl = setAvatar(personId, png(128, Color.GRAY));
+
+    final JsonNode deleted =
+        client.execute(DELETE_PERSON_MUTATION, Map.of("id", personId)).get("deletePerson");
+    assertThat(deleted.get("errors").size(), equalTo(0));
+
+    assertThat(get(avatarUrl).statusCode(), anyOf(equalTo(403), equalTo(404)));
+  }
+
+  @Test
+  void resetDeletesTheAvatarsOfThePeopleItDeletes() {
+    DatabaseReset.reset();
+    final String avatarUrl = setAvatar(createPerson(), png(128, Color.DARK_GRAY));
+
+    LOG.info("Resetting again, which deletes the guest person just created");
+    DatabaseReset.reset();
+
+    assertThat(get(avatarUrl).statusCode(), anyOf(equalTo(403), equalTo(404)));
+  }
+
   // --- Rejections: structured errors, never a 500 -----------------------------------------
 
   @Test

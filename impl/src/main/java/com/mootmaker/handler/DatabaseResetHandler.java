@@ -6,16 +6,17 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.s3.S3Client;
 
 /**
  * Lambda entry point for database reset - formerly {@code Mutation.reset} in this API, then the
  * standalone {@code mootmaker-admin-tools/database-reset} Lambda, now merged back into this repo
  * (see designs/admin-tools-into-api.md). Invoked directly - {@code aws lambda invoke}, the AWS
  * console, or the AWS SDK - never through a wrapper script; the input payload is unused, there is
- * nothing to configure per invocation. Deletes every stored room and meeting, and - except in
- * {@code production} - wipes the Cognito user pool down to the two Terraform-managed reserved
- * accounts (demo, e2e) and every Person still linked to one of them. See {@link DatabaseReset} for
- * what actually gets deleted and why.
+ * nothing to configure per invocation. Deletes every stored room and meeting, every avatar that
+ * does not belong to a person who survives, and - except in {@code production} - wipes the Cognito
+ * user pool down to the two Terraform-managed reserved accounts (demo, e2e) and every Person still
+ * linked to one of them. See {@link DatabaseReset} for what actually gets deleted and why.
  *
  * <p>{@code ALLOW_COGNITO_WIPE} is computed by Terraform from the target environment ({@code
  * environment != "production"}), not read from the invoke payload - whether wiping Cognito is
@@ -37,13 +38,15 @@ public final class DatabaseResetHandler
     final String peopleTableName = requireEnv("PEOPLE_TABLE_NAME");
     final String meetingsTableName = requireEnv("MEETINGS_TABLE_NAME");
     final String userPoolId = requireEnv("COGNITO_USER_POOL_ID");
+    final String avatarsBucketName = requireEnv("AVATARS_BUCKET_NAME");
     final boolean allowCognitoWipe = Boolean.parseBoolean(requireEnv("ALLOW_COGNITO_WIPE"));
     final Set<String> reservedEmails =
         parseReservedEmails(System.getenv("RESERVED_ACCOUNT_EMAILS"));
 
     try (DynamoDbClient dynamoDbClient = DynamoDbClient.builder().build();
         CognitoIdentityProviderClient cognitoClient =
-            CognitoIdentityProviderClient.builder().build()) {
+            CognitoIdentityProviderClient.builder().build();
+        S3Client s3Client = S3Client.builder().build()) {
 
       // The Cognito wipe (if allowed) runs first, synchronously, because the DynamoDB people
       // deletion below needs its result (which Cognito subs survived) to know which Persons
@@ -83,6 +86,14 @@ public final class DatabaseResetHandler
         final int peopleDeleted = getResult(peopleFuture);
         final int meetingsDeleted = getResult(meetingsFuture);
 
+        // After the people pass, not alongside it: which avatars survive is decided by which
+        // people did. See DatabaseReset#deleteAvatarsExceptThoseOf.
+        final int avatarObjectsDeleted =
+            DatabaseReset.deleteAvatarsExceptThoseOf(
+                s3Client,
+                avatarsBucketName,
+                DatabaseReset.personIds(dynamoDbClient, peopleTableName));
+
         System.out.println(
             "Deleted "
                 + roomsDeleted
@@ -90,13 +101,16 @@ public final class DatabaseResetHandler
                 + peopleDeleted
                 + " person(s), "
                 + meetingsDeleted
-                + " meeting(s) (and their participant rows)"
+                + " meeting(s) (and their participant rows), "
+                + avatarObjectsDeleted
+                + " avatar object(s)"
                 + (cognitoWipeSkipped ? "." : ", " + cognitoUsersDeleted + " Cognito user(s)."));
 
         final Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("roomsDeleted", roomsDeleted);
         summary.put("peopleDeleted", peopleDeleted);
         summary.put("meetingsDeleted", meetingsDeleted);
+        summary.put("avatarObjectsDeleted", avatarObjectsDeleted);
         summary.put("cognitoWipeSkipped", cognitoWipeSkipped);
         summary.put("cognitoUsersDeleted", cognitoUsersDeleted);
         return summary;
