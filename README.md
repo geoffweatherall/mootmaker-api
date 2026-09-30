@@ -305,7 +305,36 @@ A `Person` carries a `dateFormat`, a `timeFormat`, and a `weekStart`, set by the
 
 All three are non-null in the schema, but the DynamoDB attributes behind them are optional — Persons written before this feature simply lack them. [`Person.fromItem`](impl/src/main/java/com/mootmaker/model/Person.java) substitutes the defaults, which is the single point holding the non-null guarantee up against pre-existing data, so it is unit-tested directly in [`PersonTest`](impl/src/test/java/com/mootmaker/model/PersonTest.java). An unrecognised stored value also falls back to the default rather than failing the read.
 
-[`UpdateMyPreferencesHandler`](impl/src/main/java/com/mootmaker/handler/UpdateMyPreferencesHandler.java) is **self-only with no admin bypass**, deliberately unlike `renamePerson`: a personal display preference isn't profile data an admin should set on someone else's behalf, so the handler takes no id at all and always targets the Person linked to `identity.sub`. Like `UpdateMyNameHandler`/`RenamePersonHandler`/`SetPersonAdminHandler` it does a full-item `PutItem`, so it carries `name`, `cognitoSubs`, `cognitoEmails` and `isAdmin` forward explicitly (and each of those three handlers carries `dateFormat`/`timeFormat`/`weekStart` forward the same way, in the other direction) — the mirror image of those handlers' own care, in the other direction. (A real bug once lived exactly here — see [mootmaker-api#71](https://github.com/geoffweatherall/mootmaker-api/issues/71) — where an earlier version of this class of handler forgot to carry two of these fields forward and silently reset them on every write.)
+[`UpdateMyPreferencesHandler`](impl/src/main/java/com/mootmaker/handler/UpdateMyPreferencesHandler.java) is **self-only with no admin bypass**, deliberately unlike `renamePerson`: a personal display preference isn't profile data an admin should set on someone else's behalf, so the handler takes no id at all and always targets the caller's own Person. It writes only the three preference attributes, via [`PersonRepository.updatePreferences`](impl/src/main/java/com/mootmaker/dynamo/PersonRepository.java) - an attribute-level `UpdateItem`, as `updateName`, `updateIsAdmin` and `updateAvatarUrl` are for their own fields. Every one of these used to be a read-modify-`PutItem`, which replaces the whole item, so each handler had to carry every field it did not own forward by hand, and forgetting one silently erased it ([mootmaker-api#71](https://github.com/geoffweatherall/mootmaker-api/issues/71)). An `UpdateItem` cannot express that bug: an attribute nobody names is an attribute nobody can lose. The one trap it adds is that `UpdateItem` on a missing key *creates* the item, so every such write carries `attribute_exists(id)`.
+
+## Person avatars
+
+A `Person` has at most one avatar, exposed as `Person.avatarUrl`: an absolute, immutable URL, or `null` for anyone without one (every client falls back to initials). The design, and the reasoning behind each choice below, is in [person-avatar-upload-refactor.md](https://github.com/geoffweatherall/mootmaker/blob/main/designs/person-avatar-upload-refactor.md).
+
+**Setting one takes three calls**, because GraphQL has no sensible way to carry image bytes:
+
+1. `requestAvatarUpload(personId, contentType, contentLength)` returns a presigned S3 URL, valid for 15 minutes. Only `image/jpeg` and `image/png` are accepted, up to 2 MiB.
+2. The client `PUT`s the bytes straight to that URL, with exactly the declared `Content-Type` and exactly the declared number of bytes. Both are part of the URL's signature, so S3 itself refuses anything else - the length is enforced as an exact match, not a maximum.
+3. `confirmAvatarUpload(personId, uploadId)` validates and normalises the image and sets `avatarUrl`, returning any rejection synchronously in `errors`.
+
+This is the only way an avatar is ever set. `createPerson` takes no avatar argument, so every avatar in the system has been decoded and re-encoded by this API. mootmaker-demo-data uses exactly these three calls, the same ones a webapp upload feature would.
+
+**The uploaded bytes are never served.** [`AvatarImage`](impl/src/main/java/com/mootmaker/avatar/AvatarImage.java) decodes them and encodes a fresh 256x256 JPEG (centre-cropped to square, flattened onto white). That round trip is the sanitiser: it strips EXIF, and a file that is simultaneously a valid image and something else does not survive it. Dimensions are read from the image header and checked *before* decoding, because decoding allocates for the decoded size - a few dozen bytes of PNG can claim enough pixels to exhaust the heap, and the 2 MiB upload ceiling does nothing about that.
+
+**Storage.** One bucket per environment ([avatars.tf](deploy/terraform/avatars.tf)), with two prefixes:
+
+| Prefix | Holds | Reachable by |
+|---|---|---|
+| `uploads/<personId>/<uploadId>` | Staged uploads, exactly as the client sent them. Expired after one day by a lifecycle rule - the API never deletes them, so that `confirmAvatarUpload` stays retryable | Nobody, except through a presigned `PUT`. Not served |
+| `avatars/v1/<personId>/<sha256>.jpg` | The normalised image. `<sha256>` is the hash of the **uploaded** bytes, not of the JPEG | The avatars distribution, publicly |
+
+DynamoDB stores only `v1/<personId>/<sha256>` on the Person. [`AvatarUrls`](impl/src/main/java/com/mootmaker/avatar/AvatarUrls.java) adds the host and extension on the way out, so stored data carries no environment's hostname. The `v1` is the normalisation version and is deliberately part of the *stored* value: if the processing ever changes, existing records must keep resolving to the objects they actually wrote.
+
+Because the key contains a hash of the image, a different avatar is a different URL, and objects are written with `Cache-Control: public, max-age=31536000, immutable`. Replacing an avatar needs no cache invalidation.
+
+**At most one avatar per person is a property of the prefix.** `confirmAvatarUpload` writes the new object, updates the record, then deletes everything else under `avatars/v1/<personId>/` - in that order, so that stopping part-way leaves a stray object rather than a Person pointing at nothing. [`AvatarStore`](impl/src/main/java/com/mootmaker/avatar/AvatarStore.java) lists the prefix rather than trusting the record to name the old object, which is what sweeps up a stray left by an interrupted earlier attempt. Keys are per person, so two people with the identical image hold two objects and removing one cannot break the other.
+
+**Serving.** Avatars have their own CloudFront distribution and hostname, owned by this project: `avatars.mootmaker.com` in `production`, `avatars.<environment>.mootmaker.com` everywhere else - the same rule as [the API's own hostname](#custom-domain). Nothing here depends on mootmaker-webapp, so an environment with only this API deployed serves avatars, and [`AvatarUploadAcceptanceIT`](verify/src/test/java/com/mootmaker/verify/AvatarUploadAcceptanceIT.java) fetches them to prove it. The distribution's `origin_path` is `/avatars`, which keeps that segment out of the public URL and makes `uploads/` unreachable through it. It has no default root object and no custom error responses: a missing avatar is a real 403/404, never a page at status 200.
 
 ## Directory structure
 
@@ -428,6 +457,21 @@ On success the entity field is populated and `errors` is empty. On failure the e
 
 `setPersonAdmin`'s result also carries `cognitoSyncFailed: Boolean!` - true when the DynamoDB write succeeded but propagating `custom:class` to a linked Cognito account failed; a partial success, never paired with a non-empty `errors` list.
 
+`requestAvatarUpload` ([RequestAvatarUploadHandler](impl/src/main/java/com/mootmaker/handler/RequestAvatarUploadHandler.java)), `confirmAvatarUpload` ([ConfirmAvatarUploadHandler](impl/src/main/java/com/mootmaker/handler/ConfirmAvatarUploadHandler.java)) and `removeAvatar` ([RemoveAvatarHandler](impl/src/main/java/com/mootmaker/handler/RemoveAvatarHandler.java)) - all three admin, or the caller's own Person. Unlike `updateMyName`/`renamePerson` this is one `personId`-taking mutation serving both cases rather than a self/admin pair, which would have doubled a three-call surface. A caller who is neither is refused outright rather than given a typed error, the same whether or not the Person exists:
+
+| Error | Rule |
+|---|---|
+| `PersonNotFound` | `personId` must refer to an existing person |
+| `UnsupportedContentType` | `requestAvatarUpload` only: `contentType` must be `image/jpeg` or `image/png` |
+| `UploadTooLarge` | `requestAvatarUpload` only: `contentLength` must be at most 2,097,152 bytes (2 MiB) |
+| `InvalidContentLength` | `requestAvatarUpload` only: `contentLength` must be positive |
+| `UploadNotFound` | `confirmAvatarUpload` only: something must actually be staged under `uploadId` - the `PUT` happened, completed, and was less than a day ago |
+| `NotAnImage` | `confirmAvatarUpload` only: the uploaded bytes must decode as a JPEG or PNG, whatever `Content-Type` they were sent with |
+| `ImageTooSmall` | `confirmAvatarUpload` only: the image must be at least 64 pixels on each side |
+| `ImageTooLarge` | `confirmAvatarUpload` only: the image must be at most 4096 pixels on each side |
+
+`requestAvatarUpload` can only judge what the caller *declares*, so passing it says nothing about the image; everything that needs the bytes is `confirmAvatarUpload`'s. These report the first rule broken rather than all of them - an image that fails to decode has no dimensions to check.
+
 `updateMyPreferences` ([UpdateMyPreferencesHandler](impl/src/main/java/com/mootmaker/handler/UpdateMyPreferencesHandler.java)):
 
 | Error | Rule |
@@ -457,21 +501,6 @@ A room's capacity can be reduced below the size of a meeting already booked into
 `createPerson` validates the schema's non-null `name` and rejects a case/whitespace-insensitive name collision with an existing Person (`NameAlreadyExists`) - the same check a `PreSignUp` Cognito trigger applies to sign-up itself, see [Sign-up creates a linked Person](#sign-up-creates-a-linked-person). The acceptance tests in [verify/](verify/) cover these rules, and the admin-only/self-or-admin authorization checks, end-to-end against the deployed API.
 
 ## Implementation choices
-`requestAvatarUpload` ([RequestAvatarUploadHandler](impl/src/main/java/com/mootmaker/handler/RequestAvatarUploadHandler.java)), `confirmAvatarUpload` ([ConfirmAvatarUploadHandler](impl/src/main/java/com/mootmaker/handler/ConfirmAvatarUploadHandler.java)) and `removeAvatar` ([RemoveAvatarHandler](impl/src/main/java/com/mootmaker/handler/RemoveAvatarHandler.java)) - all three admin, or the caller's own Person. Unlike `updateMyName`/`renamePerson` this is one `personId`-taking mutation serving both cases rather than a self/admin pair, which would have doubled a three-call surface. A caller who is neither is refused outright rather than given a typed error, the same whether or not the Person exists:
-
-| Error | Rule |
-|---|---|
-| `PersonNotFound` | `personId` must refer to an existing person |
-| `UnsupportedContentType` | `requestAvatarUpload` only: `contentType` must be `image/jpeg` or `image/png` |
-| `UploadTooLarge` | `requestAvatarUpload` only: `contentLength` must be at most 2,097,152 bytes (2 MiB) |
-| `InvalidContentLength` | `requestAvatarUpload` only: `contentLength` must be positive |
-| `UploadNotFound` | `confirmAvatarUpload` only: something must actually be staged under `uploadId` - the `PUT` happened, completed, and was less than a day ago |
-| `NotAnImage` | `confirmAvatarUpload` only: the uploaded bytes must decode as a JPEG or PNG, whatever `Content-Type` they were sent with |
-| `ImageTooSmall` | `confirmAvatarUpload` only: the image must be at least 64 pixels on each side |
-| `ImageTooLarge` | `confirmAvatarUpload` only: the image must be at most 4096 pixels on each side |
-
-`requestAvatarUpload` can only judge what the caller *declares*, so passing it says nothing about the image; everything that needs the bytes is `confirmAvatarUpload`'s. These report the first rule broken rather than all of them - an image that fails to decode has no dimensions to check.
-
 
 #### Why M2M was chosen for the API tests
 
