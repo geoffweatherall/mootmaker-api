@@ -11,6 +11,8 @@ import com.mootmaker.model.Person;
 import com.mootmaker.testsupport.DayFixtures;
 import com.mootmaker.testsupport.FakeCognitoIdentityProviderClient;
 import com.mootmaker.testsupport.FakeDynamoDbClient;
+import com.mootmaker.testsupport.FakeS3Client;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AttributeType;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.UserType;
@@ -222,5 +224,85 @@ class DatabaseResetTest {
     final List<Map<String, AttributeValue>> remaining = dynamoDbClient.tables.get(PEOPLE_TABLE);
     assertEquals(1, remaining.size());
     assertEquals("demo-person", remaining.getFirst().get("id").s());
+  }
+
+  // --- Avatars --------------------------------------------------------------------------
+
+  private static FakeS3Client bucketWith(final String... keys) {
+    final FakeS3Client s3 = new FakeS3Client();
+    for (final String key : keys) {
+      s3.stage(key, new byte[] {1}, "image/jpeg");
+    }
+    return s3;
+  }
+
+  @Test
+  void avatarResetEmptiesTheBucketWhenNobodySurvives() {
+    final FakeS3Client s3 =
+        bucketWith(
+            "avatars/v1/person-1/aaa.jpg", "avatars/v1/person-2/bbb.jpg", "uploads/person-1/UP01");
+
+    final int deleted = DatabaseReset.deleteAvatarsExceptThoseOf(s3, "bucket", Set.of());
+
+    assertEquals(3, deleted);
+    assertTrue(s3.objects.isEmpty());
+  }
+
+  /**
+   * A reset keeps some people - the reserved accounts everywhere, every linked person in
+   * production. Emptying the bucket outright would leave each of them with an avatarUrl pointing at
+   * a deleted object: a broken image, where a person with no avatar at least gets initials.
+   */
+  @Test
+  @DisplayName("a person who survives the reset keeps their avatar")
+  void avatarResetKeepsTheAvatarsOfSurvivingPeople() {
+    final FakeS3Client s3 =
+        bucketWith("avatars/v1/demo/aaa.jpg", "avatars/v1/guest/bbb.jpg", "uploads/demo/UP01");
+
+    final int deleted = DatabaseReset.deleteAvatarsExceptThoseOf(s3, "bucket", Set.of("demo"));
+
+    assertEquals(2, deleted);
+    assertEquals(Set.of("avatars/v1/demo/aaa.jpg"), s3.objects.keySet());
+  }
+
+  @Test
+  @DisplayName("staged uploads go even for a survivor - they are nobody's avatar yet")
+  void avatarResetAlwaysClearsStagedUploads() {
+    final FakeS3Client s3 = bucketWith("uploads/demo/UP01", "uploads/demo/UP02");
+
+    DatabaseReset.deleteAvatarsExceptThoseOf(s3, "bucket", Set.of("demo"));
+
+    assertTrue(s3.objects.isEmpty());
+  }
+
+  @Test
+  @DisplayName("an object under a prefix that names nobody is swept up")
+  void avatarResetSweepsOrphans() {
+    final FakeS3Client s3 =
+        bucketWith("avatars/v1/long-gone/aaa.jpg", "avatars/stray.jpg", "stray-at-root");
+
+    DatabaseReset.deleteAvatarsExceptThoseOf(s3, "bucket", Set.of("demo"));
+
+    assertTrue(s3.objects.isEmpty());
+  }
+
+  @Test
+  @DisplayName("a survivor's id being a prefix of a deleted person's id protects only the survivor")
+  void avatarResetDoesNotConfuseIdsThatShareAPrefix() {
+    final FakeS3Client s3 = bucketWith("avatars/v1/abc/aaa.jpg", "avatars/v1/abcd/bbb.jpg");
+
+    DatabaseReset.deleteAvatarsExceptThoseOf(s3, "bucket", Set.of("abc"));
+
+    assertEquals(Set.of("avatars/v1/abc/aaa.jpg"), s3.objects.keySet());
+  }
+
+  @Test
+  void personIdsAreWhoeverIsLeftInTheTable() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    fakeClient.tables.put(
+        PEOPLE_TABLE, new ArrayList<>(List.of(person("p1", "sub-1"), person("p2", null))));
+
+    assertEquals(Set.of("p1", "p2"), DatabaseReset.personIds(fakeClient, PEOPLE_TABLE));
+    assertEquals(Set.of(), DatabaseReset.personIds(new FakeDynamoDbClient(), PEOPLE_TABLE));
   }
 }

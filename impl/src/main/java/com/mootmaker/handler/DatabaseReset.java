@@ -2,6 +2,7 @@ package com.mootmaker.handler;
 
 import module java.base;
 
+import com.mootmaker.avatar.AvatarUrls;
 import com.mootmaker.concurrent.ConcurrencyUtils;
 import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.limits.Limits;
@@ -17,6 +18,8 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 /**
  * The actual reset logic behind {@link DatabaseResetHandler} - formerly {@code Mutation.reset} in
@@ -200,6 +203,44 @@ final class DatabaseReset {
     new DayRepository(dynamoDbClient, meetingsTableName)
         .resetBoundaryTo(naturalBoundary(LocalDate.now()));
     return meetingsRemoved;
+  }
+
+  /**
+   * Deletes every object in the avatars bucket that does not belong to a surviving person: staged
+   * uploads, the avatars of everyone just deleted, and anything orphaned along the way.
+   *
+   * <p><b>Not "empty the bucket", although the bucket is usually empty afterwards.</b> A reset
+   * keeps some people - the reserved accounts everywhere, and every linked person in {@code
+   * production}. Emptying the bucket outright would leave each of them with an {@code avatarUrl}
+   * pointing at an object that no longer exists, which is a broken image rather than a missing one.
+   * An avatar is deleted with its person, so it is kept with its person too.
+   *
+   * <p>Decided from the people actually left in the table, so this must run after the people pass
+   * rather than alongside it. Anything under a prefix that names nobody is deleted, which is what
+   * cleans up after a person removed by some path that did not take their avatar with it.
+   *
+   * <p>Objects are deleted, never the bucket: it is a Terraform resource, and a reset that removed
+   * it would put Terraform and reality out of step.
+   */
+  static int deleteAvatarsExceptThoseOf(
+      final S3Client s3, final String bucketName, final Set<String> survivingPersonIds) {
+    final Set<String> keptPrefixes =
+        survivingPersonIds.stream().map(AvatarUrls::personPrefix).collect(Collectors.toSet());
+    final List<String> doomed =
+        s3.listObjectsV2Paginator(list -> list.bucket(bucketName)).contents().stream()
+            .map(S3Object::key)
+            .filter(key -> keptPrefixes.stream().noneMatch(key::startsWith))
+            .toList();
+    ConcurrencyUtils.runInParallel(
+        doomed, key -> s3.deleteObject(delete -> delete.bucket(bucketName).key(key)));
+    return doomed.size();
+  }
+
+  /** The ids of everyone currently in the people table - after a reset, the survivors. */
+  static Set<String> personIds(final DynamoDbClient dynamoDbClient, final String peopleTableName) {
+    return scan(dynamoDbClient, peopleTableName).stream()
+        .map(item -> item.get("id").s())
+        .collect(Collectors.toSet());
   }
 
   /**
