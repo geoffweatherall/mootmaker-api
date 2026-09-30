@@ -85,6 +85,23 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <!-- Person avatars: AvatarStore presigns the upload, reads the staged object back, and writes
+         the normalised image (see com.mootmaker.avatar). The presigner ships inside this same
+         artifact. Same exclusion reasoning as dynamodb above. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>apache5-client</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>url-connection-client</artifactId>
