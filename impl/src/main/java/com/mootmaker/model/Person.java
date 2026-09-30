@@ -42,7 +42,8 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  * absolute URL a client receives, on the way out only; see that class for why the host is
  * configuration rather than data. Optional and nullable, unlike the preferences above: there is no
  * default avatar, so null genuinely means "show initials" rather than "hasn't chosen yet". Written
- * only by the avatar upload mutations - see mootmaker/designs/person-avatar-upload-refactor.md.
+ * only by the avatar upload mutations - see
+ * mootmaker/designs/archive/person-avatar-upload-refactor.md.
  */
 public record Person(
     String id,
