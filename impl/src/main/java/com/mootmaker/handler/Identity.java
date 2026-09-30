@@ -88,6 +88,29 @@ final class Identity {
   }
 
   /**
+   * Throws unless the caller is an admin (see {@link #requireAdmin}) or is acting on their own
+   * Person, per the {@code custom:personId} claim. For the avatar mutations, which take a {@code
+   * personId} and serve both cases with one field rather than a self/admin pair.
+   *
+   * <p>A refusal, not a typed error: a caller naming someone else's Person without the right to is
+   * not a validation failure to render, and answering it the same whether or not that Person exists
+   * keeps this from being a way to probe for ids.
+   */
+  static void requireAdminOrSelf(final Map<String, Object> event, final String personId) {
+    requireAdminOrSelf(event, personId, System.getenv(ADMIN_SCOPE_ENV_VAR));
+  }
+
+  /** Package-private overload so tests can supply the admin scope directly. */
+  static void requireAdminOrSelf(
+      final Map<String, Object> event, final String personId, final String adminScope) {
+    requireAuthenticated(event);
+    final boolean isSelf = personId != null && personId(event).map(personId::equals).orElse(false);
+    if (!isSelf && !isAdmin(event, adminScope)) {
+      throw new IllegalStateException("Forbidden: admin access or your own person required");
+    }
+  }
+
+  /**
    * Non-throwing check for the same condition {@link #requireAdmin} enforces - for handlers like
    * {@code UpdateMeetingHandler} that allow admin access as just one of several ways a request can
    * be authorized (the other being "this is the meeting's organiser"), rather than admin being the
