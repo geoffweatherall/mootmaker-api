@@ -84,6 +84,9 @@ That table is gone, and with it the technical argument. The rule remains as a pl
 | `deletePerson(id)` | Mutation | **Admin only.** Same cascade as `deleteMyAccount`, admin-invoked against someone else. Rejects `CannotDeleteSelf` (use `deleteMyAccount` instead) and `ReservedAccount` |
 | `deleteRoom(id)` | Mutation | **Admin only.** Rejects `RoomHasUpcomingMeetings` rather than cascading - see [Validation](#validation) for why room deletion and person deletion are treated differently here |
 | `updateMyPreferences(preferences)` | Mutation | **Self only, no admin override.** Sets the caller's own `dateFormat`/`timeFormat`/`weekStart`. All three required - it replaces the whole set rather than patching one |
+| `requestAvatarUpload(personId, contentType, contentLength)` | Mutation | **Admin, or the caller's own Person.** Step one of setting an avatar: returns a presigned S3 URL to `PUT` the image to. Changes nothing about the Person - see [Person avatars](#person-avatars) |
+| `confirmAvatarUpload(personId, uploadId)` | Mutation | **Admin, or the caller's own Person.** Step two: decodes the staged upload, rejects it or re-encodes it as a 256x256 JPEG, and points `Person.avatarUrl` at the result. Replaces any previous avatar. Synchronous, and safe to retry |
+| `removeAvatar(personId)` | Mutation | **Admin, or the caller's own Person.** Clears `avatarUrl` and deletes the image. Succeeds for a person with no avatar |
 | `createMeeting(meeting)` | Mutation | Returns `CreateMeetingResult` - the meeting, its whole updated `Day`, or validation errors. Select `day` to let a day-keyed client cache absorb the new state with no update logic |
 | `createMeetings(date, meetings)` | Mutation | Day-scoped bulk creation: one operation, one item write, one broadcast. At most 99 per call, because the day item and one pointer per meeting go in a single DynamoDB transaction, which caps at 100 items |
 | `respondToMeeting(meetingId, status)` | Mutation | **Self only, no admin override.** Sets the caller's own `AttendeeStatus` on a meeting they attend. Rejects with `MeetingNotFound`/`NotAnAttendee`/`NoLinkedPerson` rather than a general edit capability - see [Data model](#data-model) |
@@ -376,7 +379,9 @@ Every component is configured to scale to zero, so a deployed-but-idle API costs
 | DynamoDB | On-demand (`PAY_PER_REQUEST`): per read/write request unit + storage | ~$0 (storage only, negligible at this scale) |
 | Cognito | Per monthly active user (10k free), plus $0.00225 per M2M token issued to the acceptance-test client (no free tier) | $0 |
 | CloudWatch Logs | Per GB ingested/stored from Lambda logs | ~$0 when idle |
-| ACM certificate (custom domain) | Free when attached to AppSync | $0 |
+| ACM certificate (custom domains) | Free when attached to AppSync | $0 |
+| S3 (avatars) | Per GB stored + per request. A normalised avatar is ~10-15 KB, and staged uploads expire after a day | ~$0 (a few MB per environment) |
+| CloudFront (avatars) | Per request + per GB transferred; no fixed charge for a distribution, and its ACM certificate is free | $0 |
 | Route53 record (custom domain) | Covered by [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain)'s hosted zone; query volume is negligible at this scale | $0 |
 
 There are no fixed-price resources (no provisioned DynamoDB capacity, no EC2/containers, no NAT gateways, no provisioned Lambda concurrency). Costs scale linearly with API call volume: each GraphQL call is one AppSync request, one Lambda invocation, and one or more DynamoDB operations.
@@ -452,6 +457,21 @@ A room's capacity can be reduced below the size of a meeting already booked into
 `createPerson` validates the schema's non-null `name` and rejects a case/whitespace-insensitive name collision with an existing Person (`NameAlreadyExists`) - the same check a `PreSignUp` Cognito trigger applies to sign-up itself, see [Sign-up creates a linked Person](#sign-up-creates-a-linked-person). The acceptance tests in [verify/](verify/) cover these rules, and the admin-only/self-or-admin authorization checks, end-to-end against the deployed API.
 
 ## Implementation choices
+`requestAvatarUpload` ([RequestAvatarUploadHandler](impl/src/main/java/com/mootmaker/handler/RequestAvatarUploadHandler.java)), `confirmAvatarUpload` ([ConfirmAvatarUploadHandler](impl/src/main/java/com/mootmaker/handler/ConfirmAvatarUploadHandler.java)) and `removeAvatar` ([RemoveAvatarHandler](impl/src/main/java/com/mootmaker/handler/RemoveAvatarHandler.java)) - all three admin, or the caller's own Person. Unlike `updateMyName`/`renamePerson` this is one `personId`-taking mutation serving both cases rather than a self/admin pair, which would have doubled a three-call surface. A caller who is neither is refused outright rather than given a typed error, the same whether or not the Person exists:
+
+| Error | Rule |
+|---|---|
+| `PersonNotFound` | `personId` must refer to an existing person |
+| `UnsupportedContentType` | `requestAvatarUpload` only: `contentType` must be `image/jpeg` or `image/png` |
+| `UploadTooLarge` | `requestAvatarUpload` only: `contentLength` must be at most 2,097,152 bytes (2 MiB) |
+| `InvalidContentLength` | `requestAvatarUpload` only: `contentLength` must be positive |
+| `UploadNotFound` | `confirmAvatarUpload` only: something must actually be staged under `uploadId` - the `PUT` happened, completed, and was less than a day ago |
+| `NotAnImage` | `confirmAvatarUpload` only: the uploaded bytes must decode as a JPEG or PNG, whatever `Content-Type` they were sent with |
+| `ImageTooSmall` | `confirmAvatarUpload` only: the image must be at least 64 pixels on each side |
+| `ImageTooLarge` | `confirmAvatarUpload` only: the image must be at most 4096 pixels on each side |
+
+`requestAvatarUpload` can only judge what the caller *declares*, so passing it says nothing about the image; everything that needs the bytes is `confirmAvatarUpload`'s. These report the first rule broken rather than all of them - an image that fails to decode has no dimensions to check.
+
 
 #### Why M2M was chosen for the API tests
 

@@ -85,6 +85,12 @@ type Mutation {
  cancelMeeting(id: ID!): CancelMeetingResult!
  "Sets the signed-in caller's own date/time display preferences. Self-only - requires a linked Person, and there is no admin override, unlike renamePerson. Purely presentational: does not change the ISO-8601 format this API uses for every date/time it accepts and returns."
  updateMyPreferences(preferences: PreferencesInput!): UpdateMyPreferencesResult!
+ "Admin, or the caller's own person. Step one of setting an avatar: returns a presigned URL to HTTP PUT the image to, since GraphQL has no sensible way to carry the bytes. Changes nothing about the Person - the upload lands in private staging, and only confirmAvatarUpload can make it an avatar. contentType must be image/jpeg or image/png, and contentLength is the size in bytes, at most 2097152 (2 MiB). Both are baked into the URL's signature, so the PUT must send exactly that Content-Type and exactly that many bytes - the length is enforced as an exact match, not a maximum. Passing this proves nothing about the image itself; only confirmAvatarUpload looks at the bytes."
+ requestAvatarUpload(personId: ID!, contentType: String!, contentLength: Int!): RequestAvatarUploadResult!
+ "Admin, or the caller's own person. Step two of setting an avatar: decodes the staged upload, rejects it if it is not a JPEG or PNG between 64x64 and 4096x4096, and otherwise re-encodes it as a 256x256 JPEG (centre-cropped to square), stores that, and points the Person's avatarUrl at it. The uploaded bytes themselves are never served. Replaces any previous avatar - a person has at most one. Synchronous: a rejection arrives in errors, here, not later. Safe to retry with the same uploadId if a response is lost."
+ confirmAvatarUpload(personId: ID!, uploadId: ID!): ConfirmAvatarUploadResult!
+ "Admin, or the caller's own person. Clears the person's avatar and deletes the image, so every client falls back to initials. Succeeds for a person who has no avatar."
+ removeAvatar(personId: ID!): RemoveAvatarResult!
  "Deletes the signed-in caller's own account: cancels every upcoming meeting they organise, removes them from every upcoming meeting they only attend, deletes their linked Person, then deletes their Cognito user entirely. Past meetings are left untouched. Irreversible. Not available for reserved system accounts (e.g. the demo user), which reject with an error."
  deleteMyAccount: Boolean!
 
@@ -292,6 +298,60 @@ enum PersonError {
     NoLinkedAccount
     "setPersonAdmin only: the caller targeted their own Person with isAdmin: false. No one can remove their own admin access through this mutation."
     CannotRevokeOwnAdminAccess
+}
+
+"Where and how to upload an avatar image. See requestAvatarUpload."
+type AvatarUpload {
+    "Pass this to confirmAvatarUpload once the PUT has succeeded."
+    uploadId: ID!
+    "HTTP PUT the image bytes here. Presigned, so it needs no Authorization header - and must not be sent one."
+    url: String!
+    "Send exactly this as the PUT's Content-Type header. Echoed from the request."
+    contentType: String!
+    "The PUT body must be exactly this many bytes. Echoed from the request."
+    contentLength: Int!
+    "When url stops working, as an ISO-8601 UTC instant, e.g. \"2026-09-30T04:49:29Z\" - unlike every meeting time in this API, which is a naive local time. Request a new upload rather than retrying an expired one."
+    expiresAt: String!
+}
+
+type RequestAvatarUploadResult {
+    "Populated when the declared upload was acceptable."
+    upload: AvatarUpload
+    "Non-empty when the request was rejected; one entry per validation rule broken."
+    errors: [AvatarError!]!
+}
+
+type ConfirmAvatarUploadResult {
+    "Populated when the image passed validation and is now this person's avatar."
+    person: Person
+    "Non-empty when the upload was rejected; one entry per validation rule broken."
+    errors: [AvatarError!]!
+}
+
+type RemoveAvatarResult {
+    "Populated when the avatar was removed, or there was none to remove."
+    person: Person
+    "Non-empty when the removal was rejected; one entry per validation rule broken."
+    errors: [AvatarError!]!
+}
+
+enum AvatarError {
+    "personId did not match any existing person."
+    PersonNotFound
+    "requestAvatarUpload only: contentType is not image/jpeg or image/png."
+    UnsupportedContentType
+    "requestAvatarUpload only: contentLength is above 2097152 bytes (2 MiB). Also returned by confirmAvatarUpload in the should-be-impossible case that a larger object reached staging."
+    UploadTooLarge
+    "requestAvatarUpload only: contentLength is zero or negative."
+    InvalidContentLength
+    "confirmAvatarUpload only: nothing is staged under this uploadId - the PUT never happened, did not complete, or was more than a day ago."
+    UploadNotFound
+    "confirmAvatarUpload only: the uploaded bytes do not decode as a JPEG or PNG, whatever Content-Type they were sent with."
+    NotAnImage
+    "confirmAvatarUpload only: the image is smaller than 64 pixels on either side."
+    ImageTooSmall
+    "confirmAvatarUpload only: the image is larger than 4096 pixels on either side."
+    ImageTooLarge
 }
 
 type Meeting {
