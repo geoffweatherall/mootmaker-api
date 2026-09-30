@@ -16,7 +16,7 @@ package com.mootmaker.avatar;
  * actually wrote while new uploads go to v2. A version applied here would silently repoint every
  * existing avatar at an object nobody ever wrote.
  *
- * <p>See mootmaker/designs/person-avatar-upload-refactor.md.
+ * <p>See mootmaker/designs/archive/person-avatar-upload-refactor.md.
  */
 public final class AvatarUrls {
 

@@ -1,5 +1,5 @@
 # Person avatar storage and hosting - see
-# mootmaker/designs/person-avatar-upload-refactor.md.
+# mootmaker/designs/archive/person-avatar-upload-refactor.md.
 #
 # Deliberately one file rather than the usual split across s3.tf/cloudfront.tf/
 # domain.tf: these resources are one feature, only exist for each other, and

@@ -79,7 +79,7 @@ resource "aws_iam_role_policy" "lambda_dynamodb_access" {
   policy = data.aws_iam_policy_document.lambda_dynamodb_access.json
 }
 
-# Person avatars - see avatars.tf and mootmaker/designs/person-avatar-upload-refactor.md.
+# Person avatars - see avatars.tf and mootmaker/designs/archive/person-avatar-upload-refactor.md.
 data "aws_iam_policy_document" "lambda_avatars_access" {
   statement {
     sid = "AvatarObjects"

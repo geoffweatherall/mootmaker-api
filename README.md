@@ -309,7 +309,7 @@ All three are non-null in the schema, but the DynamoDB attributes behind them ar
 
 ## Person avatars
 
-A `Person` has at most one avatar, exposed as `Person.avatarUrl`: an absolute, immutable URL, or `null` for anyone without one (every client falls back to initials). The design, and the reasoning behind each choice below, is in [person-avatar-upload-refactor.md](https://github.com/geoffweatherall/mootmaker/blob/main/designs/person-avatar-upload-refactor.md).
+A `Person` has at most one avatar, exposed as `Person.avatarUrl`: an absolute, immutable URL, or `null` for anyone without one (every client falls back to initials). The design, and the reasoning behind each choice below, is in [person-avatar-upload-refactor.md](https://github.com/geoffweatherall/mootmaker/blob/main/designs/archive/person-avatar-upload-refactor.md).
 
 **Setting one takes three calls**, because GraphQL has no sensible way to carry image bytes:
 
