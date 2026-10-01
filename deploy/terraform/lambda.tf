@@ -25,14 +25,13 @@ locals {
   # when it wipes the Cognito pool. One local so both consumers can never disagree about which
   # accounts are reserved.
   #
-  # The personless account is spliced in through a splat rather than named directly, because it is
-  # not created in production (see cognito.tf) - the splat is simply empty there. Leaving it out was
-  # a real bug for exactly one acceptance run: Terraform created the account, the suite's own reset
-  # deleted it as an unrecognised user seconds later, and all six tests that sign in as it failed
-  # with "Incorrect username or password" rather than anything about a missing account.
+  # The fixture users exist only in ephemeral environments (local.fixture_users is empty elsewhere).
+  # Leaving one out of this list is a silent failure: reset would delete it as an unrecognised user,
+  # and every test signing in as it would fail with "Incorrect username or password" rather than
+  # anything about a missing account - seen for real when the personless account was first added.
   reserved_account_emails = join(",", concat(
-    [aws_cognito_user.demo.username, aws_cognito_user.e2e.username],
-    aws_cognito_user.no_person[*].username,
+    [aws_cognito_user.demo.username],
+    [for user in values(local.fixture_users) : user.email],
   ))
 
   # ResolverDispatchHandler (see impl/src/main/java/com/mootmaker/handler/ResolverDispatchHandler.java)
@@ -187,7 +186,7 @@ resource "aws_lambda_alias" "pre_sign_up_name_collision_live" {
 # builds the snapshot asynchronously after publish; invoking too soon fails with Lambda's own
 # ResourceConflictException, which Cognito surfaces as "PreSignUp invocation failed due to error
 # ResourceConflictException" - seen for real deploying a fresh ephemeral environment, where
-# aws_cognito_user.e2e/demo below invoke this function within seconds of it being published.
+# aws_cognito_user.demo invokes this function within seconds of it being published.
 # post_confirmation_create_person carries the identical risk (same SnapStart setup) but has never hit
 # it: nothing in this apply invokes PostConfirmation synchronously - only a later, real sign-up does,
 # by which time the snapshot is long since ready. PreSignUp has no such luxury.

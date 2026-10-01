@@ -163,9 +163,13 @@ class DatabaseResetTest {
     cognitoClient.users.addAll(
         List.of(
             user("demo@mootmaker.com", "demo-sub", "demo@mootmaker.com"),
-            user("e2e-tests@example.com", "e2e-sub", "e2e-tests@example.com"),
+            user(
+                "e2e-standard-user@mail.mootmaker.com",
+                "e2e-sub",
+                "e2e-standard-user@mail.mootmaker.com"),
             user("stray-signup@example.com", "stray-sub", "stray-signup@example.com")));
-    final Set<String> reservedEmails = Set.of("demo@mootmaker.com", "e2e-tests@example.com");
+    final Set<String> reservedEmails =
+        Set.of("demo@mootmaker.com", "e2e-standard-user@mail.mootmaker.com");
 
     final DatabaseReset.CognitoWipeResult result =
         DatabaseReset.wipeCognitoPool(cognitoClient, USER_POOL_ID, reservedEmails);

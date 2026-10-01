@@ -4,6 +4,7 @@ import module java.base;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.mootmaker.dynamo.PersonRepository;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -15,8 +16,10 @@ import software.amazon.awssdk.services.s3.S3Client;
  * console, or the AWS SDK - never through a wrapper script; the input payload is unused, there is
  * nothing to configure per invocation. Deletes every stored room and meeting, every avatar that
  * does not belong to a person who survives, and - except in {@code production} - wipes the Cognito
- * user pool down to the two Terraform-managed reserved accounts (demo, e2e) and every Person still
- * linked to one of them. See {@link DatabaseReset} for what actually gets deleted and why.
+ * user pool down to the reserved accounts (the demo user, and the fixture users in ephemeral
+ * environments) and every Person still linked to one of them, then ensures and repairs the fixture
+ * users (see {@link FixtureUsers}). See {@link DatabaseReset} for what actually gets deleted and
+ * why.
  *
  * <p>{@code ALLOW_COGNITO_WIPE} is computed by Terraform from the target environment ({@code
  * environment != "production"}), not read from the invoke payload - whether wiping Cognito is
@@ -42,6 +45,7 @@ public final class DatabaseResetHandler
     final boolean allowCognitoWipe = Boolean.parseBoolean(requireEnv("ALLOW_COGNITO_WIPE"));
     final Set<String> reservedEmails =
         parseReservedEmails(System.getenv("RESERVED_ACCOUNT_EMAILS"));
+    final List<FixtureUsers.Fixture> fixtures = FixtureUsers.fromEnvironment(System.getenv());
 
     try (DynamoDbClient dynamoDbClient = DynamoDbClient.builder().build();
         CognitoIdentityProviderClient cognitoClient =
@@ -86,13 +90,32 @@ public final class DatabaseResetHandler
         final int peopleDeleted = getResult(peopleFuture);
         final int meetingsDeleted = getResult(meetingsFuture);
 
+        // The fixture users (ephemeral environments only) are ensured and repaired after the
+        // people pass, so the Persons this writes are not swept up by it. None are configured in
+        // production, and none in test, so there this is a no-op. Never when the Cognito wipe is
+        // off: repair assumes the pool was just cleared down to the reserved accounts.
+        final Set<String> fixturePersonIds;
+        if (allowCognitoWipe && !fixtures.isEmpty()) {
+          System.out.println("Ensuring and repairing " + fixtures.size() + " fixture user(s)...");
+          fixturePersonIds =
+              new FixtureUsers(
+                      cognitoClient,
+                      new PersonRepository(dynamoDbClient, peopleTableName),
+                      userPoolId,
+                      requireEnv("COGNITO_WEBAPP_CLIENT_ID"))
+                  .ensureAndRepair(fixtures);
+        } else {
+          fixturePersonIds = Set.of();
+        }
+
         // After the people pass, not alongside it: which avatars survive is decided by which
-        // people did. See DatabaseReset#deleteAvatarsExceptThoseOf.
+        // people did. See DatabaseReset#deleteAvatarsExceptThoseOf. A repaired fixture user has
+        // no avatar, so its objects go too.
+        final Set<String> keepAvatarsOf =
+            new HashSet<>(DatabaseReset.personIds(dynamoDbClient, peopleTableName));
+        keepAvatarsOf.removeAll(fixturePersonIds);
         final int avatarObjectsDeleted =
-            DatabaseReset.deleteAvatarsExceptThoseOf(
-                s3Client,
-                avatarsBucketName,
-                DatabaseReset.personIds(dynamoDbClient, peopleTableName));
+            DatabaseReset.deleteAvatarsExceptThoseOf(s3Client, avatarsBucketName, keepAvatarsOf);
 
         System.out.println(
             "Deleted "
@@ -113,6 +136,7 @@ public final class DatabaseResetHandler
         summary.put("avatarObjectsDeleted", avatarObjectsDeleted);
         summary.put("cognitoWipeSkipped", cognitoWipeSkipped);
         summary.put("cognitoUsersDeleted", cognitoUsersDeleted);
+        summary.put("fixtureUsersRepaired", allowCognitoWipe ? fixtures.size() : 0);
         return summary;
       } finally {
         executor.shutdown();

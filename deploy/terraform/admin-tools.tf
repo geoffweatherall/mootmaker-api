@@ -63,6 +63,31 @@ data "aws_iam_policy_document" "database_reset_access" {
     resources = [aws_cognito_user_pool.this.arn]
   }
 
+  # Ensuring and repairing the fixture users (ephemeral environments only - see FixtureUsers).
+  # SignUp itself needs no IAM: it is the public, client-id-authenticated API a real sign-up uses,
+  # which is the point. These are what confirm the new account and put an existing one back.
+  statement {
+    sid = "DatabaseResetFixtureUsers"
+    actions = [
+      "cognito-idp:AdminGetUser",
+      "cognito-idp:AdminConfirmSignUp",
+      "cognito-idp:AdminSetUserPassword",
+      "cognito-idp:AdminEnableUser",
+      "cognito-idp:AdminUpdateUserAttributes",
+      "cognito-idp:AdminDeleteUserAttributes",
+    ]
+    resources = [aws_cognito_user_pool.this.arn]
+  }
+
+  # Writing the fixture users' Person items back to a known state. The one exception to this
+  # role not writing to the people table (see the retention statement below for why it is
+  # otherwise kept narrow): repair is a full put of exactly those items.
+  statement {
+    sid       = "DatabaseResetFixturePersonWrite"
+    actions   = ["dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.people.arn]
+  }
+
   # Wiping people without wiping their avatars would leave every object in the bucket orphaned,
   # referenced by nothing and deleted by nothing. See avatars.tf.
   #
@@ -125,8 +150,20 @@ resource "aws_lambda_function" "database_reset" {
       RESERVED_ACCOUNT_EMAILS = local.reserved_account_emails
       # Which bucket to empty of avatars. No AVATARS_BASE_URL here: reset deletes objects by key
       # and never builds a URL, so giving it one would only invite something to start.
-      AVATARS_BUCKET_NAME = aws_s3_bucket.avatars.bucket
-    })
+      AVATARS_BUCKET_NAME      = aws_s3_bucket.avatars.bucket
+      COGNITO_WEBAPP_CLIENT_ID = aws_cognito_user_pool_client.webapp.id
+      },
+      # Fixture users to ensure and repair after every reset, as FIXTURE_USER_<ROLE>_EMAIL/_NAME/
+      # _PASSWORD (role upper-cased, '-' as '_'). Absent outside ephemeral environments, which is
+      # how FixtureUsers knows to do nothing. COGNITO_WEBAPP_CLIENT_ID above is what a real sign-up
+      # uses, so missing accounts are created exactly the way a user's would be.
+      merge([
+        for role, user in local.fixture_users : {
+          "FIXTURE_USER_${upper(replace(role, "-", "_"))}_EMAIL"    = user.email
+          "FIXTURE_USER_${upper(replace(role, "-", "_"))}_NAME"     = user.name
+          "FIXTURE_USER_${upper(replace(role, "-", "_"))}_PASSWORD" = random_password.fixture_user[role].result
+        }
+    ]...))
   }
 
   # The log group must exist BEFORE this function can be invoked. SnapStart
