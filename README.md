@@ -98,8 +98,6 @@ That table is gone, and with it the technical argument. The rule remains as a pl
 
 Wiping stored data is no longer an API operation - see [Reset and real user accounts](#reset-and-real-user-accounts).
 
-Sample requests for every operation are in [api/requests.http](api/requests.http). To use them: deploy, run `source authenticate.sh <environment>`, open the file in VS Code (REST Client extension), and run the **"Get an access token"** request first — the other requests reference the returned token via `{{cognitoToken.response.body.$.access_token}}` and send it in the `Authorization` header. Tokens last 1 hour; re-run the token request when one expires.
-
 ## How it is implemented
 
 ```
@@ -159,7 +157,7 @@ The user pool has three app clients (plus a hosted domain used only for the OAut
 | App client | Kind | Used by |
 |---|---|---|
 | `mootmaker-webapp` | Public (no secret), SRP auth flow | The [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) browser SPA: users sign up / sign in and their id token is sent with each GraphQL call |
-| `mootmaker-acceptance-tests` | Confidential (client secret), OAuth2 `client_credentials` flow | The [verify/](verify/) acceptance tests and [api/requests.http](api/requests.http) |
+| `mootmaker-acceptance-tests` | Confidential (client secret), OAuth2 `client_credentials` flow | The [verify/](verify/) acceptance tests |
 | `mootmaker-demo-data` | Confidential (client secret), OAuth2 `client_credentials` flow | [mootmaker-demo-data](https://github.com/geoffweatherall/mootmaker-demo-data), which reads its id and secret from SSM at runtime — see below |
 
 The resource server (`mootmaker-api`) defines two OAuth2 scopes: `execute` (general API access) and `admin` (see [User classes and authorization](#user-classes-and-authorization)). `mootmaker-acceptance-tests` requests both — `authenticate.sh`'s `COGNITO_TEST_SCOPE` output is the space-separated pair — so M2M-authenticated tooling can call the admin-gated mutations without needing a real Cognito user. `mootmaker-demo-data` requests the same pair.
@@ -348,7 +346,7 @@ Deleting the object does not purge CloudFront, so an avatar fetched before it wa
 
 | Path | Contents |
 |---|---|
-| [api/](api/) | GraphQL schema ([mootmaker.graphql](api/mootmaker.graphql)) and sample requests ([requests.http](api/requests.http)) |
+| [api/](api/) | GraphQL schema ([mootmaker.graphql](api/mootmaker.graphql)) |
 | [impl/](impl/) | Maven project with the Java Lambda handlers (`com.mootmaker.handler.*`), model records (`com.mootmaker.model.*`), and unit tests. Builds the shaded jar deployed to Lambda. |
 | [deploy/terraform/](deploy/terraform/) | Terraform for all AWS resources: AppSync API, resolvers and data sources ([appsync.tf](deploy/terraform/appsync.tf)), Cognito user pool, app clients, the e2e test user, and the public demo user ([cognito.tf](deploy/terraform/cognito.tf)), the resolvers/post-confirmation Lambda functions ([lambda.tf](deploy/terraform/lambda.tf)) and the `database-reset`/`database-repair` Lambda functions with their own dedicated IAM roles ([admin-tools.tf](deploy/terraform/admin-tools.tf)), DynamoDB tables ([dynamodb.tf](deploy/terraform/dynamodb.tf)), the shared resolver IAM role ([iam.tf](deploy/terraform/iam.tf)), outputs (API URL, Cognito ids, test and demo user credentials). All resource names are prefixed with `<environment>-<project_name>` ([locals.tf](deploy/terraform/locals.tf)) so multiple environments can coexist in one AWS account. State is stored remotely in S3, one state file per environment ([backend.hcl](deploy/terraform/backend.hcl) — see the [mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform) README for how that bucket is set up, and the [mootmaker project README](https://github.com/geoffweatherall/mootmaker#multi-environment-deployments) for the multi-environment design). |
 | [verify/](verify/) | Maven project with JUnit acceptance tests (`*IT.java`, run by failsafe) that exercise the **deployed** API over HTTP, resetting data via `database-reset` rather than a GraphQL mutation (see [Authentication in end-to-end tests](#authentication-in-end-to-end-tests)). |
