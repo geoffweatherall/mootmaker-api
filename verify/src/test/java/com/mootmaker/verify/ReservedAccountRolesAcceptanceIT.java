@@ -1,8 +1,11 @@
 package com.mootmaker.verify;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Optional;
+import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -13,66 +16,104 @@ import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminGetUse
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AttributeType;
 
 /**
- * Asserts the fixture Cognito users created by {@code deploy/terraform/cognito.tf} actually carry
- * the {@code custom:class} they're meant to: {@code demo} must be {@code admin} (see {@code
- * aws_cognito_user.demo}) and {@code e2e} must be {@code standard} (see {@code
- * aws_cognito_user.e2e}). See mootmaker-api#40.
+ * Asserts every reserved account carries the role it is meant to, in both places a role lives: the
+ * Cognito {@code custom:class} attribute (what authorization reads) and the Person's {@code
+ * isAdmin} (what the app displays). The two are set by different code, and the old fixture users
+ * drifted between them (mootmaker-api#40, #73).
  *
- * <p>This has to be an acceptance test, not a unit test: both users' {@code custom:*} attributes
- * are set via {@code lifecycle { ignore_changes = [attributes] } } (see mootmaker-api#39), a
- * Terraform create/update convergence quirk that only shows up against a real deployed pool - a
- * unit test against a fake Cognito client would only prove the Terraform config says what it says,
- * not that Terraform actually applied it correctly. mootmaker-api#39 shipped a fix (#41) without
- * any check that would have caught the original bug in the first place; this test exists so a
- * regression - either user's class silently reverting to empty, or the two swapping - gets caught
- * rather than assumed. The assertion is deliberately about the *difference* between the two users,
- * not just demo's value in isolation, since a bug that set both to the same class would pass a
- * single-user check.
+ * <ul>
+ *   <li>The demo user (Terraform-managed, every environment): admin.
+ *   <li>The E2E admin user: admin.
+ *   <li>The E2E standard user: standard.
+ *   <li>The E2E no-person user: standard, with no {@code custom:personId} and no Person at all.
+ * </ul>
  *
- * <p>Not run against {@code production}: nothing about {@code custom:class} is skipped there
- * (unlike {@code database-reset}'s Cognito wipe), but this suite's own definition of done is a
- * fresh ephemeral environment, never production - see {@code
- * DatabaseResetCognitoWipeAcceptanceIT}'s equivalent note.
+ * The three E2E users are created and repaired by database reset (FixtureUsers), so this runs after
+ * a reset, which is also what a real acceptance run does first. The assertions are about the
+ * difference between the users as much as each one's value: a bug that gave them all the same class
+ * would pass any single-user check.
+ *
+ * <p>Ephemeral environments only - the fixture users exist nowhere else.
  */
-class DemoAndE2eUserRolesAcceptanceIT {
+class ReservedAccountRolesAcceptanceIT {
 
-  private static final Logger LOG = LoggerFactory.getLogger(DemoAndE2eUserRolesAcceptanceIT.class);
-  private static final String CLASS_ATTRIBUTE = "custom:class";
+  private static final Logger LOG = LoggerFactory.getLogger(ReservedAccountRolesAcceptanceIT.class);
 
   private static CognitoIdentityProviderClient cognitoClient;
+  private static GraphQlClient graphQlClient;
   private static String userPoolId;
-  private static String demoUserEmail;
-  private static String e2eUserEmail;
 
   @BeforeAll
   static void setUp() {
     userPoolId = requireEnv("COGNITO_USER_POOL_ID");
-    demoUserEmail = requireEnv("DEMO_USER_EMAIL");
-    e2eUserEmail = requireEnv("E2E_USER_EMAIL");
     cognitoClient = CognitoIdentityProviderClient.builder().build();
+    graphQlClient = GraphQlClient.fromEnvironment();
+    DatabaseReset.reset();
   }
 
   @Test
-  void demoUserIsAdminAndE2eUserIsStandard() {
-    final String demoClass = classAttributeOf(demoUserEmail);
-    final String e2eClass = classAttributeOf(e2eUserEmail);
-
-    LOG.info("demo user '{}' has custom:class '{}'", demoUserEmail, demoClass);
-    LOG.info("e2e user '{}' has custom:class '{}'", e2eUserEmail, e2eClass);
-
-    assertEquals("admin", demoClass, "demo user's custom:class");
-    assertEquals("standard", e2eClass, "e2e user's custom:class");
+  void demoUserIsAdmin() {
+    assertRole(requireEnv("DEMO_USER_EMAIL"), "admin", true);
   }
 
-  private static String classAttributeOf(final String username) {
-    final AdminGetUserResponse response =
-        cognitoClient.adminGetUser(
-            AdminGetUserRequest.builder().userPoolId(userPoolId).username(username).build());
-    return response.userAttributes().stream()
-        .filter(attribute -> CLASS_ATTRIBUTE.equals(attribute.name()))
+  @Test
+  void e2eAdminUserIsAdmin() {
+    assertRole(requireEnv("E2E_ADMIN_USER_EMAIL"), "admin", true);
+  }
+
+  @Test
+  void e2eStandardUserIsStandard() {
+    assertRole(requireEnv("E2E_STANDARD_USER_EMAIL"), "standard", false);
+  }
+
+  @Test
+  void e2eNoPersonUserIsStandardWithNoPerson() {
+    final String email = requireEnv("E2E_NO_PERSON_USER_EMAIL");
+    final AdminGetUserResponse user = getUser(email);
+    assertEquals("standard", attribute(user, "custom:class").orElse(null), email + " class");
+    assertNull(attribute(user, "custom:personId").orElse(null), email + " must have no personId");
+    assertEquals(Optional.empty(), personLinkedTo(email), email + " must have no Person");
+  }
+
+  private static void assertRole(
+      final String email, final String expectedClass, final boolean expectedIsAdmin) {
+    final AdminGetUserResponse user = getUser(email);
+    final String cognitoClass = attribute(user, "custom:class").orElse(null);
+    final JsonNode person =
+        personLinkedTo(email).orElseThrow(() -> new AssertionError(email + " has no Person"));
+    LOG.info(
+        "'{}': custom:class '{}', Person isAdmin {}",
+        email,
+        cognitoClass,
+        person.get("isAdmin").asBoolean());
+    assertEquals(expectedClass, cognitoClass, email + " custom:class");
+    assertEquals(expectedIsAdmin, person.get("isAdmin").asBoolean(), email + " Person isAdmin");
+  }
+
+  private static AdminGetUserResponse getUser(final String email) {
+    return cognitoClient.adminGetUser(
+        AdminGetUserRequest.builder().userPoolId(userPoolId).username(email).build());
+  }
+
+  private static Optional<String> attribute(final AdminGetUserResponse user, final String name) {
+    return user.userAttributes().stream()
+        .filter(attribute -> name.equals(attribute.name()))
         .map(AttributeType::value)
-        .findFirst()
-        .orElseGet(() -> fail(username + " has no " + CLASS_ATTRIBUTE + " attribute set"));
+        .findFirst();
+  }
+
+  private static Optional<JsonNode> personLinkedTo(final String email) {
+    final JsonNode people =
+        graphQlClient
+            .execute("query { workspace { people { id name isAdmin linkedEmails } } }")
+            .path("workspace")
+            .path("people");
+    return StreamSupport.stream(people.spliterator(), false)
+        .filter(
+            person ->
+                StreamSupport.stream(person.path("linkedEmails").spliterator(), false)
+                    .anyMatch(linked -> email.equalsIgnoreCase(linked.asText())))
+        .findFirst();
   }
 
   private static String requireEnv(final String name) {
@@ -81,7 +122,7 @@ class DemoAndE2eUserRolesAcceptanceIT {
       throw new IllegalStateException(
           name
               + " environment variable is required to run acceptance tests against the deployed"
-              + " mootmaker API. Run the tests via ./verify.sh, which exports it.");
+              + " mootmaker API. Run the tests via ./verify.sh, which sets it.");
     }
     return value;
   }
