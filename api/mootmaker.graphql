@@ -365,6 +365,8 @@ type Meeting {
     startTime: String!
     "ISO-8601 local date-time with no time-zone offset (java.time.LocalDateTime semantics), e.g. \"2026-07-01T15:00:00\"."
     endTime: String!
+    "Changes whenever anything updateMeeting can change does - room, organiser, attendees, subject or times - and not when an attendee responds. Send it back as MeetingInput.expectedVersion so an edit made from a stale copy is rejected (MeetingChanged) instead of silently undoing someone else's change. Opaque: compare it, never parse it."
+    version: String!
 }
 
 "A meeting attendee paired with their response to it. Never the organiser: scheduling a meeting is itself treated as confirming attendance, so the organiser is implicitly Going with no status of their own to expose here or to set via respondToMeeting - see Meeting.organiser, which stays a plain Person."
@@ -410,6 +412,8 @@ input MeetingInput {
     startTime: String!
     "ISO-8601 local date-time with no time-zone offset, must fall on a 15 minute boundary, e.g. \"2026-07-01T15:00:00\". Must be on the same calendar date as startTime - a meeting cannot span midnight."
     endTime: String!
+    "updateMeeting only, optional: the Meeting.version the caller's copy was read at. If the meeting has changed since, the update is rejected with MeetingChanged and nothing is written. Omitted, the update overwrites unconditionally, as before. Ignored by createMeeting/createMeetings."
+    expectedVersion: String
 }
 
 type CreateMeetingResult {
@@ -480,6 +484,8 @@ enum MeetingError {
     TooManyMeetingsInOneCall
     "updateMeeting/cancelMeeting only: id did not match any existing meeting."
     MeetingNotFound
+    "updateMeeting only: expectedVersion was given and the meeting has changed since - someone else edited it. Nothing was written; re-read the meeting and try again."
+    MeetingChanged
 }
 
 

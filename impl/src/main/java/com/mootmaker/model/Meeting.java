@@ -24,6 +24,15 @@ public record Meeting(
     map.put("subject", subject);
     map.put("startTime", startTime);
     map.put("endTime", endTime);
+    map.put(
+        "version",
+        MeetingVersion.of(
+            room.id(),
+            organiser.id(),
+            attendees.stream().map(attendee -> attendee.person().id()).toList(),
+            subject,
+            startTime,
+            endTime));
     return map;
   }
 }

@@ -37,5 +37,10 @@ public enum MeetingError {
    */
   TooManyMeetingsInOneCall,
   /** updateMeeting/cancelMeeting only: id did not match any existing meeting. */
-  MeetingNotFound
+  MeetingNotFound,
+  /**
+   * updateMeeting only: expectedVersion was given and the meeting has changed since that version
+   * was read - someone else edited it. Nothing was written. See {@link MeetingVersion}.
+   */
+  MeetingChanged
 }

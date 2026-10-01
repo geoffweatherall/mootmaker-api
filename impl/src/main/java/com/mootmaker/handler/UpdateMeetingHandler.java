@@ -138,6 +138,15 @@ public class UpdateMeetingHandler implements RequestHandler<Map<String, Object>,
           "Forbidden: can only edit a meeting you organise unless you are admin");
     }
 
+    // Optimistic concurrency (mootmaker-api#96). Checked before validation errors are reported:
+    // if someone else has changed the meeting, nothing else about this request matters until the
+    // caller has seen what they changed. Re-checked inside the write below, for an edit that lands
+    // between this read and that write.
+    final String expectedVersion = (String) meetingInput.get("expectedVersion");
+    if (expectedVersion != null && !expectedVersion.equals(existing.get().version())) {
+      return rejected(List.of(MeetingError.MeetingChanged.name()));
+    }
+
     if (!validated.canInspectDay()) {
       return rejected(errors.isEmpty() ? List.of(MeetingError.EndBeforeStart.name()) : errors);
     }
@@ -170,10 +179,13 @@ public class UpdateMeetingHandler implements RequestHandler<Map<String, Object>,
         days.mutate(
             requestedDate,
             day -> {
-              final boolean stillExists =
-                  day.meetings().stream().anyMatch(m -> m.id().equals(meetingId));
-              if (!stillExists) {
+              final Optional<MeetingRecord> current =
+                  day.meetings().stream().filter(m -> m.id().equals(meetingId)).findFirst();
+              if (current.isEmpty()) {
                 throw new MeetingRejected(List.of(MeetingError.MeetingNotFound.name()));
+              }
+              if (expectedVersion != null && !expectedVersion.equals(current.get().version())) {
+                throw new MeetingRejected(List.of(MeetingError.MeetingChanged.name()));
               }
               final List<String> conflicts =
                   MeetingValidator.dayStateErrors(day.meetings(), validated, meetingId);

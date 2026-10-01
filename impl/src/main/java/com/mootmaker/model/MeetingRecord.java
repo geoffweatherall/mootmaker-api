@@ -144,4 +144,9 @@ public record MeetingRecord(
   public String date() {
     return startTime.substring(0, 10);
   }
+
+  /** This meeting's version - see {@link MeetingVersion}. */
+  public String version() {
+    return MeetingVersion.of(roomId, organiserId, attendeeIds, subject, startTime, endTime);
+  }
 }
