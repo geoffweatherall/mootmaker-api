@@ -218,6 +218,7 @@ class FixtureUsersTest {
     public synchronized AdminGetUserResponse adminGetUser(final AdminGetUserRequest request) {
       final String email = emailFor(request.username());
       return AdminGetUserResponse.builder()
+          .enabled(!disabled.contains(email))
           .username(attributes.get(email).get("sub"))
           .userAttributes(
               attributes.get(email).entrySet().stream()

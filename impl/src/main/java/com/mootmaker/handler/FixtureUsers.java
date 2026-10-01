@@ -123,7 +123,7 @@ final class FixtureUsers {
 
     final String username = user.username();
     final String sub = attribute(user, "sub");
-    repairCognito(fixture, username);
+    repairCognito(fixture, user);
 
     final String existingPersonId = attribute(user, Identity.PERSON_ID_CLAIM);
     if (!fixture.hasPerson()) {
@@ -178,7 +178,14 @@ final class FixtureUsers {
             .build());
   }
 
-  private void repairCognito(final Fixture fixture, final String username) {
+  /**
+   * Puts the account back, skipping whatever is already right - which is almost always all of it,
+   * since nothing is supposed to change these accounts. The state to compare comes back from the
+   * AdminGetUser already made, so a correct account costs only the password reset, which cannot be
+   * read back to compare and so is always set.
+   */
+  private void repairCognito(final Fixture fixture, final AdminGetUserResponse user) {
+    final String username = user.username();
     cognitoClient.adminSetUserPassword(
         AdminSetUserPasswordRequest.builder()
             .userPoolId(userPoolId)
@@ -186,17 +193,28 @@ final class FixtureUsers {
             .password(fixture.password())
             .permanent(true)
             .build());
-    cognitoClient.adminEnableUser(
-        AdminEnableUserRequest.builder().userPoolId(userPoolId).username(username).build());
-    updateAttributes(
-        username,
+    if (!Boolean.TRUE.equals(user.enabled())) {
+      cognitoClient.adminEnableUser(
+          AdminEnableUserRequest.builder().userPoolId(userPoolId).username(username).build());
+    }
+    final Map<String, String> wanted =
         Map.of(
             "email_verified",
             "true",
             "name",
             fixture.name(),
             "custom:class",
-            fixture.isAdmin() ? "admin" : "standard"));
+            fixture.isAdmin() ? "admin" : "standard");
+    final Map<String, String> differing = new HashMap<>();
+    wanted.forEach(
+        (name, value) -> {
+          if (!value.equals(attribute(user, name))) {
+            differing.put(name, value);
+          }
+        });
+    if (!differing.isEmpty()) {
+      updateAttributes(username, differing);
+    }
   }
 
   private void updateAttributes(final String username, final Map<String, String> attributes) {
