@@ -2,6 +2,7 @@ package com.mootmaker.handler;
 
 import module java.base;
 
+import com.mootmaker.concurrent.ConcurrencyUtils;
 import com.mootmaker.dynamo.IdAllocator;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.model.Person;
@@ -92,12 +93,18 @@ final class FixtureUsers {
     return fixtures;
   }
 
-  /** Ensures and repairs every fixture. Returns the ids of the Persons it wrote. */
+  /**
+   * Ensures and repairs every fixture, in parallel. Returns the ids of the Persons it wrote.
+   *
+   * <p>Parallel because this runs on every reset, and the acceptance suites reset before every
+   * test. Repairing one user is five sequential Cognito and DynamoDB calls; three users one after
+   * another took a warm reset from about 0.4 s to 3.5 s (measured on an ephemeral environment),
+   * which across a webapp run of 150-odd tests is the difference between two minutes and ten.
+   */
   Set<String> ensureAndRepair(final List<Fixture> fixtures) {
-    final Set<String> personIds = new HashSet<>();
-    for (final Fixture fixture : fixtures) {
-      ensureAndRepair(fixture).ifPresent(personIds::add);
-    }
+    final Set<String> personIds = ConcurrentHashMap.newKeySet();
+    ConcurrencyUtils.runInParallel(
+        fixtures, fixture -> ensureAndRepair(fixture).ifPresent(personIds::add));
     return personIds;
   }
 
@@ -116,7 +123,7 @@ final class FixtureUsers {
 
     final String username = user.username();
     final String sub = attribute(user, "sub");
-    repairCognito(fixture, username);
+    repairCognito(fixture, user);
 
     final String existingPersonId = attribute(user, Identity.PERSON_ID_CLAIM);
     if (!fixture.hasPerson()) {
@@ -171,7 +178,14 @@ final class FixtureUsers {
             .build());
   }
 
-  private void repairCognito(final Fixture fixture, final String username) {
+  /**
+   * Puts the account back, skipping whatever is already right - which is almost always all of it,
+   * since nothing is supposed to change these accounts. The state to compare comes back from the
+   * AdminGetUser already made, so a correct account costs only the password reset, which cannot be
+   * read back to compare and so is always set.
+   */
+  private void repairCognito(final Fixture fixture, final AdminGetUserResponse user) {
+    final String username = user.username();
     cognitoClient.adminSetUserPassword(
         AdminSetUserPasswordRequest.builder()
             .userPoolId(userPoolId)
@@ -179,17 +193,28 @@ final class FixtureUsers {
             .password(fixture.password())
             .permanent(true)
             .build());
-    cognitoClient.adminEnableUser(
-        AdminEnableUserRequest.builder().userPoolId(userPoolId).username(username).build());
-    updateAttributes(
-        username,
+    if (!Boolean.TRUE.equals(user.enabled())) {
+      cognitoClient.adminEnableUser(
+          AdminEnableUserRequest.builder().userPoolId(userPoolId).username(username).build());
+    }
+    final Map<String, String> wanted =
         Map.of(
             "email_verified",
             "true",
             "name",
             fixture.name(),
             "custom:class",
-            fixture.isAdmin() ? "admin" : "standard"));
+            fixture.isAdmin() ? "admin" : "standard");
+    final Map<String, String> differing = new HashMap<>();
+    wanted.forEach(
+        (name, value) -> {
+          if (!value.equals(attribute(user, name))) {
+            differing.put(name, value);
+          }
+        });
+    if (!differing.isEmpty()) {
+      updateAttributes(username, differing);
+    }
   }
 
   private void updateAttributes(final String username, final Map<String, String> attributes) {
