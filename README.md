@@ -157,10 +157,10 @@ The user pool has three app clients (plus a hosted domain used only for the OAut
 | App client | Kind | Used by |
 |---|---|---|
 | `mootmaker-webapp` | Public (no secret), SRP auth flow | The [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) browser SPA: users sign up / sign in and their id token is sent with each GraphQL call |
-| `mootmaker-acceptance-tests` | Confidential (client secret), OAuth2 `client_credentials` flow | The [verify/](verify/) acceptance tests |
+| `mootmaker-acceptance-tests` | Confidential (client secret), OAuth2 `client_credentials` flow | The [verify/](verify/) acceptance tests, the webapp's acceptance helpers and pre-deploy schema check, and the test-stage smoke test. Published to SSM as `m2m-client/*` |
 | `mootmaker-demo-data` | Confidential (client secret), OAuth2 `client_credentials` flow | [mootmaker-demo-data](https://github.com/geoffweatherall/mootmaker-demo-data), which reads its id and secret from SSM at runtime — see below |
 
-The resource server (`mootmaker-api`) defines two OAuth2 scopes: `execute` (general API access) and `admin` (see [User classes and authorization](#user-classes-and-authorization)). `mootmaker-acceptance-tests` requests both — `authenticate.sh`'s `COGNITO_TEST_SCOPE` output is the space-separated pair — so M2M-authenticated tooling can call the admin-gated mutations without needing a real Cognito user. `mootmaker-demo-data` requests the same pair.
+The resource server (`mootmaker-api`) defines two OAuth2 scopes: `execute` (general API access) and `admin` (see [User classes and authorization](#user-classes-and-authorization)). `mootmaker-acceptance-tests` requests both — the published `m2m-client/scope` parameter is the space-separated pair — so M2M-authenticated tooling can call the admin-gated mutations without needing a real Cognito user. `mootmaker-demo-data` requests the same pair.
 
 #### How mootmaker-demo-data gets its credentials
 
@@ -214,8 +214,8 @@ The user pool's password policy is set correspondingly loose to match: a minimum
 
 Both projects' end-to-end tests run non-interactively (a dev shell or CI), so neither can prompt a human for credentials. They authenticate differently because they test different things:
 
-- **The API acceptance tests in [verify/](verify/) use machine-to-machine (M2M) auth** — the OAuth2 **client_credentials flow**. [GraphQlClient](verify/src/test/java/com/mootmaker/verify/GraphQlClient.java) POSTs the test client's id and secret (read from the `COGNITO_TEST_CLIENT_ID` / `COGNITO_TEST_CLIENT_SECRET` environment variables, which `authenticate.sh` populates from Terraform outputs) to the user pool's token endpoint (`COGNITO_TOKEN_URL`) and receives a short-lived (1 h) JWT access token scoped to `mootmaker-api/execute`, which AppSync accepts like any user token. One token is fetched per test run and shared by all test classes.
-- **The webapp's Playwright tests sign in as a real user** — a Terraform-managed, pre-confirmed user `e2e-tests@example.com` (outputs `e2e_user_email` / `e2e_user_password`). A browser sign-in form inherently needs a user, and exercising the real sign-in UI is part of what those tests verify.
+- **The API acceptance tests in [verify/](verify/) use machine-to-machine (M2M) auth** — the OAuth2 **client_credentials flow**. [GraphQlClient](verify/src/test/java/com/mootmaker/verify/GraphQlClient.java) POSTs the test client's id and secret (read from the `COGNITO_TEST_CLIENT_ID` / `COGNITO_TEST_CLIENT_SECRET` environment variables, which `verify.sh` populates from SSM) to the user pool's token endpoint (`COGNITO_TOKEN_URL`) and receives a short-lived (1 h) JWT access token scoped to `mootmaker-api/execute`, which AppSync accepts like any user token. One token is fetched per test run and shared by all test classes.
+- **The webapp's Playwright tests sign in as a real user** — a Terraform-managed, pre-confirmed user `e2e-tests@example.com`, published to SSM under `/mootmaker/<environment>/api/test-fixtures/users/standard/` in ephemeral environments. A browser sign-in form inherently needs a user, and exercising the real sign-in UI is part of what those tests verify.
 
 [AuthenticationAcceptanceIT](verify/src/test/java/com/mootmaker/verify/AuthenticationAcceptanceIT.java) proves the API is closed: requests with no token, a malformed token, or a forged JWT all get HTTP 401 and no data, while a client_credentials token succeeds.
 
@@ -361,14 +361,30 @@ All scripts live in the project root and are run from there:
 |---|---|---|
 | [deploy.sh](deploy.sh) | Builds the Lambda jar (`mvn clean package` in `impl/`), then `terraform init` + `terraform apply -auto-approve` to create/update all AWS resources **for the given environment**. Creates real AWS resources — run deliberately. Add `--skip-build` to deploy the jar already in `impl/target/` instead of rebuilding it; the release pipeline uses this so the *same* artifact is promoted from `test` to `production` rather than rebuilt per environment. | `./deploy.sh <environment> [--skip-build]` |
 | [undeploy.sh](undeploy.sh) | `terraform destroy` — deletes the AppSync API, Lambdas, and DynamoDB tables **including all stored data**, for the given environment. Prompts for confirmation. `--yes` skips the prompt for automation, and is deliberately *narrower* than the interactive path: it refuses `production` and `test` outright rather than asking. | `./undeploy.sh <environment> [--yes]` |
-| [authenticate.sh](authenticate.sh) | Reads the given environment's Terraform outputs and exports `GRAPHQL_API_URL`, the `COGNITO_*` variables (user pool id, webapp client id, token URL, test client id/secret/scope) and the `E2E_USER_*` test-user credentials into the current shell. Must be **sourced**, not executed. | `source authenticate.sh <environment>` |
-| [verify.sh](verify.sh) | Sources `authenticate.sh <environment>`, then runs the acceptance tests (`mvn clean verify` in `verify/`) against that environment's deployed API. `database-reset` is part of this same repo's Terraform, so `./deploy.sh <environment>` is all that's needed first (see [Authentication in end-to-end tests](#authentication-in-end-to-end-tests)). | `./verify.sh <environment>` |
+| [verify.sh](verify.sh) | Looks up the given environment's endpoint, client credentials and test fixtures in SSM Parameter Store, then runs the acceptance tests (`mvn clean verify` in `verify/`) against that environment's deployed API. `database-reset` is part of this same repo's Terraform, so `./deploy.sh <environment>` is all that's needed first (see [Authentication in end-to-end tests](#authentication-in-end-to-end-tests)). | `./verify.sh <environment>` |
+
+## Published configuration
+
+Other components never read this repository's Terraform state. Each deploy publishes what they
+need to SSM Parameter Store under `/mootmaker/<environment>/api/`
+([published-config.tf](deploy/terraform/published-config.tf), mootmaker-api#94), and each consumer
+looks it up by environment name:
+
+| Parameter | Type | Read by |
+|---|---|---|
+| `graphql-url`, `region`, `cognito/user-pool-id`, `cognito/webapp-client-id` | String | webapp deploy, test runners |
+| `demo-user/email`, `demo-user/password` | String (public by design) | webapp deploy (home page), smoke tests |
+| `m2m-client/client-id`, `token-url`, `scope`; `m2m-client/client-secret` | String; SecureString | webapp deploy (schema check), test runners, test-stage smoke |
+| `database-reset/function-name`, `history-cleanup/function-name` | String | test runners |
+| `test-fixtures/users/{standard,no-person}/{email,password}` | String; SecureString (password) | test runners. **Ephemeral environments only** |
+
+demo-data's own runtime credentials are separate, under `/mootmaker/<environment>/demo-data/`.
 
 ## Build, test, deploy
 
 Prerequisites: Java 25, Maven, Terraform ≥ 1.10, and AWS credentials configured for the target account, including `lambda:InvokeFunction` on `database-reset` to run `verify.sh` (granted automatically to whatever credentials also deployed it).
 
-Every deploy/undeploy/authenticate/verify script takes an **environment** name
+Every deploy/undeploy/verify script takes an **environment** name
 (e.g. `test`, `production`, or your own name for a personal sandbox) so
 multiple independent copies of the API can run in the same AWS account at
 once — see the [mootmaker project README](https://github.com/geoffweatherall/mootmaker#multi-environment-deployments)
@@ -401,7 +417,7 @@ mvn -f impl/pom.xml clean package
 ./undeploy.sh test
 ```
 
-The acceptance tests need a deployed API; they read the endpoint and the Cognito client_credentials settings from the environment variables exported by `authenticate.sh`, and fetch a JWT from the token endpoint before calling the API (see [Authentication](#authentication)). Note that `reset` and the acceptance tests delete/modify live data, so don't point them at a deployment you care about.
+The acceptance tests need a deployed API; `verify.sh` looks up the endpoint and the Cognito client_credentials settings in SSM Parameter Store and passes them to the tests as environment variables, and fetch a JWT from the token endpoint before calling the API (see [Authentication](#authentication)). Note that `reset` and the acceptance tests delete/modify live data, so don't point them at a deployment you care about.
 
 ## Cost model
 

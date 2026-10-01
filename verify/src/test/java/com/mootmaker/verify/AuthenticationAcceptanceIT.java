@@ -40,7 +40,7 @@ class AuthenticationAcceptanceIT {
     if (url == null || url.isBlank()) {
       throw new IllegalStateException(
           "GRAPHQL_API_URL environment variable is required. "
-              + "Export it with `source authenticate.sh`.");
+              + "Run the tests with ./verify.sh <environment>, which sets it.");
     }
     endpoint = URI.create(url);
     httpClient = HttpClient.newHttpClient();
