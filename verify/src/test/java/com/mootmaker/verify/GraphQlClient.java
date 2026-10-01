@@ -100,8 +100,8 @@ class GraphQlClient {
     if (value == null || value.isBlank()) {
       throw new IllegalStateException(
           name
-              + " environment variable is required to run acceptance tests "
-              + "against the deployed mootmaker API. Run them with ./verify.sh <environment>, which sets it.");
+              + " environment variable is required to run acceptance tests against the deployed"
+              + " mootmaker API. Run them with ./verify.sh <environment>, which sets it.");
     }
     return value;
   }

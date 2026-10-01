@@ -15,9 +15,9 @@ import software.amazon.awssdk.services.lambda.model.InvokeResponse;
  * #reset()} immediately before they act, so they can't be thrown off by data left behind by another
  * test or a previous run.
  *
- * <p>Reads {@code DATABASE_RESET_FUNCTION_NAME} and picks up its AWS region from {@code AWS_REGION},
- * both of which {@code verify.sh} looks up in SSM and passes in, the same way the AWS SDK would for
- * any other caller.
+ * <p>Reads {@code DATABASE_RESET_FUNCTION_NAME} and picks up its AWS region from {@code
+ * AWS_REGION}, both of which {@code verify.sh} looks up in SSM and passes in, the same way the AWS
+ * SDK would for any other caller.
  */
 final class DatabaseReset {
 
