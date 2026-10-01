@@ -202,11 +202,39 @@ resource "aws_cognito_user_pool_client" "acceptance_tests" {
   supported_identity_providers = ["COGNITO"]
 }
 
-# Pre-confirmed user for the webapp's Playwright end-to-end tests, which sign
-# in through the real UI (the browser sign-in flow inherently needs a user,
-# unlike the API acceptance tests which use client_credentials above).
-resource "random_password" "e2e_user" {
-  length           = 20
+# The test fixture users: an admin, a standard user, and a standard user with NO linked Person.
+# Ephemeral environments only - nothing that runs against test or production uses them
+# (mootmaker-api#95).
+#
+# Terraform does NOT create these accounts, only their passwords. Every database reset creates any
+# that are missing through the real sign-up path, so PostConfirmation makes their Person exactly as
+# it would for a real user, and repairs those that exist back to a known state - see FixtureUsers.
+# Making them in Terraform (AdminCreateUser plus a hand-written Person item) is what let the old
+# fixture users drift from real ones (#73).
+#
+# The addresses are on the test mail domain, so any email they trigger lands in the
+# email-testing queue rather than bouncing.
+locals {
+  fixture_users = local.is_ephemeral ? {
+    admin = {
+      email = "e2e-admin-user@mail.mootmaker.com"
+      name  = "E2E Admin"
+    }
+    standard = {
+      email = "e2e-standard-user@mail.mootmaker.com"
+      name  = "E2E Standard"
+    }
+    no-person = {
+      email = "e2e-no-person-user@mail.mootmaker.com"
+      name  = "E2E No Person"
+    }
+  } : {}
+}
+
+resource "random_password" "fixture_user" {
+  for_each = local.fixture_users
+
+  length           = 24
   min_lower        = 2
   min_upper        = 2
   min_numeric      = 2
@@ -222,7 +250,7 @@ resource "random_password" "e2e_user" {
 # from its inputs, so it is known during planning and the map plans concretely.
 #
 # It also makes the id stable across a destroy-and-rebuild of an environment, which is a small gain
-# on its own: the demo and e2e Persons keep their identity when the environment is recreated.
+# on its own: the demo Person keeps its identity when the environment is recreated.
 #
 # Truncated to 8 hex characters (hyphens stripped first) to match custom:personId's
 # string_attribute_constraints below and com.mootmaker.dynamo.IdAllocator's id length elsewhere -
@@ -230,77 +258,10 @@ resource "random_password" "e2e_user" {
 # designs/dynamodb-storage-compaction.md). substr() of a known value is itself known at plan time,
 # so this keeps the same plan-time-known property the comment above explains.
 locals {
-  e2e_person_id  = substr(replace(uuidv5("dns", "e2e-person.${var.environment}.mootmaker"), "-", ""), 0, 8)
   demo_person_id = substr(replace(uuidv5("dns", "demo-person.${var.environment}.mootmaker"), "-", ""), 0, 8)
 }
 
-resource "aws_cognito_user" "e2e" {
-  user_pool_id = aws_cognito_user_pool.this.id
-  username     = "e2e-tests@example.com"
-  password     = random_password.e2e_user.result
-
-  attributes = {
-    email          = "e2e-tests@example.com"
-    email_verified = "true"
-    # Created directly rather than through sign-up, so PostConfirmationCreatePersonHandler never
-    # runs and neither the Person nor this claim would otherwise exist. Until now the e2e user had
-    # no Person at all, which meant the identity the whole acceptance suite runs as exercised the
-    # "no linked Person" path rather than the one every real user takes.
-    "custom:personId" = local.e2e_person_id
-    # Created directly rather than through sign-up, so it skips PostConfirmationCreatePersonHandler
-    # (the same reason it has no Person - see below) and would otherwise have no class at all; set
-    # explicitly here for parity with a real signed-up user, who always gets one.
-    "custom:class" = "standard"
-  }
-  # Terraform sets these at CREATE and must never touch them again.
-  #
-  # aws_cognito_user cannot hold custom:* attributes across an update. State stores them with the
-  # "custom:" prefix stripped, so every plan computes "delete the old key, add the new one" - and
-  # since Cognito resolves both names to the same attribute, the add and the delete cancel. Measured
-  # on a FRESH environment: the create is correct, the very next apply of an unchanged configuration
-  # wipes both users' custom attributes entirely. On a long-lived environment it alternates, fixing
-  # one user and wiping the other on each run.
-  #
-  # ignore_changes only suppresses updates, never creation, so the attributes are still set exactly
-  # once, correctly, when the user is made. The cost is that a genuine change to these values needs
-  # the user replaced rather than updated - acceptable for two Terraform-managed fixtures, and the
-  # alternative is silent wrongness. See mootmaker-api#39.
-  lifecycle {
-    ignore_changes = [attributes]
-  }
-
-  # Creating this user invokes PreSignUp synchronously (see lambda_config above) - Terraform has no
-  # other reason to order this after either dependency below, since nothing here references them, so
-  # without this depends_on all three can race:
-  #  - aws_lambda_permission.cognito_invoke_pre_sign_up: Lambda resource-based policies are
-  #    eventually consistent, like IAM roles (see time_sleep.iam_role_propagation in iam.tf for the
-  #    same class of issue). Lost that race on a fresh environment: Cognito invoked the trigger
-  #    before its own permission to do so had propagated, and AdminCreateUser failed outright with
-  #    UnexpectedLambdaException/AccessDeniedException.
-  #  - null_resource.pre_sign_up_snapstart_ready (lambda.tf): a freshly published SnapStart version
-  #    needs its own extra time before it can be invoked at all, regardless of permissions. Lost
-  #    this race too, once the first was fixed: ResourceConflictException instead.
-  # See mootmaker-api#77's and #78's first ephemeral deploys.
-  depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up, null_resource.pre_sign_up_snapstart_ready]
-}
-
-resource "aws_dynamodb_table_item" "e2e_person" {
-  table_name = aws_dynamodb_table.people.name
-  hash_key   = aws_dynamodb_table.people.hash_key
-
-  item = jsonencode({
-    id          = { S = local.e2e_person_id }
-    name        = { S = "E2E Tester" }
-    cognitoSubs = { L = [{ S = aws_cognito_user.e2e.sub }] }
-    # Created directly here rather than through sign-up, so PostConfirmationCreatePersonHandler
-    # never runs and would otherwise leave this unset - see Person.java's own doc on why these are
-    # persisted copies, not derived at read time. isAdmin is deliberately absent (defaults false via
-    # Person.fromItem): this account's custom:class is "standard" above.
-    cognitoEmails = { L = [{ S = "e2e-tests@example.com" }] }
-  })
-}
-
-# Password for the demo user below: random (like random_password.e2e_user above) rather than a
+# Password for the demo user below: random rather than a
 # fixed, guessable word - an earlier fixed value ("demo1234") turned out to be on Google's list of
 # known-compromised passwords, which Cognito doesn't check for but is still worth avoiding.
 # Restricted to lowercase letters and digits (no uppercase/symbols) purely so it's easy to read
@@ -348,13 +309,24 @@ resource "aws_cognito_user" "demo" {
   #
   # ignore_changes only suppresses updates, never creation, so the attributes are still set exactly
   # once, correctly, when the user is made. The cost is that a genuine change to these values needs
-  # the user replaced rather than updated - acceptable for two Terraform-managed fixtures, and the
+  # the user replaced rather than updated - acceptable for a Terraform-managed account, and the
   # alternative is silent wrongness. See mootmaker-api#39.
   lifecycle {
     ignore_changes = [attributes]
   }
 
-  # See aws_cognito_user.e2e's identical depends_on/comment above.
+  # Creating this user invokes PreSignUp synchronously (see lambda_config above) - Terraform has no
+  # other reason to order this after either dependency below, since nothing here references them, so
+  # without this depends_on all three can race:
+  #  - aws_lambda_permission.cognito_invoke_pre_sign_up: Lambda resource-based policies are
+  #    eventually consistent, like IAM roles (see time_sleep.iam_role_propagation in iam.tf for the
+  #    same class of issue). Lost that race on a fresh environment: Cognito invoked the trigger
+  #    before its own permission to do so had propagated, and AdminCreateUser failed outright with
+  #    UnexpectedLambdaException/AccessDeniedException.
+  #  - null_resource.pre_sign_up_snapstart_ready (lambda.tf): a freshly published SnapStart version
+  #    needs its own extra time before it can be invoked at all, regardless of permissions. Lost
+  #    this race too, once the first was fixed: ResourceConflictException instead.
+  # See mootmaker-api#77's and #78's first ephemeral deploys.
   depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up, null_resource.pre_sign_up_snapstart_ready]
 }
 
@@ -381,61 +353,4 @@ resource "aws_dynamodb_table_item" "demo_person" {
     cognitoEmails = { L = [{ S = "demo@mootmaker.com" }] }
     isAdmin       = { BOOL = true }
   })
-}
-
-# Password for the personless user below. Same shape as random_password.e2e_user: this account is
-# never typed by hand, so there is no reason to make it readable.
-resource "random_password" "no_person_user" {
-  # Counted on the same condition as the user itself, so production generates no password for an
-  # account production does not have.
-  count = var.environment == "production" ? 0 : 1
-
-  length           = 24
-  min_lower        = 1
-  min_upper        = 1
-  min_numeric      = 1
-  min_special      = 1
-  override_special = "!@#$%^&*()-_=+"
-}
-
-# A signed-in account with NO linked Person, which is a real state the app must handle and which
-# nothing else in this configuration produces any more.
-#
-# It used to exist by accident: the e2e user was created directly rather than through sign-up, so
-# PostConfirmationCreatePersonHandler never ran and it had no Person at all. That was fixed
-# deliberately (see aws_cognito_user.e2e above) because it meant the WHOLE acceptance suite ran as a
-# degraded identity rather than the one every real user takes. Correct fix - but it silently removed
-# the only fixture five acceptance tests had for the degraded path itself (D.24, G.67, I.76, N.105,
-# and the blank-organiser case), leaving behaviour the app still implements with no coverage at all.
-#
-# So: an account that is personless ON PURPOSE, named so nobody mistakes it for a broken one.
-#
-# NOT created in production. Everywhere else this is a test fixture; in the production pool it would
-# be a real account a real person could sign into and find half the app disabled. The demo user is
-# deliberately not gated this way because being able to try the app IS the point of production - the
-# opposite is true here.
-resource "aws_cognito_user" "no_person" {
-  count = var.environment == "production" ? 0 : 1
-
-  user_pool_id = aws_cognito_user_pool.this.id
-  username     = "no-person-tests@example.com"
-  password     = random_password.no_person_user[count.index].result
-
-  attributes = {
-    email          = "no-person-tests@example.com"
-    email_verified = "true"
-    # custom:class, but deliberately NO custom:personId - the absence of that claim is the entire
-    # point of this account. A standard (non-admin) class, because the degraded-path screens these
-    # tests assert on are the ones an ordinary user sees.
-    "custom:class" = "standard"
-  }
-  # See aws_cognito_user.e2e above: aws_cognito_user cannot carry custom:* attributes across an
-  # update, so a second apply of an unchanged configuration wipes them. ignore_changes suppresses
-  # updates without suppressing creation. mootmaker-api#39.
-  lifecycle {
-    ignore_changes = [attributes]
-  }
-
-  # See aws_cognito_user.e2e's identical depends_on/comment above.
-  depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up, null_resource.pre_sign_up_snapstart_ready]
 }

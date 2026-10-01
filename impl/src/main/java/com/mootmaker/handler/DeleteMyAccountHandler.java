@@ -95,9 +95,9 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
     final Map<String, Object> claims = castToMap(identity.get("claims"));
     final String email = claims == null ? null : (String) claims.get("email");
 
-    // Guards the demo/e2e Terraform-managed users (see cognito.tf) - there's no reasonable case
-    // for letting the public demo login, or the Playwright e2e user, be deletable through this
-    // self-service flow.
+    // Guards the reserved accounts (the demo user, and the E2E fixture users in ephemeral
+    // environments - see cognito.tf) - there's no reasonable case for letting the public demo
+    // login, or a test fixture, be deletable through this self-service flow.
     if (email != null && reservedAccountEmails.contains(email.toLowerCase(Locale.ROOT))) {
       throw new IllegalStateException("Forbidden: this account cannot be deleted");
     }

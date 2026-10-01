@@ -1,10 +1,12 @@
 package com.mootmaker.verify;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import module java.base;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -80,6 +82,64 @@ class DatabaseResetCognitoWipeAcceptanceIT {
                     .userPoolId(userPoolId)
                     .username(demoUserEmail)
                     .build()));
+  }
+
+  /**
+   * The fixture users are repaired, not just preserved: a test that damages one (renames it,
+   * promotes it, changes its Cognito attributes) cannot leak that into the next test, because the
+   * next test's reset puts it back. See FixtureUsers and mootmaker-api#95.
+   */
+  @Test
+  void resetRepairsADamagedFixtureUser() {
+    final String email = requireEnv("E2E_STANDARD_USER_EMAIL");
+    final GraphQlClient graphQl = GraphQlClient.fromEnvironment();
+    DatabaseReset.reset();
+    final JsonNode before = personLinkedTo(graphQl, email);
+    final String personId = before.get("id").asText();
+    final String name = before.get("name").asText();
+
+    LOG.info("Damaging fixture user '{}' (Person {})", email, personId);
+    graphQl.execute(
+        "mutation($id: ID!, $name: String!) { renamePerson(id: $id, name: $name) { errors } }",
+        Map.of("id", personId, "name", "Damaged " + UUID.randomUUID()));
+    graphQl.execute(
+        "mutation($id: ID!) { setPersonAdmin(id: $id, isAdmin: true) { cognitoSyncFailed } }",
+        Map.of("id", personId));
+    assertEquals("admin", classOf(email), "precondition: the damage reached Cognito");
+
+    DatabaseReset.reset();
+
+    final JsonNode after = personLinkedTo(graphQl, email);
+    assertEquals(personId, after.get("id").asText(), "repaired in place, not re-created");
+    assertEquals(name, after.get("name").asText());
+    assertEquals(false, after.get("isAdmin").asBoolean());
+    assertEquals("standard", classOf(email));
+  }
+
+  private static JsonNode personLinkedTo(final GraphQlClient graphQl, final String email) {
+    for (final JsonNode person :
+        graphQl
+            .execute("query { workspace { people { id name isAdmin linkedEmails } } }")
+            .path("workspace")
+            .path("people")) {
+      for (final JsonNode linked : person.path("linkedEmails")) {
+        if (email.equalsIgnoreCase(linked.asText())) {
+          return person;
+        }
+      }
+    }
+    throw new AssertionError("No Person linked to " + email);
+  }
+
+  private static String classOf(final String email) {
+    return cognitoClient
+        .adminGetUser(AdminGetUserRequest.builder().userPoolId(userPoolId).username(email).build())
+        .userAttributes()
+        .stream()
+        .filter(attribute -> "custom:class".equals(attribute.name()))
+        .map(AttributeType::value)
+        .findFirst()
+        .orElse(null);
   }
 
   private static String requireEnv(final String name) {

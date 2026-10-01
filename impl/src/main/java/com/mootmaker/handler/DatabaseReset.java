@@ -25,8 +25,9 @@ import software.amazon.awssdk.services.s3.model.S3Object;
  * The actual reset logic behind {@link DatabaseResetHandler} - formerly {@code Mutation.reset} in
  * this API, then a standalone {@code mootmaker-admin-tools/database-reset} Lambda, now merged back
  * in here (see designs/admin-tools-into-api.md). Deletes every stored room and meeting, and - in
- * every environment except {@code production} - wipes the Cognito user pool down to the two
- * Terraform-managed reserved accounts (demo, e2e) and every Person not linked to one of them.
+ * every environment except {@code production} - wipes the Cognito user pool down to the reserved
+ * accounts (the demo user, plus the E2E fixture users in ephemeral environments) and every Person
+ * not linked to one of them.
  *
  * <p>In {@code production} the Cognito wipe is skipped entirely (see {@link DatabaseResetHandler}'s
  * {@code allowCognitoWipe} gate) and Person survival falls back to the original, narrower rule: a
@@ -59,8 +60,8 @@ final class DatabaseReset {
 
   /**
    * Deletes every Cognito user except the ones whose email (case-insensitive) is in {@code
-   * reservedEmails} - the same Terraform-managed accounts (demo, e2e, and the personless test
-   * account outside production) {@code DeleteMyAccountHandler} already refuses to self-delete. Logs
+   * reservedEmails} - the same reserved accounts (the demo user, and the E2E fixture users in
+   * ephemeral environments) {@code DeleteMyAccountHandler} already refuses to self-delete. Logs
    * each deleted user's email, one line per deletion - the highest-consequence deletion this Lambda
    * does. Returns the set of the *reserved* users' actual current {@code sub}s, which is what
    * determines which People survive afterward (see {@link #deletePeopleNotLinkedTo}) - looked up

@@ -37,11 +37,14 @@ COGNITO_TEST_SCOPE="$(ssm_value m2m-client/scope)"
 DEMO_USER_EMAIL="$(ssm_value demo-user/email)"
 # Test fixtures are published in ephemeral environments only - which is the only kind this suite
 # runs against.
-E2E_USER_EMAIL="$(ssm_value test-fixtures/users/standard/email)"
+E2E_ADMIN_USER_EMAIL="$(ssm_value test-fixtures/users/admin/email)"
+E2E_STANDARD_USER_EMAIL="$(ssm_value test-fixtures/users/standard/email)"
+E2E_NO_PERSON_USER_EMAIL="$(ssm_value test-fixtures/users/no-person/email)"
 DATABASE_RESET_FUNCTION_NAME="$(ssm_value database-reset/function-name)"
 HISTORY_CLEANUP_FUNCTION_NAME="$(ssm_value history-cleanup/function-name)"
 export GRAPHQL_API_URL AWS_REGION COGNITO_USER_POOL_ID COGNITO_TOKEN_URL COGNITO_TEST_CLIENT_ID \
-  COGNITO_TEST_CLIENT_SECRET COGNITO_TEST_SCOPE DEMO_USER_EMAIL E2E_USER_EMAIL \
+  COGNITO_TEST_CLIENT_SECRET COGNITO_TEST_SCOPE DEMO_USER_EMAIL E2E_ADMIN_USER_EMAIL \
+  E2E_STANDARD_USER_EMAIL E2E_NO_PERSON_USER_EMAIL \
   DATABASE_RESET_FUNCTION_NAME HISTORY_CLEANUP_FUNCTION_NAME
 
 mvn -f verify/pom.xml clean verify

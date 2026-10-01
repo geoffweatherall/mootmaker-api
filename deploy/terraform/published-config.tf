@@ -13,8 +13,8 @@ locals {
   config_prefix = "/mootmaker/${var.environment}/api"
 
   # Test fixtures exist to be used by acceptance suites, which only ever run against ephemeral
-  # environments. Nothing that runs against test or production reads them, so they are not
-  # published there (mootmaker-api#95 removes the accounts themselves from those environments).
+  # environments. Nothing that runs against test or production reads them, so neither the accounts
+  # nor their parameters exist there (mootmaker-api#95).
   is_ephemeral = !contains(["test", "production"], var.environment)
 
   published_config = {
@@ -55,32 +55,20 @@ resource "aws_ssm_parameter" "m2m_client_secret" {
   value = aws_cognito_user_pool_client.acceptance_tests.client_secret
 }
 
-# Ephemeral environments only. The existing e2e user is the suites' standard (non-admin) user,
-# so it is published as such; mootmaker-api#95 adds the admin user and moves both to real sign-ups.
-resource "aws_ssm_parameter" "standard_user_email" {
-  count = local.is_ephemeral ? 1 : 0
-  name  = "${local.config_prefix}/test-fixtures/users/standard/email"
+# Ephemeral environments only (local.fixture_users is empty elsewhere). Database reset creates and
+# repairs these accounts from the same values - see cognito.tf and FixtureUsers.
+resource "aws_ssm_parameter" "fixture_user_email" {
+  for_each = local.fixture_users
+
+  name  = "${local.config_prefix}/test-fixtures/users/${each.key}/email"
   type  = "String"
-  value = aws_cognito_user.e2e.username
+  value = each.value.email
 }
 
-resource "aws_ssm_parameter" "standard_user_password" {
-  count = local.is_ephemeral ? 1 : 0
-  name  = "${local.config_prefix}/test-fixtures/users/standard/password"
+resource "aws_ssm_parameter" "fixture_user_password" {
+  for_each = local.fixture_users
+
+  name  = "${local.config_prefix}/test-fixtures/users/${each.key}/password"
   type  = "SecureString"
-  value = random_password.e2e_user.result
-}
-
-resource "aws_ssm_parameter" "no_person_user_email" {
-  count = local.is_ephemeral ? 1 : 0
-  name  = "${local.config_prefix}/test-fixtures/users/no-person/email"
-  type  = "String"
-  value = aws_cognito_user.no_person[0].username
-}
-
-resource "aws_ssm_parameter" "no_person_user_password" {
-  count = local.is_ephemeral ? 1 : 0
-  name  = "${local.config_prefix}/test-fixtures/users/no-person/password"
-  type  = "SecureString"
-  value = random_password.no_person_user[0].result
+  value = random_password.fixture_user[each.key].result
 }
