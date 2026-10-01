@@ -28,8 +28,8 @@ import software.amazon.awssdk.services.cognitoidentityprovider.model.AttributeTy
  *   <li>The E2E no-person user: standard, with no {@code custom:personId} and no Person at all.
  * </ul>
  *
- * The three E2E users are created and repaired by database reset (FixtureUsers), so this runs after
- * a reset, which is also what a real acceptance run does first. The assertions are about the
+ * <p>The three E2E users are created and repaired by database reset (FixtureUsers), so this runs
+ * after a reset, which is also what a real acceptance run does first. The assertions are about the
  * difference between the users as much as each one's value: a bug that gave them all the same class
  * would pass any single-user check.
  *
