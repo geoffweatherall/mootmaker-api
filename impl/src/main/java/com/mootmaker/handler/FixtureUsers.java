@@ -2,6 +2,7 @@ package com.mootmaker.handler;
 
 import module java.base;
 
+import com.mootmaker.concurrent.ConcurrencyUtils;
 import com.mootmaker.dynamo.IdAllocator;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.model.Person;
@@ -92,12 +93,18 @@ final class FixtureUsers {
     return fixtures;
   }
 
-  /** Ensures and repairs every fixture. Returns the ids of the Persons it wrote. */
+  /**
+   * Ensures and repairs every fixture, in parallel. Returns the ids of the Persons it wrote.
+   *
+   * <p>Parallel because this runs on every reset, and the acceptance suites reset before every
+   * test. Repairing one user is five sequential Cognito and DynamoDB calls; three users one after
+   * another took a warm reset from about 0.4 s to 3.5 s (measured on an ephemeral environment),
+   * which across a webapp run of 150-odd tests is the difference between two minutes and ten.
+   */
   Set<String> ensureAndRepair(final List<Fixture> fixtures) {
-    final Set<String> personIds = new HashSet<>();
-    for (final Fixture fixture : fixtures) {
-      ensureAndRepair(fixture).ifPresent(personIds::add);
-    }
+    final Set<String> personIds = ConcurrentHashMap.newKeySet();
+    ConcurrencyUtils.runInParallel(
+        fixtures, fixture -> ensureAndRepair(fixture).ifPresent(personIds::add));
     return personIds;
   }
 

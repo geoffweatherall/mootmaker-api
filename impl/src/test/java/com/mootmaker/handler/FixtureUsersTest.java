@@ -74,7 +74,9 @@ class FixtureUsersTest {
   void missingAccountsAreCreatedThroughSignUpAndPostConfirmation() {
     final Set<String> written = fixtureUsers.ensureAndRepair(List.of(ADMIN, STANDARD, NO_PERSON));
 
-    assertEquals(List.of("admin@mail.test", "standard@mail.test", "none@mail.test"), pool.signUps);
+    assertEquals(
+        Set.of("admin@mail.test", "standard@mail.test", "none@mail.test"),
+        Set.copyOf(pool.signUps));
     assertEquals(2, written.size());
 
     final Person admin = personFor(ADMIN);
@@ -163,7 +165,7 @@ class FixtureUsersTest {
    */
   private final class FakePool implements CognitoIdentityProviderClient {
 
-    final List<String> signUps = new ArrayList<>();
+    final List<String> signUps = Collections.synchronizedList(new ArrayList<>());
     final Map<String, Map<String, String>> attributes = new LinkedHashMap<>();
     final Map<String, String> passwords = new HashMap<>();
     final Set<String> disabled = new HashSet<>();
@@ -188,7 +190,7 @@ class FixtureUsersTest {
     }
 
     @Override
-    public SignUpResponse signUp(final SignUpRequest request) {
+    public synchronized SignUpResponse signUp(final SignUpRequest request) {
       signUps.add(request.username());
       final Map<String, String> attrs = new HashMap<>();
       attrs.put("sub", "sub-" + request.username());
@@ -200,7 +202,8 @@ class FixtureUsersTest {
     }
 
     @Override
-    public AdminConfirmSignUpResponse adminConfirmSignUp(final AdminConfirmSignUpRequest request) {
+    public synchronized AdminConfirmSignUpResponse adminConfirmSignUp(
+        final AdminConfirmSignUpRequest request) {
       final Map<String, String> attrs = attributes.get(emailFor(request.username()));
       final Map<String, Object> event = new HashMap<>();
       event.put("triggerSource", "PostConfirmation_ConfirmSignUp");
@@ -212,7 +215,7 @@ class FixtureUsersTest {
     }
 
     @Override
-    public AdminGetUserResponse adminGetUser(final AdminGetUserRequest request) {
+    public synchronized AdminGetUserResponse adminGetUser(final AdminGetUserRequest request) {
       final String email = emailFor(request.username());
       return AdminGetUserResponse.builder()
           .username(attributes.get(email).get("sub"))
@@ -224,20 +227,21 @@ class FixtureUsersTest {
     }
 
     @Override
-    public AdminSetUserPasswordResponse adminSetUserPassword(
+    public synchronized AdminSetUserPasswordResponse adminSetUserPassword(
         final AdminSetUserPasswordRequest request) {
       passwords.put(emailFor(request.username()), request.password());
       return AdminSetUserPasswordResponse.builder().build();
     }
 
     @Override
-    public AdminEnableUserResponse adminEnableUser(final AdminEnableUserRequest request) {
+    public synchronized AdminEnableUserResponse adminEnableUser(
+        final AdminEnableUserRequest request) {
       disabled.remove(emailFor(request.username()));
       return AdminEnableUserResponse.builder().build();
     }
 
     @Override
-    public AdminUpdateUserAttributesResponse adminUpdateUserAttributes(
+    public synchronized AdminUpdateUserAttributesResponse adminUpdateUserAttributes(
         final AdminUpdateUserAttributesRequest request) {
       final Map<String, String> attrs = attributes.get(emailFor(request.username()));
       request.userAttributes().forEach(a -> attrs.put(a.name(), a.value()));
@@ -245,7 +249,7 @@ class FixtureUsersTest {
     }
 
     @Override
-    public AdminDeleteUserAttributesResponse adminDeleteUserAttributes(
+    public synchronized AdminDeleteUserAttributesResponse adminDeleteUserAttributes(
         final AdminDeleteUserAttributesRequest request) {
       final Map<String, String> attrs = attributes.get(emailFor(request.username()));
       request.userAttributeNames().forEach(attrs::remove);
