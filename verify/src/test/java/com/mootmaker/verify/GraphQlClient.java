@@ -28,7 +28,7 @@ class GraphQlClient {
    * acceptance-test app client's id and secret are exchanged at the Cognito token endpoint for a
    * JWT access token, so no human user or password is involved. Reads GRAPHQL_API_URL,
    * COGNITO_TOKEN_URL, COGNITO_TEST_CLIENT_ID, COGNITO_TEST_CLIENT_SECRET and COGNITO_TEST_SCOPE
-   * from the environment (exported by authenticate.sh from Terraform outputs).
+   * from the environment (set by verify.sh from SSM Parameter Store).
    */
   static GraphQlClient fromEnvironment() {
     return new GraphQlClient(requireEnv("GRAPHQL_API_URL"), accessToken());
@@ -100,8 +100,8 @@ class GraphQlClient {
     if (value == null || value.isBlank()) {
       throw new IllegalStateException(
           name
-              + " environment variable is required to run acceptance tests "
-              + "against the deployed mootmaker API. Export it with `source authenticate.sh`.");
+              + " environment variable is required to run acceptance tests against the deployed"
+              + " mootmaker API. Run them with ./verify.sh <environment>, which sets it.");
     }
     return value;
   }

@@ -4,8 +4,8 @@ The GraphQL API: AWS AppSync backed by Java 25 Lambda handlers over DynamoDB, pl
 pool every frontend authenticates against.
 
 **Start by reading [README.md](README.md).** It describes the data model, the AppSync/Lambda/DynamoDB
-architecture, the directory structure, the bash scripts (`deploy`, `undeploy`, `verify`,
-`authenticate`), the AWS cost model, and the backend validation rules. Keep it up to date when any of
+architecture, the directory structure, the bash scripts (`deploy`, `undeploy`, `verify`),
+the published SSM configuration, the AWS cost model, and the backend validation rules. Keep it up to date when any of
 those change — it is load-bearing, and both people and agents rely on it being current.
 
 ## Working here
@@ -23,8 +23,9 @@ those change — it is load-bearing, and both people and agents rely on it being
   right tool for an ephemeral environment; it is no longer how `test` or `production` get updated.
   This repo's `release-build.yml` is a reusable workflow called by that pipeline — it is not
   something to dispatch directly except when proving the pipeline itself.
-- **Deploy this before the webapp.** The webapp reads this environment's Terraform outputs — the
-  GraphQL URL and Cognito IDs — via `authenticate.sh`.
+- **Deploy this before the webapp.** The webapp's deploy looks up this environment's GraphQL URL,
+  Cognito IDs and demo credentials in SSM (`/mootmaker/<environment>/api/...`), which this deploy
+  publishes. See the README's "Published configuration".
 - **Java 25**, Maven, `mvn -f impl/pom.xml test` for unit tests.
 - **Formatting is google-java-format, Google style — run `mvn -f impl/pom.xml spotless:apply`.** The
   `code-style` PR check fails on unformatted code, on Checkstyle violations, and on unused imports
