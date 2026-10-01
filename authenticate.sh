@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Exports the deployed API's endpoint and Cognito authentication settings (read
 # from Terraform outputs) into the current shell, for use with the /verify
-# acceptance tests, api/requests.http, and the webapp's deploy/e2e tests.
+# acceptance tests and the webapp's deploy/e2e tests.
 #
 # Takes the environment to read from (e.g. an ephemeral name, "production", or a
 # developer's own name), matching whatever was passed to deploy.sh.
