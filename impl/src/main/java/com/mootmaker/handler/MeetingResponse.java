@@ -34,6 +34,7 @@ final class MeetingResponse {
     map.put("subject", record.subject());
     map.put("startTime", record.startTime());
     map.put("endTime", record.endTime());
+    map.put("version", record.version());
     map.put(
         "room", roomsResolved ? resolveRoom(record.roomId(), roomsById) : idOnly(record.roomId()));
     map.put(

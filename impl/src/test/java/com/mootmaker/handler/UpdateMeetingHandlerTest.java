@@ -1,6 +1,8 @@
 package com.mootmaker.handler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -271,5 +273,78 @@ class UpdateMeetingHandlerTest {
     final MeetingRecord saved = days.read("2026-09-24").meetings().getFirst();
     assertEquals(List.of("attendee-2"), saved.attendeeIds());
     assertEquals(List.of(AttendeeStatus.NoResponse), saved.attendeeStatuses());
+  }
+
+  @Test
+  @DisplayName(
+      "an update carrying the version it was read at succeeds, and reports the new version")
+  void anUpdateFromTheCurrentVersionSucceeds() {
+    final MeetingRecord existing =
+        existingMeeting("room-a", "2026-09-24T10:00:00", "2026-09-24T11:00:00");
+    DayFixtures.seed(fakeClient, "Meetings", DayFixtures.DEFAULT_EARLIEST_RETAINED_DATE, existing);
+    final Map<String, Object> input =
+        meetingInput("room-a", "2026-09-24T10:30:00", "2026-09-24T11:30:00");
+    input.put("expectedVersion", existing.version());
+
+    final Map<String, Object> result =
+        invoke(updateArguments("m-1", input, "organiser-sub", "standard"));
+
+    assertEquals(List.of(), result.get("errors"));
+    @SuppressWarnings("unchecked")
+    final Map<String, Object> meeting = (Map<String, Object>) result.get("meeting");
+    assertNotEquals(existing.version(), meeting.get("version"), "an edit changes the version");
+  }
+
+  @Test
+  @DisplayName("an update from a stale copy is rejected with MeetingChanged, and writes nothing")
+  void anUpdateFromAStaleCopyIsRejected() {
+    final MeetingRecord original =
+        existingMeeting("room-a", "2026-09-24T10:00:00", "2026-09-24T11:00:00");
+    final String staleVersion = original.version();
+    // Someone else has since moved it half an hour later.
+    DayFixtures.seed(
+        fakeClient,
+        "Meetings",
+        DayFixtures.DEFAULT_EARLIEST_RETAINED_DATE,
+        existingMeeting("room-a", "2026-09-24T10:30:00", "2026-09-24T11:30:00"));
+    final Map<String, Object> input =
+        meetingInput("room-a", "2026-09-24T10:00:00", "2026-09-24T11:00:00");
+    input.put("subject", "Standup (renamed from a stale copy)");
+    input.put("expectedVersion", staleVersion);
+
+    final Map<String, Object> result =
+        invoke(updateArguments("m-1", input, "organiser-sub", "standard"));
+
+    assertEquals(List.of("MeetingChanged"), result.get("errors"));
+    assertNull(result.get("meeting"));
+    final Map<String, Object> unchanged =
+        invoke(
+            updateArguments(
+                "m-1",
+                meetingInput("room-a", "2026-09-24T10:30:00", "2026-09-24T11:30:00"),
+                "organiser-sub",
+                "standard"));
+    assertEquals(
+        List.of(), unchanged.get("errors"), "the other edit is still there to update from");
+  }
+
+  @Test
+  @DisplayName("an update with no expected version overwrites, as before")
+  void anUpdateWithoutAnExpectedVersionStillOverwrites() {
+    DayFixtures.seed(
+        fakeClient,
+        "Meetings",
+        DayFixtures.DEFAULT_EARLIEST_RETAINED_DATE,
+        existingMeeting("room-a", "2026-09-24T10:30:00", "2026-09-24T11:30:00"));
+
+    final Map<String, Object> result =
+        invoke(
+            updateArguments(
+                "m-1",
+                meetingInput("room-a", "2026-09-24T10:00:00", "2026-09-24T11:00:00"),
+                "organiser-sub",
+                "standard"));
+
+    assertEquals(List.of(), result.get("errors"));
   }
 }
