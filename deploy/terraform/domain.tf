@@ -68,3 +68,17 @@ resource "aws_route53_record" "api_alias" {
     evaluate_target_health = false
   }
 }
+
+# IPv6 twin of the A alias above. Without it every IPv6-capable resolver's AAAA lookup got a
+# "no such record" answer, which Route 53 bills - alias answers are free - and then fell back to IPv4.
+resource "aws_route53_record" "api_alias_ipv6" {
+  zone_id = data.aws_route53_zone.this.zone_id
+  name    = local.api_domain
+  type    = "AAAA"
+
+  alias {
+    name                   = aws_appsync_domain_name.this.appsync_domain_name
+    zone_id                = aws_appsync_domain_name.this.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
