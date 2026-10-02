@@ -188,6 +188,11 @@ resource "aws_cognito_resource_server" "api" {
 # Confidential (secret-holding) client for the /verify acceptance tests: the
 # OAuth2 client_credentials flow exchanges the id/secret for a JWT access token
 # without any human user or password being involved.
+#
+# Tokens last 4 hours rather than Cognito's default 1, so a suite caches one token for its whole run
+# - including longer runs than today's - instead of fetching more. Cognito bills every M2M token
+# request, with no free tier. Kept to hours, not the 1-day maximum, because a client_credentials
+# access token cannot be revoked: a leaked one is good until it expires.
 resource "aws_cognito_user_pool_client" "acceptance_tests" {
   name            = "${local.resource_prefix}-acceptance-tests"
   user_pool_id    = aws_cognito_user_pool.this.id
@@ -200,6 +205,11 @@ resource "aws_cognito_user_pool_client" "acceptance_tests" {
     "${aws_cognito_resource_server.api.identifier}/admin",
   ]
   supported_identity_providers = ["COGNITO"]
+
+  access_token_validity = 4
+  token_validity_units {
+    access_token = "hours"
+  }
 }
 
 # The test fixture users: an admin, a standard user, and a standard user with NO linked Person.
