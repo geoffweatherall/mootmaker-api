@@ -17,7 +17,7 @@ import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
  * general-purpose helper for handlers to reach for. That distinction is what the old {@code
  * BatchLoader} lost by being public and parameterised by table name.
  */
-final class BatchGet {
+public final class BatchGet {
 
   private static final int BATCH_GET_ITEM_LIMIT = 100;
 
@@ -41,11 +41,20 @@ final class BatchGet {
             Collectors.toMap(item -> item.get("id").s(), Function.identity(), (first, _) -> first));
   }
 
-  static List<Map<String, AttributeValue>> scan(
+  /**
+   * Every item in the table, read consistently, across as many pages as it takes.
+   *
+   * <p>A single Scan call returns at most 1MB and signals the rest through {@code
+   * LastEvaluatedKey}. Reading only {@code .scan(...).items()} drops everything past that silently:
+   * no error, just a shorter list (mootmaker-api#2). The paginator follows the key to the end.
+   */
+  public static List<Map<String, AttributeValue>> scan(
       final DynamoDbClient dynamoDbClient, final String tableName) {
     return dynamoDbClient
-        .scan(ScanRequest.builder().tableName(tableName).consistentRead(true).build())
-        .items();
+        .scanPaginator(ScanRequest.builder().tableName(tableName).consistentRead(true).build())
+        .items()
+        .stream()
+        .toList();
   }
 
   static void put(

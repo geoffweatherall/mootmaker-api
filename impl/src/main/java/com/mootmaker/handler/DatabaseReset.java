@@ -4,6 +4,7 @@ import module java.base;
 
 import com.mootmaker.avatar.AvatarUrls;
 import com.mootmaker.concurrent.ConcurrencyUtils;
+import com.mootmaker.dynamo.BatchGet;
 import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.limits.Limits;
 import com.mootmaker.model.Day;
@@ -17,7 +18,6 @@ import software.amazon.awssdk.services.cognitoidentityprovider.model.UserType;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
-import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
@@ -282,8 +282,6 @@ final class DatabaseReset {
 
   private static List<Map<String, AttributeValue>> scan(
       final DynamoDbClient dynamoDbClient, final String tableName) {
-    return dynamoDbClient
-        .scan(ScanRequest.builder().tableName(tableName).consistentRead(true).build())
-        .items();
+    return BatchGet.scan(dynamoDbClient, tableName);
   }
 }

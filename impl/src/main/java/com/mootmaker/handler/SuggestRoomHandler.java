@@ -4,14 +4,13 @@ import module java.base;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.mootmaker.dynamo.BatchGet;
 import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.RoomAvailability;
 import com.mootmaker.model.MeetingRecord;
 import com.mootmaker.model.Room;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
-import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
 
 /**
  * AppSync direct-Lambda resolver for {@code Query.suggestRoom}. Returns every room with sufficient,
@@ -66,14 +65,10 @@ public class SuggestRoomHandler implements RequestHandler<Map<String, Object>, O
       return List.of();
     }
 
-    // Consistent read - see ListRoomsHandler for the full reasoning. A Scan defaults to
-    // eventually consistent, and every caller here acts on what it reads, so a stale read
-    // means acting on an incomplete picture.
-    final ScanResponse response =
-        dynamoDbClient.scan(
-            ScanRequest.builder().tableName(roomsTableName).consistentRead(true).build());
+    // Consistent and paginated - see BatchGet.scan. Every caller here acts on what it reads, so a
+    // stale or truncated read means acting on an incomplete picture.
     final List<Room> candidates =
-        response.items().stream()
+        BatchGet.scan(dynamoDbClient, roomsTableName).stream()
             .map(Room::fromItem)
             .filter(room -> room.capacity() >= requiredCapacity)
             .sorted(Comparator.comparingInt(Room::capacity).thenComparing(Room::name))

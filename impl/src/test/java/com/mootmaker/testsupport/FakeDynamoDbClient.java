@@ -344,11 +344,31 @@ public class FakeDynamoDbClient implements DynamoDbClient {
     return updated;
   }
 
+  /**
+   * How many items one {@code scan} call returns before handing back a {@code LastEvaluatedKey}.
+   * The real limit is 1MB, far more than a unit test holds, so without lowering this a caller that
+   * reads only the first page would pass every test (mootmaker-api#2).
+   */
+  public int scanPageSize = Integer.MAX_VALUE;
+
+  private static final String OFFSET_KEY = "__fakeScanOffset";
+
   @Override
   public synchronized ScanResponse scan(final ScanRequest request) {
-    final List<Map<String, AttributeValue>> items =
+    final List<Map<String, AttributeValue>> all =
         List.copyOf(tables.getOrDefault(request.tableName(), new ArrayList<>()));
-    return ScanResponse.builder().items(items).count(items.size()).build();
+    final int from =
+        request.hasExclusiveStartKey()
+            ? Integer.parseInt(request.exclusiveStartKey().get(OFFSET_KEY).n())
+            : 0;
+    final int to = (int) Math.min((long) from + scanPageSize, all.size());
+    final ScanResponse.Builder response =
+        ScanResponse.builder().items(all.subList(from, to)).count(to - from);
+    if (to < all.size()) {
+      response.lastEvaluatedKey(
+          Map.of(OFFSET_KEY, AttributeValue.builder().n(String.valueOf(to)).build()));
+    }
+    return response.build();
   }
 
   @Override

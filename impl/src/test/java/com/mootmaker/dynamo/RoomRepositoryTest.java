@@ -52,4 +52,18 @@ class RoomRepositoryTest {
     assertTrue(thrown.getMessage().contains("attempts"), thrown.getMessage());
     assertTrue(fakeClient.tables.getOrDefault(TABLE, List.of()).isEmpty());
   }
+
+  @Test
+  @DisplayName("reads every page of the table, not just the first (mootmaker-api#2)")
+  void listAllReadsEveryPage() {
+    final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
+    fakeClient.scanPageSize = 2;
+    final RoomRepository repository = new RoomRepository(fakeClient, TABLE);
+    for (int i = 0; i < 5; i++) {
+      repository.create("Room " + i, 4, null);
+    }
+
+    assertEquals(5, repository.listAll().size());
+    assertEquals(5, repository.count());
+  }
 }
