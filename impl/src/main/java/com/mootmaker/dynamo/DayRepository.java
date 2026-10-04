@@ -13,7 +13,6 @@ import software.amazon.awssdk.services.dynamodb.model.Delete;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.Put;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
-import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
@@ -475,10 +474,7 @@ public final class DayRepository {
    * index replacing it.
    */
   public List<Day> scanDays() {
-    return dynamoDbClient
-        .scan(ScanRequest.builder().tableName(tableName).consistentRead(true).build())
-        .items()
-        .stream()
+    return BatchGet.scan(dynamoDbClient, tableName).stream()
         .filter(item -> item.get("pk").s().startsWith(Day.PK_PREFIX))
         .map(Day::fromItem)
         .toList();
