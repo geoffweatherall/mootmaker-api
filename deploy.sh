@@ -81,3 +81,8 @@ fi
 
 terraform -chdir=deploy/terraform init -backend-config=backend.hcl -backend-config="key=${environment}/mootmaker-api/terraform.tfstate"
 terraform -chdir=deploy/terraform apply -auto-approve -var="environment=${environment}"
+
+# Bound the published versions SnapStart leaves behind on every code change (mootmaker#77). A
+# warning, never a failure: the deploy itself has already succeeded by this point.
+./deploy/prune-lambda-versions.sh "${environment}" \
+  || echo "WARNING: pruning old Lambda versions failed; the deploy itself succeeded." >&2
