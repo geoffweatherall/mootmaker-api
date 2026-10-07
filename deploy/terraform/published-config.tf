@@ -22,6 +22,7 @@ locals {
     "region"                        = var.aws_region
     "cognito/user-pool-id"          = aws_cognito_user_pool.this.id
     "cognito/webapp-client-id"      = aws_cognito_user_pool_client.webapp.id
+    "cognito/android-client-id"     = aws_cognito_user_pool_client.android.id
     "demo-user/email"               = aws_cognito_user.demo.username
     "database-reset/function-name"  = aws_lambda_function.database_reset.function_name
     "history-cleanup/function-name" = aws_lambda_function.history_cleanup.function_name

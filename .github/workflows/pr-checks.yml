@@ -29,9 +29,10 @@ on:
     # So when PR B is stacked on PR A and A merges, GitHub retargets B to main and fires no run -
     # leaving B stuck on "Expected - waiting for status" forever, with no push left to trigger it,
     # because main's protection requires the unit-tests context below.
+    # 'labeled' and 'unlabeled' let the schema-compatible override label take effect without a push.
     # The cost is a run on title and body edits too; the suite is ~25s and the concurrency group
     # below cancels anything in flight, so that is the cheaper side of the trade.
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
   # Lets the gate be re-run without pushing an empty commit.
   workflow_dispatch:
 
@@ -64,6 +65,38 @@ jobs:
         run: |
           npm install --no-save graphql@16
           node api/check-schema-parses.mjs api/mootmaker.graphql
+
+  # Installed Android APKs are not replaced when the API deploys, so a breaking schema change breaks
+  # phones that are already out there (mootmaker/designs/android-app.md Decision 5). Compares the
+  # PR's schema with its base branch's. A deliberate break needs the override label.
+  schema-compatible:
+    name: schema-compatible
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Diff the schema against the base branch
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ALLOW_BREAKING: ${{ contains(github.event.pull_request.labels.*.name, 'allow-breaking-schema-change') }}
+        run: |
+          git show "$BASE_SHA:api/mootmaker.graphql" > "$RUNNER_TEMP/base.graphql"
+          npm install --no-save graphql@16 @graphql-inspector/cli@6
+          if npx graphql-inspector diff "$RUNNER_TEMP/base.graphql" api/mootmaker.graphql; then
+            echo "No breaking schema changes."
+          elif [ "$ALLOW_BREAKING" = "true" ]; then
+            echo "::warning::Breaking schema change allowed by the allow-breaking-schema-change label."
+          else
+            echo "::error::Breaking schema change. Installed apps will break. Deprecate instead, or add the allow-breaking-schema-change label if this is deliberate."
+            exit 1
+          fi
 
   unit-tests:
     name: unit-tests
