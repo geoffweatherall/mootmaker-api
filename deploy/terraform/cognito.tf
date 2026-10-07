@@ -155,6 +155,31 @@ resource "aws_cognito_user_pool_client" "webapp" {
   write_attributes = ["name"]
 }
 
+# Public (no secret) client used by the native Android app (mootmaker-android).
+#
+# A mobile app cannot keep a secret, so like the webapp it is public. It signs in with SRP, so the
+# password never leaves the device (design: mootmaker/designs/android-app.md, N1), and uses the
+# refresh-token flow to stay signed in. USER_PASSWORD_AUTH is deliberately not enabled.
+#
+# A separate client from the webapp's rather than a shared one: it can be revoked, have its token
+# lifetimes changed or be audited on its own. The attribute permissions below MUST stay identical to
+# the webapp client's, including the omission of custom:class and custom:personId from
+# write_attributes - see the reasoning on that client.
+resource "aws_cognito_user_pool_client" "android" {
+  name         = "${local.resource_prefix}-android"
+  user_pool_id = aws_cognito_user_pool.this.id
+
+  explicit_auth_flows = [
+    "ALLOW_USER_SRP_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
+  ]
+
+  prevent_user_existence_errors = "ENABLED"
+
+  read_attributes  = aws_cognito_user_pool_client.webapp.read_attributes
+  write_attributes = aws_cognito_user_pool_client.webapp.write_attributes
+}
+
 # Hosted domain for the user pool - only needed for the OAuth2 token endpoint
 # (https://<domain>.auth.<region>.amazoncognito.com/oauth2/token) that the
 # acceptance tests use. The account id makes the prefix globally unique.

@@ -152,11 +152,12 @@ Every GraphQL request must carry a JWT issued by the user pool in the `Authoriza
 1. **AppSync** is configured with `AMAZON_COGNITO_USER_POOLS` authentication: it verifies the token's signature, issuer, and expiry against the user pool **before any resolver runs**, and returns HTTP 401 `UnauthorizedException` otherwise.
 2. **Every Lambda handler** re-checks, before running any logic, that the AppSync context it received contains an authenticated `identity` ([Identity.requireAuthenticated](impl/src/main/java/com/mootmaker/handler/Identity.java)) — defence-in-depth in case the API is ever accidentally exposed without the authoriser.
 
-The user pool has three app clients (plus a hosted domain used only for the OAuth2 token endpoint):
+The user pool has four app clients (plus a hosted domain used only for the OAuth2 token endpoint):
 
 | App client | Kind | Used by |
 |---|---|---|
 | `mootmaker-webapp` | Public (no secret), SRP auth flow | The [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) browser SPA: users sign up / sign in and their id token is sent with each GraphQL call |
+| `mootmaker-android` | Public (no secret), SRP auth flow, same attribute permissions as the webapp's | The [mootmaker-android](https://github.com/geoffweatherall/mootmaker-android) app. Its own client so it can be revoked or tuned without touching the webapp's. Only `ALLOW_USER_SRP_AUTH` and `ALLOW_REFRESH_TOKEN_AUTH` are enabled. Published to SSM as `cognito/android-client-id` |
 | `mootmaker-acceptance-tests` | Confidential (client secret), OAuth2 `client_credentials` flow | The [verify/](verify/) acceptance tests, the webapp's acceptance helpers and pre-deploy schema check, and the test-stage smoke test. Published to SSM as `m2m-client/*` |
 | `mootmaker-demo-data` | Confidential (client secret), OAuth2 `client_credentials` flow | [mootmaker-demo-data](https://github.com/geoffweatherall/mootmaker-demo-data), which reads its id and secret from SSM at runtime — see below |
 
@@ -363,6 +364,10 @@ All scripts live in the project root and are run from there:
 | [undeploy.sh](undeploy.sh) | `terraform destroy` — deletes the AppSync API, Lambdas, and DynamoDB tables **including all stored data**, for the given environment. Prompts for confirmation. `--yes` skips the prompt for automation, and is deliberately *narrower* than the interactive path: it refuses `production` and `test` outright rather than asking. | `./undeploy.sh <environment> [--yes]` |
 | [verify.sh](verify.sh) | Looks up the given environment's endpoint, client credentials and test fixtures in SSM Parameter Store, then runs the acceptance tests (`mvn clean verify` in `verify/`) against that environment's deployed API. `database-reset` is part of this same repo's Terraform, so `./deploy.sh <environment>` is all that's needed first (see [Authentication in end-to-end tests](#authentication-in-end-to-end-tests)). | `./verify.sh <environment>` |
 
+### Schema compatibility with installed apps
+
+An installed APK is not replaced when the API deploys, so removing or renaming a field, or tightening an argument, silently breaks phones already in use. The `schema-compatible` PR check runs `graphql-inspector diff` between the base branch's [api/mootmaker.graphql](api/mootmaker.graphql) and the PR's, and fails on breaking changes unless the PR carries the `allow-breaking-schema-change` label. Prefer marking a field `@deprecated` and keeping it; it can go once no published APK in the last few releases uses it (how many is to be decided when it first matters).
+
 ## Published configuration
 
 Other components never read this repository's Terraform state. Each deploy publishes what they
@@ -372,7 +377,7 @@ looks it up by environment name:
 
 | Parameter | Type | Read by |
 |---|---|---|
-| `graphql-url`, `region`, `cognito/user-pool-id`, `cognito/webapp-client-id` | String | webapp deploy, test runners |
+| `graphql-url`, `region`, `cognito/user-pool-id`, `cognito/webapp-client-id`, `cognito/android-client-id` | String | webapp deploy (the Android one is written into its `mobile-config.json`), test runners |
 | `demo-user/email`, `demo-user/password` | String (public by design) | webapp deploy (home page), smoke tests |
 | `m2m-client/client-id`, `token-url`, `scope`; `m2m-client/client-secret` | String; SecureString | webapp deploy (schema check), test runners, test-stage smoke |
 | `database-reset/function-name`, `history-cleanup/function-name` | String | test runners |
