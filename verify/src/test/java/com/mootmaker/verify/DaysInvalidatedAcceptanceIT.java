@@ -217,4 +217,54 @@ class DaysInvalidatedAcceptanceIT {
           equalTo(true));
     }
   }
+
+  @Test
+  @DisplayName("deleting a person broadcasts the dates of the upcoming meetings it cancelled")
+  void broadcastsTheDatesAPersonDeletionChanged() throws Exception {
+    // mootmaker-api#107: the deletion cascade cancels the person's upcoming meetings, and other
+    // clients must hear about it like any other cancellation.
+    final String date = bookableDate(37);
+    final String personId =
+        client
+            .execute(
+                "mutation($name: String!){ createPerson(name:$name){ person { id } errors } }",
+                Map.of("name", new Faker().name().fullName()))
+            .get("createPerson")
+            .get("person")
+            .get("id")
+            .asText();
+    final Map<String, Object> theirMeeting = new HashMap<>(meeting(date, "14:00:00", "14:30:00"));
+    theirMeeting.put("organiserId", personId);
+    final JsonNode booked = client.execute(CREATE_MEETING, Map.of("meeting", theirMeeting));
+    assertThat(
+        "precondition: their meeting must have been accepted",
+        booked.get("createMeeting").get("errors").size(),
+        equalTo(0));
+
+    // Subscribed only AFTER the booking, so the booking's own broadcast cannot be mistaken for the
+    // deletion's.
+    try (AppSyncSubscription subscription =
+        AppSyncSubscription.open(SUBSCRIPTION, endpoint, accessToken)) {
+      subscription.awaitReady();
+      LOG.info("Subscribed; deleting the person who organises the meeting on {}", date);
+
+      final JsonNode deleted =
+          client.execute(
+              "mutation($id: ID!){ deletePerson(id:$id){ errors } }", Map.of("id", personId));
+      assertThat(
+          "precondition: the deletion must have succeeded",
+          deleted.get("deletePerson").get("errors").size(),
+          equalTo(0));
+
+      final JsonNode broadcast = subscription.awaitMessage(DELIVERY_TIMEOUT);
+      assertThat(
+          "no broadcast arrived within "
+              + DELIVERY_TIMEOUT
+              + ". Protocol errors: "
+              + subscription.protocolErrors(),
+          broadcast,
+          org.hamcrest.Matchers.notNullValue());
+      assertThat(datesFrom(broadcast), contains(date));
+    }
+  }
 }
