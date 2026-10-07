@@ -227,13 +227,18 @@ Most acceptance tests reset the database to a known state immediately before the
 One user's booking appears on another user's screen without a refetch. The chain is short but every
 link in it has a silent failure mode, so it is worth knowing in full.
 
-1. A write commits (`createMeeting` or `createMeetings`).
+1. A write that changes meetings commits: `createMeeting`, `createMeetings`, `updateMeeting` (both
+   dates, if the meeting moved), `cancelMeeting`, `respondToMeeting`, or the cascade in
+   `deletePerson` and `deleteMyAccount`, which cancels the person's upcoming meetings and removes
+   them from others (#107). A rejected write, or a delete that changed no meeting, publishes nothing.
 2. The resolver Lambda calls the API's **own** `publishDaysInvalidated` mutation over IAM-signed
    HTTP ([DaysInvalidatedPublisher](impl/src/main/java/com/mootmaker/realtime/DaysInvalidatedPublisher.java)).
    AppSync has no server-side publish API - a broadcast *is* a mutation call.
 3. `@aws_subscribe` pushes that mutation's return value to every client subscribed to
    `daysInvalidated`.
-4. Each client evicts `Day:<date>` from its cache; its ordinary gap fetch refills it.
+4. Each client evicts `Day:<date>`, and the meetings on it, from its cache, then refetches the
+   queries on screen. Eviction alone doesn't refill a watched multi-day query. See the webapp's
+   `realtime/` code.
 
 **Why a separate publish field rather than subscribing to `createMeeting`.** A rejected
 `createMeeting` returns *successfully*, carrying a typed `errors` array, and AppSync broadcasts it
