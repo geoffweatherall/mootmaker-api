@@ -56,8 +56,11 @@ final class UpcomingMeetings {
    * organiser's meeting count has no fixed upper bound and DynamoDB transactions cap at 100 items -
    * a failure partway through leaves some meetings cleaned up and others not, reconcilable by
    * {@code database-repair}.
+   *
+   * @return the dates of every day it changed, for the caller to broadcast. Returned rather than
+   *     published here so the caller decides where in its own write order the broadcast belongs.
    */
-  static void cancelUpcomingMeetingsFor(
+  static List<String> cancelUpcomingMeetingsFor(
       final DayRepository days, final String personId, final String now) {
     final List<String> affectedDates =
         days.scanDays().stream()
@@ -82,6 +85,7 @@ final class UpcomingMeetings {
                                   : meeting)
                       .toList()));
     }
+    return affectedDates;
   }
 
   private static boolean isUpcomingOrganisedBy(

@@ -14,6 +14,7 @@ import com.mootmaker.testsupport.DayFixtures;
 import com.mootmaker.testsupport.FakeCognitoIdentityProviderClient;
 import com.mootmaker.testsupport.FakeDynamoDbClient;
 import com.mootmaker.testsupport.FakeS3Client;
+import com.mootmaker.testsupport.RecordingBroadcaster;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
@@ -30,6 +31,12 @@ class DeleteMyAccountHandlerTest {
   private static final String PAST_END = "2020-01-01T09:30:00";
   private static final String FUTURE = "2099-01-01T09:00:00";
   private static final String FUTURE_END = "2099-01-01T09:30:00";
+
+  // Two more upcoming dates, so a broadcast can be checked for exactly the days that changed.
+  private static final String OTHER_FUTURE = "2099-01-02T09:00:00";
+  private static final String OTHER_FUTURE_END = "2099-01-02T09:30:00";
+  private static final String THIRD_FUTURE = "2099-01-03T09:00:00";
+  private static final String THIRD_FUTURE_END = "2099-01-03T09:30:00";
 
   /**
    * The Person is now found by the {@code custom:personId} claim rather than by a sub lookup, so
@@ -366,5 +373,106 @@ class DeleteMyAccountHandlerTest {
         () -> handler.handleRequest(deleteEvent("sub-demo", "demo@mootmaker.com"), null));
 
     assertEquals(1, s3.objects.size());
+  }
+
+  private static FakeDynamoDbClient clientWithAda() {
+    final FakeDynamoDbClient dynamoDbClient = new FakeDynamoDbClient();
+    dynamoDbClient.tables.put(
+        PEOPLE_TABLE, new ArrayList<>(List.of(new Person("person-a", "Ada", "sub-a").toItem())));
+    return dynamoDbClient;
+  }
+
+  private static DeleteMyAccountHandler handlerBroadcastingTo(
+      final FakeDynamoDbClient dynamoDbClient, final RecordingBroadcaster broadcaster) {
+    return new DeleteMyAccountHandler(
+        dynamoDbClient,
+        new FakeCognitoIdentityProviderClient(),
+        PEOPLE_TABLE,
+        MEETINGS_TABLE,
+        USER_POOL_ID,
+        Set.of(),
+        AvatarHandlerFixtures.store(new FakeS3Client()),
+        broadcaster);
+  }
+
+  @Test
+  @DisplayName("broadcasts every upcoming date whose meetings changed, once, and no other date")
+  void broadcastsTheDatesWhoseMeetingsTheCascadeChanged() {
+    final FakeDynamoDbClient dynamoDbClient = clientWithAda();
+    putMeetingAndParticipants(
+        dynamoDbClient,
+        new MeetingRecord(
+            "meeting-1",
+            "room-1",
+            "person-a",
+            List.of("person-b"),
+            List.of(AttendeeStatus.NoResponse),
+            "Organised by the target",
+            FUTURE,
+            FUTURE_END));
+    putMeetingAndParticipants(
+        dynamoDbClient,
+        new MeetingRecord(
+            "meeting-2",
+            "room-1",
+            "person-c",
+            List.of("person-a"),
+            List.of(AttendeeStatus.NoResponse),
+            "Attended by the target",
+            OTHER_FUTURE,
+            OTHER_FUTURE_END));
+    putMeetingAndParticipants(
+        dynamoDbClient,
+        new MeetingRecord(
+            "meeting-3",
+            "room-1",
+            "person-c",
+            List.of("person-b"),
+            List.of(AttendeeStatus.NoResponse),
+            "Not involving the target",
+            THIRD_FUTURE,
+            THIRD_FUTURE_END));
+    putMeetingAndParticipants(
+        dynamoDbClient,
+        new MeetingRecord(
+            "meeting-4",
+            "room-1",
+            "person-a",
+            List.of("person-b"),
+            List.of(AttendeeStatus.NoResponse),
+            "In the past",
+            PAST,
+            PAST_END));
+    final RecordingBroadcaster broadcaster = new RecordingBroadcaster();
+
+    handlerBroadcastingTo(dynamoDbClient, broadcaster)
+        .handleRequest(deleteEvent("sub-a", "ada@example.com"), null);
+
+    // See DeletePersonHandlerTest's equivalent, and mootmaker-api#107.
+    assertEquals(1, broadcaster.broadcasts.size());
+    assertEquals(Set.of("2099-01-01", "2099-01-02"), Set.copyOf(broadcaster.broadcasts.getFirst()));
+  }
+
+  @Test
+  @DisplayName("broadcasts nothing when no upcoming meeting involves the caller")
+  void broadcastsNothingWhenNoUpcomingMeetingChanged() {
+    final FakeDynamoDbClient dynamoDbClient = clientWithAda();
+    putMeetingAndParticipants(
+        dynamoDbClient,
+        new MeetingRecord(
+            "meeting-4",
+            "room-1",
+            "person-a",
+            List.of("person-b"),
+            List.of(AttendeeStatus.NoResponse),
+            "In the past",
+            PAST,
+            PAST_END));
+    final RecordingBroadcaster broadcaster = new RecordingBroadcaster();
+
+    handlerBroadcastingTo(dynamoDbClient, broadcaster)
+        .handleRequest(deleteEvent("sub-a", "ada@example.com"), null);
+
+    assertTrue(broadcaster.allDates().isEmpty());
   }
 }

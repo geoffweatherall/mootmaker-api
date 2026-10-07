@@ -11,6 +11,8 @@ import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.model.Person;
 import com.mootmaker.model.PersonError;
+import com.mootmaker.realtime.DayBroadcaster;
+import com.mootmaker.realtime.DaysInvalidatedPublisher;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminDeleteUserRequest;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
@@ -52,6 +54,7 @@ public class DeletePersonHandler implements RequestHandler<Map<String, Object>, 
   private final AvatarStore avatars;
   private final String userPoolId;
   private final Set<String> reservedAccountEmails;
+  private final DayBroadcaster broadcaster;
 
   public DeletePersonHandler() {
     this(
@@ -72,12 +75,33 @@ public class DeletePersonHandler implements RequestHandler<Map<String, Object>, 
       final String userPoolId,
       final Set<String> reservedAccountEmails,
       final AvatarStore avatars) {
+    this(
+        dynamoDbClient,
+        cognitoClient,
+        peopleTableName,
+        meetingsTableName,
+        userPoolId,
+        reservedAccountEmails,
+        avatars,
+        DaysInvalidatedPublisher.fromEnvironment());
+  }
+
+  DeletePersonHandler(
+      final DynamoDbClient dynamoDbClient,
+      final CognitoIdentityProviderClient cognitoClient,
+      final String peopleTableName,
+      final String meetingsTableName,
+      final String userPoolId,
+      final Set<String> reservedAccountEmails,
+      final AvatarStore avatars,
+      final DayBroadcaster broadcaster) {
     this.cognitoClient = cognitoClient;
     this.people = new PersonRepository(dynamoDbClient, peopleTableName);
     this.days = new DayRepository(dynamoDbClient, meetingsTableName);
     this.avatars = avatars;
     this.userPoolId = userPoolId;
     this.reservedAccountEmails = reservedAccountEmails;
+    this.broadcaster = broadcaster;
   }
 
   @Override
@@ -114,7 +138,12 @@ public class DeletePersonHandler implements RequestHandler<Map<String, Object>, 
     // ORDER MATTERS - meetings, then the avatar, then the Person, then the Cognito account(s)
     // LAST. See this handler's own doc comment, and DeleteMyAccountHandler's identical reasoning
     // for why.
-    UpcomingMeetings.cancelUpcomingMeetingsFor(days, id, UpcomingMeetings.now());
+    final List<String> changedDates =
+        UpcomingMeetings.cancelUpcomingMeetingsFor(days, id, UpcomingMeetings.now());
+    // Straight after the meeting writes, before the steps that can still fail: those meetings have
+    // already changed, and other clients should hear so even if a later step throws. Nothing is
+    // published when no upcoming meeting involved this person (mootmaker-api#107).
+    broadcaster.publish(changedDates);
     avatars.deleteAllAvatars(id);
     people.deleteById(id);
     for (final String cognitoSub : target.get().cognitoSubs()) {

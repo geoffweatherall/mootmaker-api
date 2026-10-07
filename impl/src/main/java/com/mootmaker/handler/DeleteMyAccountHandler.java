@@ -10,6 +10,8 @@ import com.mootmaker.dynamo.DayRepository;
 import com.mootmaker.dynamo.DynamoDbClientProvider;
 import com.mootmaker.dynamo.PersonRepository;
 import com.mootmaker.model.Person;
+import com.mootmaker.realtime.DayBroadcaster;
+import com.mootmaker.realtime.DaysInvalidatedPublisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
@@ -57,6 +59,7 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
   private final AvatarStore avatars;
   private final String userPoolId;
   private final Set<String> reservedAccountEmails;
+  private final DayBroadcaster broadcaster;
 
   public DeleteMyAccountHandler() {
     this(
@@ -77,6 +80,26 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
       final String userPoolId,
       final Set<String> reservedAccountEmails,
       final AvatarStore avatars) {
+    this(
+        dynamoDbClient,
+        cognitoClient,
+        peopleTableName,
+        meetingsTableName,
+        userPoolId,
+        reservedAccountEmails,
+        avatars,
+        DaysInvalidatedPublisher.fromEnvironment());
+  }
+
+  DeleteMyAccountHandler(
+      final DynamoDbClient dynamoDbClient,
+      final CognitoIdentityProviderClient cognitoClient,
+      final String peopleTableName,
+      final String meetingsTableName,
+      final String userPoolId,
+      final Set<String> reservedAccountEmails,
+      final AvatarStore avatars,
+      final DayBroadcaster broadcaster) {
     this.avatars = avatars;
     this.dynamoDbClient = dynamoDbClient;
     this.cognitoClient = cognitoClient;
@@ -84,6 +107,7 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
     this.days = new DayRepository(dynamoDbClient, meetingsTableName);
     this.userPoolId = userPoolId;
     this.reservedAccountEmails = reservedAccountEmails;
+    this.broadcaster = broadcaster;
   }
 
   @Override
@@ -146,7 +170,10 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
    * UpcomingMeetings}, shared with {@code DeletePersonHandler}'s identical cascade.
    */
   private void cancelUpcomingMeetings(final Person person) {
-    UpcomingMeetings.cancelUpcomingMeetingsFor(days, person.id(), UpcomingMeetings.now());
+    // Broadcast straight after the meeting writes, before the steps that can still fail - see
+    // DeletePersonHandler, and mootmaker-api#107.
+    broadcaster.publish(
+        UpcomingMeetings.cancelUpcomingMeetingsFor(days, person.id(), UpcomingMeetings.now()));
   }
 
   private static Set<String> parseReservedEmails(final String csv) {
