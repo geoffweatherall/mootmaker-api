@@ -178,8 +178,8 @@ changes on `main` (see [.github/workflows/publish-schema.yml](.github/workflows/
 
 | Registry | Artifact | Who consumes it |
 |---|---|---|
-| npmjs.com | `@mootmaker/schema` | `mootmaker-webapp`, which generates its types and operations from it |
-| GitHub Packages | `com.mootmaker:mootmaker-schema` | `mootmaker-android` and `mootmaker-demo-data`, once they adopt codegen |
+| npmjs.com | `@mootmaker/schema` | `mootmaker-webapp` and `mootmaker-android` (Apollo Kotlin, which downloads the npm package at a pinned version, so needs no token either), which generate their types and operations from it |
+| GitHub Packages | `com.mootmaker:mootmaker-schema` | `mootmaker-demo-data`, once it adopts codegen |
 
 The split is deliberate: **GitHub Packages requires an access token to install even a public
 package**, which would make `mootmaker-webapp` unbuildable for anyone cloning it. npmjs.com has no
