@@ -50,6 +50,8 @@ permissions:
   # Mint the OIDC token that configure-aws-credentials exchanges for the deploy role.
   id-token: write
   contents: read
+  # Read this run's other jobs, for fail-fast (below).
+  actions: read
 
 jobs:
   build:
@@ -112,13 +114,21 @@ jobs:
           role-to-assume: arn:aws:iam::431071856068:role/mootmaker-release-github-actions-deploy
           aws-region: us-east-1
 
+      # Stop early once another job in this run has failed: a release that cannot tag is already
+      # lost, and the rest of this build would only spend time and AWS cost. Deploys are gated with
+      # `fail-fast check` and only the test command is wrapped - never terraform, which must not be
+      # interrupted mid-apply. See mootmaker/designs/cost-reduction.md, Measure 3.
+      - uses: geoffweatherall/mootmaker-release/.github/actions/fail-fast@main
+
       # --skip-build deploys the jar built above rather than recompiling it, so the artifact
       # proven here is byte-identical to the one promoted later.
       - name: Deploy to the ephemeral environment
-        run: ./deploy.sh "${{ steps.env.outputs.name }}" --skip-build
+        run: |
+          fail-fast check
+          ./deploy.sh "${{ steps.env.outputs.name }}" --skip-build
 
       - name: Acceptance tests
-        run: ./verify.sh "${{ steps.env.outputs.name }}"
+        run: fail-fast run -- ./verify.sh "${{ steps.env.outputs.name }}"
 
       # if: always() is load-bearing, not defensive. Without it a failed acceptance run - or a
       # cancelled workflow - leaves a live AppSync API, Lambdas and DynamoDB tables billing until
