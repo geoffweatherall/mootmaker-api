@@ -67,7 +67,7 @@ jobs:
           node api/check-schema-parses.mjs api/mootmaker.graphql
 
   # Installed Android APKs are not replaced when the API deploys, so a breaking schema change breaks
-  # phones that are already out there (mootmaker/designs/android-app.md Decision 5). Compares the
+  # phones that are already out there (mootmaker/designs/archive/android-app.md Decision 5). Compares the
   # PR's schema with its base branch's. A deliberate break needs the override label.
   schema-compatible:
     name: schema-compatible

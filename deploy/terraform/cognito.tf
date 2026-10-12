@@ -158,7 +158,7 @@ resource "aws_cognito_user_pool_client" "webapp" {
 # Public (no secret) client used by the native Android app (mootmaker-android).
 #
 # A mobile app cannot keep a secret, so like the webapp it is public. It signs in with SRP, so the
-# password never leaves the device (design: mootmaker/designs/android-app.md, N1), and uses the
+# password never leaves the device (design: mootmaker/designs/archive/android-app.md, N1), and uses the
 # refresh-token flow to stay signed in. USER_PASSWORD_AUTH is deliberately not enabled.
 #
 # A separate client from the webapp's rather than a shared one: it can be revoked, have its token
