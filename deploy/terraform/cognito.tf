@@ -15,8 +15,8 @@ resource "aws_cognito_user_pool" "this" {
   # Users sign in with their email address; Cognito emails a verification code on sign-up and for
   # password resets. Sent via the verified mail.mootmaker.com SES identity (email_configuration
   # below) rather than Cognito's own COGNITO_DEFAULT sender - that built-in sender has a low,
-  # undocumented daily cap shared account-wide across every user pool, which real usage plus the
-  # acceptance suite's own account creation started hitting (see testing-strategy.md). SES's own
+  # undocumented daily cap shared account-wide across every user pool, which the acceptance suites'
+  # account creation alone would exceed. SES's own
   # quota is governed by ../../../mootmaker-domain and this AWS account's own SES sending limits
   # instead, which are far higher.
   username_attributes      = ["email"]
@@ -74,15 +74,10 @@ resource "aws_cognito_user_pool" "this" {
   # person, but declared mutable because the trigger has to set it after confirmation.
   #
   # Exactly 8, matching com.mootmaker.dynamo.IdAllocator's fixed token length (see
-  # designs/dynamodb-storage-compaction.md) - was 36 for the UUIDs this replaced. Found the hard
-  # way: AdminUpdateUserAttributes silently fails this constraint inside
-  # PostConfirmationCreatePersonHandler's already-swallowed try/catch, so an 8-character id here
-  # left every new sign-up with no linked Person at all, cascading into every acceptance test that
-  # needs one - not a webapp/android code problem (that surface was audited and is clean), a
-  # Terraform one. Custom attribute constraints are immutable on an existing user pool, so this
-  # change forces a pool replacement - accepted here the same way UUID-to-compact-id migration
-  # itself was: this project drops the whole DB, Cognito pool included, on every
-  # test/production release, so nothing is actually being migrated.
+  # designs/archive/dynamodb-storage-compaction.md). Keep the two in step: a value that breaks this
+  # constraint fails AdminUpdateUserAttributes inside PostConfirmationCreatePersonHandler's
+  # swallowed try/catch, leaving every new sign-up without a linked Person. Custom attribute
+  # constraints cannot change on an existing pool; changing this replaces the pool and every user.
   schema {
     name                = "personId"
     attribute_data_type = "String"
@@ -202,8 +197,8 @@ resource "aws_cognito_resource_server" "api" {
   # M2M tooling (the acceptance-test client below, and mootmaker-demo-data's own client in
   # demo-data-credentials.tf) has no Cognito user behind it at all, so it can never carry a
   # custom:class claim the way a real signed-in user's ID token does - this scope is
-  # Identity.requireAdmin's equivalent for that caller. See this project's README for why
-  # mootmaker-demo-data still needs to create rooms/people now that those mutations are admin-only.
+  # Identity.requireAdmin's equivalent for that caller. mootmaker-demo-data needs it to create rooms
+  # and people, which are admin-only mutations.
   scope {
     scope_name        = "admin"
     scope_description = "Admin-equivalent access (room/person maintenance) for M2M tooling"
@@ -238,14 +233,12 @@ resource "aws_cognito_user_pool_client" "acceptance_tests" {
 }
 
 # The test fixture users: an admin, a standard user, and a standard user with NO linked Person.
-# Ephemeral environments only - nothing that runs against test or production uses them
-# (mootmaker-api#95).
+# Ephemeral environments only - nothing that runs against test or production uses them.
 #
 # Terraform does NOT create these accounts, only their passwords. Every database reset creates any
 # that are missing through the real sign-up path, so PostConfirmation makes their Person exactly as
 # it would for a real user, and repairs those that exist back to a known state - see FixtureUsers.
-# Making them in Terraform (AdminCreateUser plus a hand-written Person item) is what let the old
-# fixture users drift from real ones (#73).
+# Making them in Terraform would bypass PostConfirmation, so they could drift from real users.
 #
 # The addresses are on the test mail domain, so any email they trigger lands in the
 # email-testing queue rather than bouncing.
@@ -288,17 +281,15 @@ resource "random_password" "fixture_user" {
 # on its own: the demo Person keeps its identity when the environment is recreated.
 #
 # Truncated to 8 hex characters (hyphens stripped first) to match custom:personId's
-# string_attribute_constraints below and com.mootmaker.dynamo.IdAllocator's id length elsewhere -
-# was the full 36-character uuidv5 output before this project's ids became compact (see
-# designs/dynamodb-storage-compaction.md). substr() of a known value is itself known at plan time,
+# string_attribute_constraints above and com.mootmaker.dynamo.IdAllocator's id length elsewhere.
+# substr() of a known value is itself known at plan time,
 # so this keeps the same plan-time-known property the comment above explains.
 locals {
   demo_person_id = substr(replace(uuidv5("dns", "demo-person.${var.environment}.mootmaker"), "-", ""), 0, 8)
 }
 
-# Password for the demo user below: random rather than a
-# fixed, guessable word - an earlier fixed value ("demo1234") turned out to be on Google's list of
-# known-compromised passwords, which Cognito doesn't check for but is still worth avoiding.
+# Password for the demo user below: random rather than a fixed, guessable word, which would likely
+# be on a list of known-compromised passwords.
 # Restricted to lowercase letters and digits (no uppercase/symbols) purely so it's easy to read
 # and type by hand; it's shown in the clear on the webapp's home page regardless, so there's no
 # security reason to make it harder to type.
@@ -329,8 +320,8 @@ resource "aws_cognito_user" "demo" {
     "custom:class" = "admin"
     # Created directly rather than through sign-up, so PostConfirmationCreatePersonHandler never
     # runs and this claim would otherwise never be set - leaving the demo login with a Person it
-    # cannot resolve, and myPerson returning null for the account the signed-out home page hands
-    # every visitor.
+    # cannot resolve, and workspace { me } returning null for the account the signed-out home page
+    # hands every visitor.
     "custom:personId" = local.demo_person_id
   }
   # Terraform sets these at CREATE and must never touch them again.
@@ -345,7 +336,7 @@ resource "aws_cognito_user" "demo" {
   # ignore_changes only suppresses updates, never creation, so the attributes are still set exactly
   # once, correctly, when the user is made. The cost is that a genuine change to these values needs
   # the user replaced rather than updated - acceptable for a Terraform-managed account, and the
-  # alternative is silent wrongness. See mootmaker-api#39.
+  # alternative is silent wrongness.
   lifecycle {
     ignore_changes = [attributes]
   }
@@ -354,14 +345,12 @@ resource "aws_cognito_user" "demo" {
   # other reason to order this after either dependency below, since nothing here references them, so
   # without this depends_on all three can race:
   #  - aws_lambda_permission.cognito_invoke_pre_sign_up: Lambda resource-based policies are
-  #    eventually consistent, like IAM roles (see time_sleep.iam_role_propagation in iam.tf for the
-  #    same class of issue). Lost that race on a fresh environment: Cognito invoked the trigger
-  #    before its own permission to do so had propagated, and AdminCreateUser failed outright with
+  #    eventually consistent, like IAM roles (see time_sleep.iam_role_propagation in iam.tf). If
+  #    Cognito invokes the trigger before its permission has propagated, AdminCreateUser fails with
   #    UnexpectedLambdaException/AccessDeniedException.
   #  - null_resource.pre_sign_up_snapstart_ready (lambda.tf): a freshly published SnapStart version
-  #    needs its own extra time before it can be invoked at all, regardless of permissions. Lost
-  #    this race too, once the first was fixed: ResourceConflictException instead.
-  # See mootmaker-api#77's and #78's first ephemeral deploys.
+  #    needs its own extra time before it can be invoked at all, regardless of permissions
+  #    (ResourceConflictException otherwise).
   depends_on = [aws_lambda_permission.cognito_invoke_pre_sign_up, null_resource.pre_sign_up_snapstart_ready]
 }
 

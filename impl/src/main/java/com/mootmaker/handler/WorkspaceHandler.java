@@ -19,9 +19,9 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
  * AppSync direct-Lambda resolver for {@code Query.workspace} - the single entry point every screen
  * loads through.
  *
- * <p>One invocation instead of the three or four this replaced, which matters most on the request
- * that decides how fast the app feels. The four sub-fields are independent, so they are fetched
- * concurrently and the caller waits for the slowest rather than the sum.
+ * <p>One invocation for everything a screen reads, which matters most on the request that decides
+ * how fast the app feels. The four sub-fields are independent, so they are fetched concurrently and
+ * the caller waits for the slowest rather than the sum.
  *
  * <p><b>Nothing not selected is fetched.</b> A calendar paging to a new week selects only {@code
  * days}, so this does no people, rooms or boundaries work at all; a reference-data refresh omits

@@ -46,7 +46,7 @@ public final class BatchGet {
    *
    * <p>A single Scan call returns at most 1MB and signals the rest through {@code
    * LastEvaluatedKey}. Reading only {@code .scan(...).items()} drops everything past that silently:
-   * no error, just a shorter list (mootmaker-api#2). The paginator follows the key to the end.
+   * no error, just a shorter list. The paginator follows the key to the end.
    */
   public static List<Map<String, AttributeValue>> scan(
       final DynamoDbClient dynamoDbClient, final String tableName) {

@@ -1,10 +1,7 @@
-# database-reset and database-repair: merged into this repo from mootmaker-admin-tools (see
-# ../../../mootmaker/designs/archive/admin-tools-into-api.md). Each is its own Lambda function, built from
-# the same shaded jar as the resolvers/post-confirmation functions (see lambda.tf), but - unlike
-# those - each gets its own narrowly-scoped IAM role rather than the shared aws_iam_role.lambda_exec
-# every resolver uses, matching the least-privilege role each tool already had as a standalone
-# Lambda before this move. Neither gets an aws_lambda_alias/SnapStart: nothing invokes either
-# frequently enough for cold-start latency to matter.
+# database-reset and database-repair (see ../../../mootmaker/designs/archive/admin-tools-into-api.md).
+# Each is its own Lambda function, built from the same shaded jar as the resolvers (see lambda.tf),
+# but each gets its own narrowly-scoped IAM role rather than the shared aws_iam_role.lambda_exec.
+# Neither gets an alias or SnapStart: nothing invokes either often enough for cold starts to matter.
 
 # --- database-reset ---
 
@@ -44,7 +41,7 @@ data "aws_iam_policy_document" "database_reset_access" {
   }
 
   # PutItem on the MEETINGS table only, and only for one item: reset rewrites CONFIG#retention to
-  # the boundary today's calendar implies (see DatabaseReset.deleteAllMeetings and #46). The
+  # the boundary today's calendar implies (see DatabaseReset.deleteAllMeetings). The
   # boundary is monotonic in normal operation, so a reset is the only thing that can put it back,
   # and without that an environment's bookable window creeps permanently into the future.
   #
@@ -118,10 +115,9 @@ resource "aws_iam_role_policy" "database_reset_access" {
 }
 
 resource "aws_lambda_function" "database_reset" {
-  # Matches the deterministic name this repo's own verify.sh and mootmaker-demo-data's acceptance
-  # suite already compute (<environment>-mootmaker-database-reset) - neither needed to change when
-  # this Lambda moved here from mootmaker-admin-tools. Note mootmaker-demo-data itself never
-  # invokes this: only its test harness does, to clear an environment before seeding it.
+  # A deterministic name (<environment>-mootmaker-database-reset), which this repo's verify.sh and
+  # mootmaker-demo-data's acceptance suite compute rather than look up. mootmaker-demo-data itself
+  # never invokes this: only its test harness does, to clear an environment before seeding it.
   function_name    = "${local.resource_prefix}-database-reset"
   role             = aws_iam_role.database_reset_exec.arn
   handler          = "com.mootmaker.handler.DatabaseResetHandler::handleRequest"
@@ -129,8 +125,7 @@ resource "aws_lambda_function" "database_reset" {
   filename         = local.lambda_jar_path
   source_code_hash = local.lambda_jar_hash
   memory_size      = 512
-  # The AWS maximum, not a smaller guessed number (mootmaker-admin-tools configured 300s) - see
-  # designs/admin-tools-into-api.md. ConcurrencyUtils.runInParallel (bounded at 8) already exists
+  # The AWS maximum, not a smaller guessed number - see designs/archive/admin-tools-into-api.md. ConcurrencyUtils.runInParallel (bounded at 8) already exists
   # specifically to stay inside this ceiling as stored data volume grows, so the ceiling itself is
   # the number worth configuring against. Costs nothing extra - Lambda bills for actual duration,
   # not this setting. Every caller's own client-side timeout has to be raised to match, or a
@@ -143,7 +138,7 @@ resource "aws_lambda_function" "database_reset" {
     variables = merge(local.lambda_env_vars, {
       COGNITO_USER_POOL_ID = aws_cognito_user_pool.this.id
       # Computed once at deploy time from which environment this is, not read from the invoke
-      # payload - see designs/admin-tools-into-api.md's "Choices you had me make". Structurally
+      # payload - see designs/archive/admin-tools-into-api.md's "Choices you had me make". Structurally
       # impossible to override per-invocation, the same way deploy.sh itself decides
       # production-ness from the environment argument rather than trusting the caller.
       ALLOW_COGNITO_WIPE      = tostring(var.environment != "production")
@@ -171,7 +166,7 @@ resource "aws_lambda_function" "database_reset" {
   # otherwise make Lambda auto-create the group - which then collides with
   # Terraform's own create. See logs.tf for the full reasoning.
   # time_sleep.iam_role_propagation: IAM is eventually consistent and this function's role may not
-  # be assumable yet - see iam.tf and mootmaker-api#26.
+  # be assumable yet - see iam.tf.
   depends_on = [aws_cloudwatch_log_group.lambda, time_sleep.iam_role_propagation]
 }
 
@@ -232,8 +227,7 @@ resource "aws_iam_role_policy" "database_repair_access" {
 }
 
 resource "aws_lambda_function" "database_repair" {
-  # Matches the deterministic name this repo's own verify.sh/README would compute
-  # (<environment>-mootmaker-database-repair) - unchanged from mootmaker-admin-tools.
+  # A deterministic name, <environment>-mootmaker-database-repair, like database-reset's.
   function_name    = "${local.resource_prefix}-database-repair"
   role             = aws_iam_role.database_repair_exec.arn
   handler          = "com.mootmaker.handler.DatabaseRepairHandler::handleRequest"
@@ -257,6 +251,6 @@ resource "aws_lambda_function" "database_repair" {
   # otherwise make Lambda auto-create the group - which then collides with
   # Terraform's own create. See logs.tf for the full reasoning.
   # time_sleep.iam_role_propagation: IAM is eventually consistent and this function's role may not
-  # be assumable yet - see iam.tf and mootmaker-api#26.
+  # be assumable yet - see iam.tf.
   depends_on = [aws_cloudwatch_log_group.lambda, time_sleep.iam_role_propagation]
 }

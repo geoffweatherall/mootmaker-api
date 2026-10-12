@@ -18,14 +18,14 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
 /**
  * AppSync direct-Lambda resolver for {@code Mutation.updateMyName}. Self-only - sets the caller's
- * own name, resolved from {@code custom:personId} the same way {@code MyPersonHandler} does. No id
- * argument, no admin override - deliberately unlike {@link RenamePersonHandler}, which an admin
- * uses on someone else's Person. Mirrors {@code updateMyPreferences}'s self-only shape.
+ * own name, resolved from the {@code custom:personId} claim. No id argument, no admin override -
+ * deliberately unlike {@link RenamePersonHandler}, which an admin uses on someone else's Person.
+ * Mirrors {@code updateMyPreferences}'s self-only shape.
  *
  * <p>If the caller has a linked Cognito account, this also updates Cognito's own {@code name}
  * attribute to match - otherwise it would go stale relative to {@code Person.name} (Cognito sets it
  * once at sign-up and nothing else ever touches it), and {@code AuthProvider} on the webapp briefly
- * shows that stale name from the ID token on next sign-in, before its {@code myPerson} lookup
+ * shows that stale name from the ID token on next sign-in, before its {@code workspace { me }} read
  * overrides it with the current one. A propagation failure is logged and swallowed, not surfaced -
  * Cognito's {@code name} is only a display convenience for that brief window, unlike {@code
  * setPersonAdmin}'s {@code custom:class}, which is the caller's actual authorization.

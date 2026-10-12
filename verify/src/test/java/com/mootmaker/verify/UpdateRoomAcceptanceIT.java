@@ -16,9 +16,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Acceptance tests for updating a room's name/capacity, reading the change back via the {@code
  * rooms} query, and validation. The acceptance-test client authenticates as the M2M tooling client,
- * which carries the admin-equivalent OAuth scope (see the API README's "M2M tooling" section) -
- * there's no way to exercise a non-admin rejection from this suite, since it has no real signed-in
- * user to authenticate as; that's covered by {@code UpdateRoomHandlerTest} instead.
+ * which carries the admin-equivalent OAuth scope (see docs/architecture.md) - there's no way to
+ * exercise a non-admin rejection from this suite, since it has no real signed-in user to
+ * authenticate as; that's covered by {@code UpdateRoomHandlerTest} instead.
  */
 class UpdateRoomAcceptanceIT {
 

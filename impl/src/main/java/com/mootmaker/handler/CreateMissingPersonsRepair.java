@@ -17,14 +17,13 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
 /**
  * Repair #1: every confirmed Cognito user should have a linked Person, created automatically by
- * {@link PostConfirmationCreatePersonHandler} on sign-up - but users created directly (e.g. the
- * demo user and e2e test user, both admin-created via Terraform rather than through sign-up) skip
- * that trigger entirely, and the trigger itself deliberately swallows its own failures rather than
- * retrying. This finds every confirmed Cognito user whose {@code custom:personId} claim is missing,
- * or points at a Person that no longer exists, and creates one, named after the part of their email
- * before the "@" - a reasonable one-off backfill default, <b>not</b> a re-implementation of the
- * trigger's own behaviour (which uses the Cognito {@code name} attribute, unavailable here for
- * users - like the demo/e2e ones - who never had one set).
+ * {@link PostConfirmationCreatePersonHandler} on sign-up - but a user created directly rather than
+ * through sign-up skips that trigger, and the trigger itself deliberately swallows its own failures
+ * rather than retrying. This finds every confirmed Cognito user whose {@code custom:personId} claim
+ * is missing, or points at a Person that no longer exists, and creates one, named after the part of
+ * their email before the "@" - a reasonable one-off backfill default, <b>not</b> a
+ * re-implementation of the trigger's own behaviour (which uses the Cognito {@code name} attribute,
+ * which a directly created user may not have).
  */
 final class CreateMissingPersonsRepair {
 

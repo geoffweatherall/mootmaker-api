@@ -1,6 +1,5 @@
 # Required PR gate for mootmaker-api. See mootmaker/designs/archive/ci-cd-pipeline.md Decision 12.
 #
-# Scoped to what actually exists in this repository today, verified rather than assumed:
 # impl/ is the deployable Maven module and the only one that can run without AWS.
 #
 # NEVER add verify/ here. That module is the acceptance suite and needs a real deployed
@@ -16,9 +15,7 @@ on:
   pull_request:
     # No `branches:` filter, deliberately. That filter matches the PR's BASE, so restricting it to
     # main silently exempts every stacked pull request from this gate - a PR based on another PR is
-    # not based on main, so no run fires at all. That is what happened to #49 through #52: each was
-    # based on the one below it, none of them ran these checks, and they only got tested at all
-    # because they were merged down into #48, which does target main.
+    # not based on main, so no run fires at all.
     #
     # 'edited' below is the same family of problem and neither line fixes the other. Without the
     # types, a retargeted PR never re-runs; without removing this filter, a stacked PR never runs in

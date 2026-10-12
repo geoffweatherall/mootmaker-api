@@ -19,12 +19,12 @@ import software.amazon.awssdk.services.cognitoidentityprovider.model.MessageActi
 import software.amazon.awssdk.services.cognitoidentityprovider.model.UserNotFoundException;
 
 /**
- * Proves {@code database-reset}'s Cognito-wipe survivor logic (see designs/admin-tools-into-api.md)
- * against a real deployed pool, not just the fakes {@code DatabaseResetTest} exercises: a
- * non-reserved Cognito user is deleted by reset, while the demo account (one of the two
- * Terraform-managed reserved accounts) survives. Only Cognito is checked here, since this module
- * has no direct DynamoDB access - the corresponding Person-survival rule is covered by {@code
- * DatabaseResetTest} in mootmaker-api/impl.
+ * Proves {@code database-reset}'s Cognito-wipe survivor logic (see
+ * designs/archive/admin-tools-into-api.md) against a real deployed pool, not just the fakes {@code
+ * DatabaseResetTest} exercises: a non-reserved Cognito user is deleted by reset, while the demo
+ * account (one of the two Terraform-managed reserved accounts) survives. Only Cognito is checked
+ * here, since this module has no direct DynamoDB access - the corresponding Person-survival rule is
+ * covered by {@code DatabaseResetTest} in mootmaker-api/impl.
  *
  * <p>Not run against {@code production}: reset's Cognito wipe is itself skipped there (see {@code
  * ALLOW_COGNITO_WIPE}), so this test would find its throwaway user was never deleted - a reminder
@@ -87,7 +87,7 @@ class DatabaseResetCognitoWipeAcceptanceIT {
   /**
    * The fixture users are repaired, not just preserved: a test that damages one (renames it,
    * promotes it, changes its Cognito attributes) cannot leak that into the next test, because the
-   * next test's reset puts it back. See FixtureUsers and mootmaker-api#95.
+   * next test's reset puts it back. See FixtureUsers.
    */
   @Test
   void resetRepairsADamagedFixtureUser() {

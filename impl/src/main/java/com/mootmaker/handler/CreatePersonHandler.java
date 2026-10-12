@@ -45,7 +45,7 @@ public class CreatePersonHandler implements RequestHandler<Map<String, Object>, 
     if (name == null || name.isBlank()) {
       errors.add(PersonError.NameRequired.name());
     } else if (people.findByNameIgnoringCaseAndWhitespace(name).isPresent()) {
-      // Rejected outright rather than silently linked or merged - see mootmaker-api#70. A name
+      // Rejected outright rather than silently linked or merged. A name
       // collision is almost always the same person being added twice by mistake, best caught
       // here, explicitly, rather than left to accumulate as an indistinguishable duplicate.
       errors.add(PersonError.NameAlreadyExists.name());

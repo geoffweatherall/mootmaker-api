@@ -1,6 +1,6 @@
 # Outputs for people reading a deploy's result. Nothing reads these programmatically except
 # deploy/import-log-groups.sh (graphql_api_id): other components look this API up in SSM Parameter
-# Store instead - see published-config.tf (mootmaker-api#94).
+# Store instead - see published-config.tf.
 
 output "graphql_api_url" {
   description = "The GraphQL endpoint URL for the mootmaker API, via its custom domain (see domain.tf). Also published to SSM as /mootmaker/<environment>/api/graphql-url, which is what other components read (published-config.tf)."

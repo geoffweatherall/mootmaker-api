@@ -23,7 +23,7 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 /**
  * AppSync direct-Lambda resolver for {@code Mutation.respondToMeeting}. Self-only, mirroring {@link
  * UpdateMyPreferencesHandler}'s no-id-argument pattern - the caller can only ever set their own
- * response, never anyone else's (see designs/attendee-response-status.md's "Trade-offs and
+ * response, never anyone else's (see designs/archive/attendee-response-status.md's "Trade-offs and
  * decisions").
  *
  * <p><b>Concurrency is the whole reason this goes through {@code days.mutate} rather than a direct

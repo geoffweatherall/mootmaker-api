@@ -269,11 +269,8 @@ class DayRepositoryTest {
           Collections.nCopies(attendees.size(), AttendeeStatus.NoResponse);
       // Past the day limit on purpose: layer 2 would have stopped this, so reaching layer 3
       // means the model drifted - which is the case this exists to survive. Comfortably more
-      // than Limits.MAX_MEETINGS_PER_DAY: compaction raised the real ceiling to 660 (see
-      // LimitsTest's worstCaseMeetingBytes), and this measures REAL bytes via ItemSizer against
-      // the modelled worst case, now that attendeeStatuses is a real field rather than reserved
-      // headroom - so the margin no longer has to cover that gap, but 1,000 stays comfortably
-      // past the cap regardless.
+      // than Limits.MAX_MEETINGS_PER_DAY: the real ceiling is about 660 (see LimitsTest's
+      // worstCaseMeetingBytes), and 1,000 is comfortably past it.
       final List<MeetingRecord> tooMany =
           IntStream.range(0, 1_000)
               .mapToObj(

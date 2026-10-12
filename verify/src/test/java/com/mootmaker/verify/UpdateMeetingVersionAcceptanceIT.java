@@ -14,9 +14,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Optimistic concurrency on updateMeeting against the real API (mootmaker-api#96): an edit made
- * from a stale copy is rejected with MeetingChanged rather than silently undoing the change made
- * since, and nothing is written.
+ * Optimistic concurrency on updateMeeting against the real API: an edit made from a stale copy is
+ * rejected with MeetingChanged rather than silently undoing the change made since, and nothing is
+ * written.
  */
 class UpdateMeetingVersionAcceptanceIT {
 

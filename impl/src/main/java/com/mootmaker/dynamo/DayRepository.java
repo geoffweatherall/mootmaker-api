@@ -413,11 +413,10 @@ public final class DayRepository {
    * holds no history at all, there is nothing left to advertise falsely, and every day in the new
    * window is legitimately empty rather than missing.
    *
-   * <p>Needed because the boundary is the one piece of state a reset could not previously undo. The
-   * acceptance suite advances it deliberately, to observe a deletion at all, and without this that
-   * advance was permanent: an environment's bookable window would creep further into the future
-   * with every run until nothing near-term could be booked. Preserving the config item was always
-   * right - deleting it breaks every write - but preserving its VALUE was not.
+   * <p>Needed because the acceptance suite advances the boundary deliberately, to observe a
+   * deletion at all. Without a reset back, each run would leave the bookable window further in the
+   * future until nothing near-term could be booked. The config item itself must survive a reset
+   * (deleting it breaks every write); only its value goes back.
    */
   public void resetBoundaryTo(final String monday) {
     dynamoDbClient.putItem(
@@ -470,8 +469,7 @@ public final class DayRepository {
   /**
    * Every day item in the table, for the rare operations that genuinely need all of them - account
    * deletion, and the cleanup job. Cheap by construction: the horizon and retention bound the table
-   * at 217 day items, which is why this replaced the meeting-participants join table rather than an
-   * index replacing it.
+   * at 217 day items, so a scan needs no index.
    */
   public List<Day> scanDays() {
     return BatchGet.scan(dynamoDbClient, tableName).stream()

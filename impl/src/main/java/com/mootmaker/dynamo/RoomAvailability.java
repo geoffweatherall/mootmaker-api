@@ -7,10 +7,8 @@ import com.mootmaker.model.MeetingRecord;
 /**
  * Whether a room is free over a time range.
  *
- * <p>This used to query the {@code roomId-startTime-index} GSI. With a day held in one item the
- * question is answered in memory against meetings the caller has already read, so the class stops
- * touching DynamoDB at all - which is why it is now a pure function, and why the whole GSI could
- * go.
+ * <p>With a day held in one item the question is answered in memory against meetings the caller has
+ * already read, so this is a pure function that never touches DynamoDB.
  *
  * <p>That matters for more than tidiness. {@code CreateMeetingHandler} must re-check availability
  * <i>inside</i> its read-modify-write, so that a booking losing a version conflict re-validates

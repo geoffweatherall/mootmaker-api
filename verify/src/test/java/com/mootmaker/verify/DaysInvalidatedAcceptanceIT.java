@@ -221,7 +221,7 @@ class DaysInvalidatedAcceptanceIT {
   @Test
   @DisplayName("deleting a person broadcasts the dates of the upcoming meetings it cancelled")
   void broadcastsTheDatesAPersonDeletionChanged() throws Exception {
-    // mootmaker-api#107: the deletion cascade cancels the person's upcoming meetings, and other
+    // The deletion cascade cancels the person's upcoming meetings, and other
     // clients must hear about it like any other cancellation.
     final String date = bookableDate(37);
     final String personId =

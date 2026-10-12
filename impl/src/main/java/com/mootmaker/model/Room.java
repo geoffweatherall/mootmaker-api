@@ -7,9 +7,8 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 public record Room(String id, String name, int capacity, RoomColor color) {
 
   /**
-   * Convenience for the many call sites that don't care about colour - a brand new room, and every
-   * existing test fixture written before this field existed. {@code color} defaults to {@code
-   * null}: no explicit colour chosen, same as every room behaved before this field existed.
+   * Convenience for call sites that don't care about colour, mostly tests. {@code color} is {@code
+   * null}: no explicit colour, so clients choose one by position.
    */
   public Room(final String id, final String name, final int capacity) {
     this(id, name, capacity, null);

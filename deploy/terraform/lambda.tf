@@ -36,8 +36,7 @@ locals {
 
   # ResolverDispatchHandler (see impl/src/main/java/com/mootmaker/handler/ResolverDispatchHandler.java)
   # is the single entry point for every AppSync direct-Lambda resolver, so it needs the union of
-  # every env var any individual resolver handler used to need - including COGNITO_USER_POOL_ID
-  # (previously only update_person's own function got this). Unlike post_confirmation_create_person,
+  # every env var any resolver handler needs. Unlike post_confirmation_create_person,
   # this function is never itself referenced by aws_cognito_user_pool.this's lambda_config, so the
   # circular-dependency concern above doesn't apply here.
   resolver_lambda_env_vars = merge(local.admin_gated_env_vars, {
@@ -94,7 +93,7 @@ resource "aws_lambda_function" "resolvers" {
   # otherwise make Lambda auto-create the group - which then collides with
   # Terraform's own create. See logs.tf for the full reasoning.
   # time_sleep.iam_role_propagation: IAM is eventually consistent and this function's role may not
-  # be assumable yet - see iam.tf and mootmaker-api#26.
+  # be assumable yet - see iam.tf.
   depends_on = [aws_cloudwatch_log_group.lambda, time_sleep.iam_role_propagation]
 }
 
@@ -136,7 +135,7 @@ resource "aws_lambda_function" "post_confirmation_create_person" {
   # otherwise make Lambda auto-create the group - which then collides with
   # Terraform's own create. See logs.tf for the full reasoning.
   # time_sleep.iam_role_propagation: IAM is eventually consistent and this function's role may not
-  # be assumable yet - see iam.tf and mootmaker-api#26.
+  # be assumable yet - see iam.tf.
   depends_on = [aws_cloudwatch_log_group.lambda, time_sleep.iam_role_propagation]
 }
 
@@ -182,39 +181,23 @@ resource "aws_lambda_alias" "pre_sign_up_name_collision_live" {
 }
 
 # A freshly published SnapStart version needs its own extra time before it can actually be invoked -
-# separate from, and in addition to, time_sleep.iam_role_propagation (defined in iam.tf) above. AWS
-# builds the snapshot asynchronously after publish; invoking too soon fails with Lambda's own
-# ResourceConflictException, which Cognito surfaces as "PreSignUp invocation failed due to error
-# ResourceConflictException" - seen for real deploying a fresh ephemeral environment, where
-# aws_cognito_user.demo invokes this function within seconds of it being published.
-# post_confirmation_create_person carries the identical risk (same SnapStart setup) but has never hit
-# it: nothing in this apply invokes PostConfirmation synchronously - only a later, real sign-up does,
-# by which time the snapshot is long since ready. PreSignUp has no such luxury.
+# separate from, and in addition to, time_sleep.iam_role_propagation (iam.tf). AWS builds the
+# snapshot asynchronously after publish; invoking too soon fails with ResourceConflictException,
+# which Cognito surfaces as "PreSignUp invocation failed". aws_cognito_user.demo invokes this function
+# within seconds of it being published, so a fresh environment would hit it.
+# post_confirmation_create_person has the same setup but nothing in an apply invokes it; a real
+# sign-up comes long after its snapshot is ready.
 #
-# This is a null_resource + local-exec poll, not a time_sleep like iam_role_propagation above -
-# deliberately, and only after two earlier attempts both proved unreliable in practice:
-#  1. time_sleep with a 60s duration passed locally (twice) but still failed in mootmaker-release's
-#     CI with the identical ResourceConflictException, because that run deploys mootmaker-api three
-#     times in parallel (release.yml builds api/webapp/demo-data concurrently, and both webapp and
-#     demo-data also deploy api as a dependency - see mootmaker#41's identical theory about parallel
-#     SnapStart publishing under contention). Snapshot creation time isn't a constant, so a fixed
-#     guess can only ever be lucky at the concurrency level it was tuned against.
-#  2. Polling SnapStart.OptimizationStatus (via `aws lambda get-function-configuration`) still failed
-#     the same way, immediately after reporting "On" - that field turns out to describe this
-#     version's SnapStart *configuration* (is optimization turned on for it at all), not whether its
-#     snapshot has actually finished being prepared. It reads "On" the instant the version exists,
-#     regardless of real invoke-readiness, so it never actually waited for anything.
+# A poll with a real invocation, because the alternatives do not work:
+#  - A fixed time_sleep cannot be right. Snapshot creation time varies with load, and a release
+#    deploys this API to several environments in parallel.
+#  - SnapStart.OptimizationStatus reads "On" the moment the version exists: it describes the
+#    configuration, not whether the snapshot is ready.
+# PreSignUpNameCollisionHandler returns any event that is not "PreSignUp_SignUp" unchanged without
+# touching DynamoDB, so `{}` is a harmless probe. This invokes it until it stops failing.
 #
-# What's left, and what this does instead, is the one signal that can't lie: a real invocation.
-# PreSignUpNameCollisionHandler returns its event unchanged for any triggerSource other than
-# "PreSignUp_SignUp" (see its own handleRequest) without touching DynamoDB, so `{}` is a genuinely
-# harmless, side-effect-free probe - this repeatedly invokes the function with it until the AWS CLI
-# stops reporting ResourceConflictException, which is the exact failure this exists to prevent, not
-# a proxy for it.
-#
-# Triggers on the published version, matching time_sleep.iam_role_propagation's own reasoning: an
-# unchanged function on an existing environment re-applies without paying this again, only a fresh
-# publish (a new environment, or a real code change) does.
+# Triggers on the published version, so an unchanged function on an existing environment re-applies
+# without waiting again; only a fresh publish (a new environment, or a code change) pays.
 resource "null_resource" "pre_sign_up_snapstart_ready" {
   triggers = {
     version = aws_lambda_function.pre_sign_up_name_collision.version
@@ -222,10 +205,8 @@ resource "null_resource" "pre_sign_up_snapstart_ready" {
 
   provisioner "local-exec" {
     # POSIX sh, not bash: Terraform's local-exec runs via /bin/sh -c on Unix, and GitHub's Ubuntu
-    # runners point that at dash, which has no -o pipefail (confirmed for real: "set: Illegal
-    # option -o pipefail" - passed locally only because this workstation's /bin/sh happens to be
-    # bash). Dropped rather than switched to an explicit bash interpreter, since nothing here pipes
-    # anyway - set -eu alone already covers every failure mode this script has.
+    # runners point that at dash, which has no -o pipefail. Nothing here pipes, so set -eu is
+    # enough.
     command = <<-EOT
       set -eu
       for i in $(seq 1 120); do

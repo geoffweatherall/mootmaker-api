@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# Imports this environment's ALREADY-EXISTING log groups into Terraform state, so the first apply
-# that introduces deploy/terraform/logs.tf does not fail.
+# Imports any of this environment's log groups that already exist but are not in Terraform state,
+# so an apply does not fail with ResourceAlreadyExistsException.
 #
-# Why this is needed (design Rollout step 12): Lambda and AppSync auto-create their log groups on
-# first invocation, unmanaged and with never-expire retention. CloudWatch rejects creating a log
-# group whose name is already taken, so on any environment that has ever run - test and production
-# - a plain apply fails. Importing first hands Terraform the existing group instead.
-#
-# A FRESH ephemeral environment needs none of this: nothing exists there yet, so apply creates the
-# groups normally. This script is safe to run there anyway - it skips anything that is absent.
+# Lambda and AppSync auto-create a log group on first invocation if none exists, with never-expire
+# retention. Terraform normally creates the groups first (see deploy/terraform/logs.tf), so this is
+# needed only if a group was ever created outside Terraform. It skips anything absent, so it is safe
+# to run on any environment.
 #
 # Idempotent: a group already in state is skipped, so re-running after a partial failure is fine.
 #

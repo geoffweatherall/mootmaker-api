@@ -22,20 +22,18 @@ import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
 
 /**
  * AppSync direct-Lambda resolver for {@code Mutation.deleteMyAccount}. Self-service only - always
- * deletes the caller's own account, resolved from the JWT's {@code sub} the same way {@link
- * MyPersonHandler} does. See mootmaker/designs/archive/delete-my-account.md in the workspace root
- * for the design this implements.
+ * deletes the caller's own account: the Person named by the token's {@code custom:personId} claim
+ * and the Cognito user named by its {@code sub}. See
+ * mootmaker/designs/archive/delete-my-account.md.
  *
  * <p><b>Order of operations matters here - meetings, then the Person, then the Cognito account(s)
- * LAST.</b> (A previous revision of this comment claimed the opposite order; it was wrong - this
- * paragraph now matches what {@link #handleRequest} actually does, checked directly rather than
- * assumed while writing {@code DeletePersonHandler} against the same ordering.) Deleting Cognito
- * first would risk the worse failure: a version-conflicted day mutation partway through the
- * meetings cascade would leave the caller locked out, unable to sign back in to retry, with their
- * meetings orphaned and no self-service recovery. Doing DynamoDB cleanup first instead means a
- * failure there still leaves a working login to retry with - and if the caller pushes through to
- * the Cognito delete succeeding while some DynamoDB cleanup is still incomplete, that is exactly
- * the state {@code database-repair} exists to reconcile, not a user-visible failure.
+ * LAST.</b> Deleting Cognito first would risk the worse failure: a version-conflicted day mutation
+ * partway through the meetings cascade would leave the caller locked out, unable to sign back in to
+ * retry, with their meetings orphaned and no self-service recovery. Doing DynamoDB cleanup first
+ * instead means a failure there still leaves a working login to retry with - and if the caller
+ * pushes through to the Cognito delete succeeding while some DynamoDB cleanup is still incomplete,
+ * that is exactly the state {@code database-repair} exists to reconcile, not a user-visible
+ * failure.
  *
  * <p>Every upcoming meeting the caller organises is cancelled, and every upcoming meeting the
  * caller only attends has them removed from its attendee list instead - see {@link
@@ -132,8 +130,8 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
 
     // ORDER MATTERS, for the same reason the retention job advances its boundary before deleting.
     // Meetings, the avatar, then the Person, then the Cognito accounts LAST. The intermediate state
-    // this leaves
-    // - Person gone, login still works - is recoverable. The reverse is not: if Cognito went first
+    // this leaves - Person gone, login still works - is recoverable. The reverse is not: if Cognito
+    // went first
     // and a day rewrite then lost a version conflict, the user could no longer sign in to retry and
     // their meetings would be orphaned with no owner.
     person.ifPresent(this::cancelUpcomingMeetings);
@@ -171,7 +169,7 @@ public class DeleteMyAccountHandler implements RequestHandler<Map<String, Object
    */
   private void cancelUpcomingMeetings(final Person person) {
     // Broadcast straight after the meeting writes, before the steps that can still fail - see
-    // DeletePersonHandler, and mootmaker-api#107.
+    // DeletePersonHandler.
     broadcaster.publish(
         UpcomingMeetings.cancelUpcomingMeetingsFor(days, person.id(), UpcomingMeetings.now()));
   }

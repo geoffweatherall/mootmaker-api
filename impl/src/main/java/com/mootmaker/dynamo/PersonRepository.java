@@ -16,15 +16,12 @@ import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemResponse;
 
 /**
- * People, by id. An instance rather than the static utility it used to be, matching {@link
- * DayRepository} and {@link RoomRepository}: it owns its client and table name, and is constructed
- * once at initialisation so it lands in the SnapStart snapshot.
+ * People, by id. Like {@link DayRepository} and {@link RoomRepository} it owns its client and table
+ * name, and is constructed once at initialisation so it lands in the SnapStart snapshot.
  *
- * <p>There is no lookup by Cognito sub any more. The caller's id arrives on the token as the {@code
- * custom:personId} claim, so the forward direction costs nothing - and that removed the last reader
- * of {@code cognitoSub-index}, the final {@code projection_type = "ALL"} duplicate in the system.
- * The reverse direction, which only account deletion needs, is a {@code cognitoSubs} list on the
- * Person itself: free to read, because deletion already holds the item.
+ * <p>There is no lookup by Cognito sub. The caller's id arrives on the token as the {@code
+ * custom:personId} claim, so the forward direction is a key read. The reverse direction, which only
+ * account deletion, reset and repair need, is the {@code cognitoSubs} list on the Person itself.
  */
 public final class PersonRepository {
 
@@ -57,11 +54,11 @@ public final class PersonRepository {
 
   /**
    * Case- and whitespace-insensitive name lookup, for the createPerson/sign-up duplicate-name guard
-   * (mootmaker-api#70) - "willy wombat" collides with " Willy Wombat" as much as an exact match
-   * does, since a case/whitespace-only difference is exactly the kind of human error this exists to
-   * catch, not a legitimate distinct person. A full scan, not an index - the same "small and
-   * slow-moving" whole-table read every other Person listing in this codebase already does (see
-   * {@code Query.workspace.people}).
+   * - "willy wombat" collides with " Willy Wombat" as much as an exact match does, since a
+   * case/whitespace-only difference is exactly the kind of human error this exists to catch, not a
+   * legitimate distinct person. A full scan, not an index - the same "small and slow-moving"
+   * whole-table read every other Person listing in this codebase already does (see {@code
+   * Query.workspace.people}).
    */
   public Optional<Person> findByNameIgnoringCaseAndWhitespace(final String name) {
     final String normalized = normalize(name);
@@ -145,17 +142,14 @@ public final class PersonRepository {
    * Applies an attribute-level {@code UpdateItem}, returning the person as stored afterwards.
    *
    * <p>This exists so a mutation can change the fields it owns without naming the ones it does not.
-   * Every one of these used to be a read-modify-{@code PutItem}, which fully replaces the item, so
-   * each handler had to rebuild the whole record and carry every unrelated field forward by hand -
-   * and forgetting one silently erased it. That is mootmaker-api#71, and it recurred when {@code
-   * photoUrl} was added and four separate handlers each needed the same line. An {@code UpdateItem}
-   * cannot express that bug: an attribute nobody names is an attribute nobody can lose.
+   * A read-modify-{@code PutItem} replaces the whole item, so every handler would have to carry
+   * every unrelated field forward by hand, and forgetting one would silently erase it. An {@code
+   * UpdateItem} cannot express that bug: an attribute nobody names is an attribute nobody can lose.
    *
    * <p><b>The condition is not optional.</b> {@code UpdateItem} on a key that does not exist
    * <em>creates</em> the item from whatever the expression sets - which would leave a Person with,
    * say, only an id and an isAdmin flag, and no name. {@code attribute_exists(id)} turns that into
-   * a {@link ConditionalCheckFailedException} instead. {@code PutItem} had no equivalent trap,
-   * which is exactly why it is worth stating here.
+   * a {@link ConditionalCheckFailedException} instead.
    *
    * <p>Attribute names go through {@code #placeholders} throughout. {@code name} is a DynamoDB
    * reserved word and genuinely requires it; the others do not, today, and are aliased anyway so

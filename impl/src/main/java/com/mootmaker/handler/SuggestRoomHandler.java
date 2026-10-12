@@ -74,9 +74,7 @@ public class SuggestRoomHandler implements RequestHandler<Map<String, Object>, O
             .sorted(Comparator.comparingInt(Room::capacity).thenComparing(Room::name))
             .toList();
 
-    // One read of the day, then every candidate is checked against it in memory. This used to be
-    // one GSI query PER CANDIDATE ROOM - the day item collapses that into a single lookup, which
-    // is the same collapse that let both meetings GSIs be deleted.
+    // One read of the day, then every candidate is checked against it in memory.
     final List<MeetingRecord> meetingsThatDay =
         days.read(startTime.toLocalDate().toString()).meetings();
 

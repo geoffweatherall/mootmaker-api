@@ -129,9 +129,9 @@ public class CreateMeetingsHandler implements RequestHandler<Map<String, Object>
 
     if (!accepted.isEmpty()) {
       write(date, accepted, failures);
-      // One broadcast for the whole call, not one per meeting - which is the entire point of
-      // Decision 5's day-scoped bulk creation. 99 meetings on one date change exactly one
-      // day, so subscribers are woken once and refetch once.
+      // One broadcast for the whole call, not one per meeting - the point of day-scoped bulk
+      // creation. 99 meetings on one date change exactly one day, so subscribers are woken once
+      // and refetch once.
       //
       // Conditional on something having been accepted: a call where every input failed wrote
       // nothing, so there is nothing for anyone to refetch.

@@ -4,11 +4,11 @@ import module java.base;
 
 /**
  * A meeting's version: a fingerprint of everything {@code updateMeeting} can change - room,
- * organiser, attendees, subject, start and end (mootmaker-api#96).
+ * organiser, attendees, subject, start and end.
  *
- * <p>{@code updateMeeting} replaces every field, so an edit form saved from a stale copy used to
- * silently undo whatever changed since the form was opened. A client now sends the version it
- * edited ({@code MeetingInput.expectedVersion}); if the meeting has changed since, the update is
+ * <p>{@code updateMeeting} replaces every field, so without a check an edit form saved from a stale
+ * copy would silently undo whatever changed since the form was opened. A client sends the version
+ * it edited ({@code MeetingInput.expectedVersion}); if the meeting has changed since, the update is
  * rejected with {@code MeetingChanged} instead of overwriting.
  *
  * <p><b>Derived, not stored.</b> Meetings live inside each day's item; a stored counter would mean

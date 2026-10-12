@@ -1,6 +1,5 @@
 # What this component publishes for everything else to look up, by environment name, instead of
-# reading this repository's Terraform outputs from a sibling checkout (mootmaker-api#94, which
-# replaced authenticate.sh). Layout: /mootmaker/<environment>/api/<key>.
+# reading this repository's Terraform outputs. Layout: /mootmaker/<environment>/api/<key>.
 #
 # Secrets are SecureString with the account's default aws/ssm key; everything else is String.
 # Consumers: mootmaker-webapp's deploy.sh and its acceptance/e2e runners, this repo's verify.sh,
@@ -14,7 +13,7 @@ locals {
 
   # Test fixtures exist to be used by acceptance suites, which only ever run against ephemeral
   # environments. Nothing that runs against test or production reads them, so neither the accounts
-  # nor their parameters exist there (mootmaker-api#95).
+  # nor their parameters exist there.
   is_ephemeral = !contains(["test", "production"], var.environment)
 
   published_config = {

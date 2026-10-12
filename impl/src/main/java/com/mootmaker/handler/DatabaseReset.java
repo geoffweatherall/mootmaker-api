@@ -22,12 +22,11 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 /**
- * The actual reset logic behind {@link DatabaseResetHandler} - formerly {@code Mutation.reset} in
- * this API, then a standalone {@code mootmaker-admin-tools/database-reset} Lambda, now merged back
- * in here (see designs/admin-tools-into-api.md). Deletes every stored room and meeting, and - in
- * every environment except {@code production} - wipes the Cognito user pool down to the reserved
- * accounts (the demo user, plus the E2E fixture users in ephemeral environments) and every Person
- * not linked to one of them.
+ * The reset logic behind {@link DatabaseResetHandler} (see
+ * designs/archive/admin-tools-into-api.md). Deletes every stored room and meeting, and - in every
+ * environment except {@code production} - wipes the Cognito user pool down to the reserved accounts
+ * (the demo user, plus the E2E fixture users in ephemeral environments) and every Person not linked
+ * to one of them.
  *
  * <p>In {@code production} the Cognito wipe is skipped entirely (see {@link DatabaseResetHandler}'s
  * {@code allowCognitoWipe} gate) and Person survival falls back to the original, narrower rule: a
@@ -103,8 +102,8 @@ final class DatabaseReset {
    * Non-production rule: a Person survives only if one of its {@code cognitoSubs} is among {@code
    * survivingSubs} - the reserved accounts' actual current subs, per {@link #wipeCognitoPool}.
    * Unlike {@link #deleteUnlinkedPeople}, this deletes a Person even if it is linked, as long as
-   * those Cognito users were just deleted (or never existed) - which is what closes the "stray
-   * Person" gap a dangling link used to leave behind.
+   * those Cognito users were just deleted (or never existed), so a Person whose account is gone
+   * does not survive just because its link was never cleared.
    */
   static int deletePeopleNotLinkedTo(
       final DynamoDbClient dynamoDbClient,
@@ -112,7 +111,7 @@ final class DatabaseReset {
       final Set<String> survivingSubs) {
     final List<Map<String, AttributeValue>> toDelete =
         scan(dynamoDbClient, peopleTableName).stream()
-            // ANY surviving sub keeps the person, now that one person can hold several. Keying
+            // ANY surviving sub keeps the person, since one person can hold several. Keying
             // off a single value would delete someone whose second sign-in method happened not to
             // be the reserved one.
             .filter(
@@ -133,10 +132,9 @@ final class DatabaseReset {
   /**
    * Production-only fallback rule: deletes every person with no linked Cognito account at all
    * (guests added directly, or leftover sample data). A person linked to a real Cognito account is
-   * their only link back to that account (nothing recreates it after the fact), so it's preserved -
-   * exactly the original {@code Mutation.reset}/{@code database-reset} rule, kept here because the
-   * Cognito wipe that would let this Lambda verify those accounts still exist is refused in
-   * production (see {@link DatabaseResetHandler}).
+   * their only link back to that account (nothing recreates it after the fact), so it's preserved.
+   * This narrower rule applies in production because the Cognito wipe, which would let this Lambda
+   * verify those accounts still exist, is refused there (see {@link DatabaseResetHandler}).
    */
   static int deleteUnlinkedPeople(
       final DynamoDbClient dynamoDbClient, final String peopleTableName) {

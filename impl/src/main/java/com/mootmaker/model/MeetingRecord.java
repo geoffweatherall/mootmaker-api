@@ -8,10 +8,8 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  * The shape a meeting is persisted in: room, organiser and attendees referenced by id only. See
  * {@link Meeting} for the fully-resolved shape used to build a GraphQL response.
  *
- * <p>A meeting is no longer an item of its own - it is one element of its day's {@code meetings}
- * list, so this converts to and from an {@code AttributeValue} rather than a whole item. The {@code
- * bucket = "ALL"} attribute went with it: that existed solely to give the deleted {@code
- * bucket-startTime-index} GSI a partition key, and every item in the table carried it.
+ * <p>A meeting is not an item of its own: it is one element of its day's {@code meetings} list, so
+ * this converts to and from an {@code AttributeValue} rather than a whole item.
  */
 public record MeetingRecord(
     String id,
@@ -27,7 +25,7 @@ public record MeetingRecord(
    * Enforces the invariant every write in this class relies on: {@code attendeeStatuses} is a
    * sibling list to {@code attendeeIds}, same length and order, index {@code i} of one corresponds
    * to index {@code i} of the other - never a separate per-index update anywhere in this model, so
-   * the two cannot drift apart between writes (see designs/attendee-response-status.md's
+   * the two cannot drift apart between writes (see designs/archive/attendee-response-status.md's
    * "Trade-offs and decisions"). Failing loudly here, at construction, is what stops a mismatched
    * pair being written at all rather than being discovered on read.
    */
@@ -43,26 +41,23 @@ public record MeetingRecord(
   }
 
   /**
-   * Canonical, always-19-character format startTime/endTime are stored in, e.g.
-   * "2026-07-01T09:00:00". CreateMeetingHandler formats every stored value with this rather than
-   * trusting the client's raw input text, so the result is guaranteed fixed-width and therefore
-   * lexicographically sortable as a plain string - required for the range queries
-   * ListMeetingsHandler and the overlap check run against startTime/endTime and the
-   * meeting-participants table's sortKey. Plain LocalDateTime.toString() isn't fixed-width: it
-   * omits ":ss" when seconds are zero (e.g. midnight), which would break those comparisons.
+   * The canonical, always-19-character form of startTime/endTime, e.g. "2026-07-01T09:00:00". Every
+   * time is formatted with this rather than kept as the client sent it, so times are fixed-width
+   * and compare correctly as plain strings, which the overlap check and "upcoming" rely on. {@code
+   * LocalDateTime.toString()} is not fixed-width: it omits ":ss" when the seconds are zero.
    */
   public static final DateTimeFormatter DATE_TIME_FORMAT =
       DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
   /**
-   * The nested form: a meeting is no longer an item of its own, it is one element of its day's
-   * {@code meetings} list. {@code bucket} is gone with the GSI it existed to give a partition key.
+   * The form stored as one element of a day item's {@code meetings} list.
    *
    * <p>{@code startTime}/{@code endTime} are stored as {@code N} (epoch-minutes-since-UTC, see
    * {@link #toEpochMinutes}), not the 19-byte fixed-width ISO string they are everywhere else in
-   * this class - see designs/dynamodb-storage-compaction.md. That is a pure storage-encoding choice
-   * confined to this method and {@link #fromAttributeValue}: every other field and method on this
-   * record, and everything outside this file, still sees the canonical ISO string.
+   * this class - see designs/archive/dynamodb-storage-compaction.md. That is a pure
+   * storage-encoding choice confined to this method and {@link #fromAttributeValue}: every other
+   * field and method on this record, and everything outside this file, still sees the canonical ISO
+   * string.
    */
   public AttributeValue toAttributeValue() {
     final Map<String, AttributeValue> fields = new HashMap<>();
@@ -105,11 +100,8 @@ public record MeetingRecord(
         fields.get("roomId").s(),
         fields.get("organiserId").s(),
         fields.get("attendeeIds").l().stream().map(AttributeValue::s).toList(),
-        // Required, not defaulted for a missing attribute - per designs/attendee-response-
-        // status.md's "Rollout & migration", test/production are reset and reseeded under the new
-        // shape rather than tolerating old-shape data, so every stored day item has this by the
-        // time this ships. A missing value here means that decision was not actually carried out,
-        // and failing loudly beats silently inventing statuses nobody set.
+        // Required, not defaulted: every stored meeting has statuses, so a missing value means
+        // corrupt data, and failing loudly beats silently inventing statuses nobody set.
         fields.get("attendeeStatuses").l().stream()
             .map(AttributeValue::s)
             .map(AttendeeStatus::fromCode)

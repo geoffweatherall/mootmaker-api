@@ -99,11 +99,9 @@ resource "aws_cloudfront_distribution" "avatars" {
   # better served by S3's own 403 than by something friendlier.
   #
   # Stating that explicitly matters. mootmaker-webapp's distribution rewrites
-  # 403/404 to index.html at status 200 because it is a SPA, and an avatar
-  # served through it therefore failed silently - a missing image returned HTML
-  # that the browser could not decode, and the initials fallback hid it. That
-  # bug is the reason this design exists; inheriting the same unexamined
-  # default here would reintroduce it.
+  # 403/404 to index.html at status 200 because it is a SPA; an image served
+  # that way fails silently (the browser gets HTML it cannot decode, and the
+  # initials fallback hides it).
 
   origin {
     domain_name              = aws_s3_bucket.avatars.bucket_regional_domain_name
@@ -147,10 +145,8 @@ resource "aws_cloudfront_distribution" "avatars" {
   }
 }
 
-# Scoped to this exact distribution, which is possible precisely because the
-# same repository owns both. The shared-distribution design this replaced would
-# have needed an account-scoped wildcard here, since naming mootmaker-webapp's
-# distribution would have meant depending on its Terraform state.
+# Scoped to this exact distribution, which is possible because the same
+# repository owns both.
 data "aws_iam_policy_document" "avatars_bucket_policy" {
   statement {
     sid       = "AllowCloudFrontRead"

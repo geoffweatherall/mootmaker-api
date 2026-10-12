@@ -33,7 +33,8 @@ class LimitsTest {
           Limits.worstCaseDayItemBytes() <= Limits.DYNAMODB_MAX_ITEM_BYTES,
           "worst-case day item was " + Limits.worstCaseDayItemBytes() + " bytes");
       // 120 + 11x20 + 280 = 620 bytes a meeting (short opaque ids and epoch-minute times, plus
-      // reserved attendee-status headroom - see designs/dynamodb-storage-compaction.md); x320 plus
+      // reserved attendee-status headroom - see designs/archive/dynamodb-storage-compaction.md);
+      // x320 plus
       // overhead is ~198.5 KB, ~48.5% of the cap.
       assertTrue(
           Limits.worstCaseMeetingBytes() == 620,
@@ -74,9 +75,8 @@ class LimitsTest {
     @Test
     @DisplayName("when someone raises the day limit past what the item cap allows")
     void whenTheDayLimitIsRaisedTooFar() {
-      // 660 is the new ceiling at 20 attendees/280-byte subjects (see the Accepts nested class
-      // below) now that ids and times are compact, so this needs to clear a much higher bar than
-      // the old model's 400 did.
+      // About 660 is the ceiling at 20 attendees/280-byte subjects (see the Accepts nested class
+      // below), so this needs to clear it.
       final Budget tooManyMeetings = new Budget(700, 20, 280, 200, 1_000, 42, 2_000);
       final IllegalStateException thrown =
           assertThrows(IllegalStateException.class, () -> Limits.assertConsistent(tooManyMeetings));
@@ -86,8 +86,7 @@ class LimitsTest {
     @Test
     @DisplayName("when someone raises the attendee limit without revisiting the day limit")
     void whenTheAttendeeLimitIsRaisedTooFar() {
-      // 60 no longer exceeds the cap now that an attendee costs 11 bytes rather than 37 - 100
-      // does.
+      // An attendee costs 11 bytes, so it takes about 100 to exceed the cap.
       assertThrows(
           IllegalStateException.class,
           () -> Limits.assertConsistent(new Budget(320, 100, 280, 200, 1_000, 42, 2_000)));

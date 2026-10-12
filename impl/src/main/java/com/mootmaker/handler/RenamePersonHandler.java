@@ -79,8 +79,7 @@ public class RenamePersonHandler implements RequestHandler<Map<String, Object>, 
     }
 
     // Names the one field this mutation owns; every other attribute is left alone by the update
-    // itself rather than carried forward by hand. See PersonRepository#update - this used to be a
-    // rebuild-the-whole-record PutItem, and mootmaker-api#71 is what forgetting a field cost.
+    // itself rather than carried forward by hand. See PersonRepository#update.
     final Person updated = people.updateName(id, name);
 
     for (final String cognitoSub : updated.cognitoSubs()) {
