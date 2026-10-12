@@ -21,10 +21,8 @@ resource "aws_appsync_graphql_api" "this" {
     authentication_type = "AWS_IAM"
   }
 
-  # Decision 11. Without this block AppSync logs NOTHING - a GraphQL error rejected before it ever
-  # reaches a resolver leaves no trace anywhere, which is the gap this closes: the Definition of
-  # done asks for AppSync's own request/resolver logs alongside the Lambda execution logs, not
-  # just the latter.
+  # Without this block AppSync logs NOTHING - a GraphQL error rejected before it ever reaches a
+  # resolver leaves no trace anywhere.
   #
   # ERROR rather than ALL: ALL logs every request's full resolver trace, which on a demo system
   # refreshed daily by demo-data is a lot of volume for very little signal. Errors are what a
@@ -60,10 +58,10 @@ locals {
   # template confirmed it - the payload carried only fieldName, parentTypeName and variables. They
   # appear only when referenced explicitly, as below. Selection-aware resolving (see SelectionSet)
   # does not work at all without this, and fails SAFE without it: an absent selectionSetList makes
-  # every lookup happen, which is exactly the old behaviour.
+  # every lookup happen.
   #
-  # The bonus: $ctx also carries $ctx.request.headers, so the old template shipped every CloudFront
-  # request header to Lambda on every single call. Nothing ever read them.
+  # Naming fields also keeps $ctx.request.headers (every CloudFront request header) out of every
+  # Lambda payload. Nothing reads them.
   #
   # identity is emitted only when present. Building it unconditionally would hand Identity's
   # defence-in-depth check (see requireAuthenticated) a non-null identity on an unauthenticated
@@ -111,9 +109,8 @@ locals {
   EOT
 }
 
-# One resolver for the composite entry point, replacing the four that served Query.rooms,
-# Query.people, Query.myPerson and Query.meetings. Every field still shares one Lambda and one
-# request template; what changed is that a page load now reaches it once rather than four times.
+# One resolver for the composite entry point: a page load reaches the Lambda once. Every field
+# shares one Lambda and one request template.
 resource "aws_appsync_resolver" "workspace" {
   api_id            = aws_appsync_graphql_api.this.id
   type              = "Query"
@@ -307,8 +304,8 @@ resource "aws_appsync_resolver" "suggest_room" {
 #
 # publishDaysInvalidated exists because @aws_subscribe pushes the MUTATION'S return value, and
 # requires the subscription field's type to match it exactly. Both halves of that were verified
-# empirically rather than taken from documentation (see the design's "Verified: AppSync
-# subscription behaviour"):
+# empirically rather than taken from documentation (see graphql-schema-and-caching.md's "Verified:
+# AppSync subscription behaviour"):
 #
 #   - A mismatched type is rejected at schema creation, loudly: "The subscription has an invalid
 #     output type." That one fails safely.

@@ -10,12 +10,12 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
 /**
  * Cognito PreSignUp trigger: rejects a sign-up outright when its {@code name} attribute collides
- * (case/whitespace-insensitively) with an existing Person - see mootmaker-api#70. A separate
- * trigger from {@link PostConfirmationCreatePersonHandler}, deliberately: that one already explains
- * why it can't itself reject a sign-up (the account is already confirmed by the time it runs, and
- * Cognito treats a thrown exception there as something to log and swallow, not fail the call).
- * PreSignUp is the one point in the flow where throwing actually stops account creation - before
- * any Cognito user exists at all, so there is nothing to roll back on rejection.
+ * (case/whitespace-insensitively) with an existing Person. A separate trigger from {@link
+ * PostConfirmationCreatePersonHandler}, deliberately: that one already explains why it can't itself
+ * reject a sign-up (the account is already confirmed by the time it runs, and Cognito treats a
+ * thrown exception there as something to log and swallow, not fail the call). PreSignUp is the one
+ * point in the flow where throwing actually stops account creation - before any Cognito user exists
+ * at all, so there is nothing to roll back on rejection.
  *
  * <p>{@code name} is available here because the webapp already sends it as a plain (non-custom)
  * Cognito attribute on the initial {@code signUp()} call - it does not need email to be verified,

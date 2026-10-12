@@ -30,10 +30,10 @@ final class Identity {
   /**
    * The caller's own Person id, taken from the {@code custom:personId} claim.
    *
-   * <p>This is what removed the startup waterfall: the id arrives on the token, so nothing has to
-   * be looked up before a query can name the caller. It replaced a GSI query on {@code
-   * cognitoSub-index}, which could not be read consistently - a GSI rejects {@code ConsistentRead},
-   * so a Person written moments earlier might not have been visible.
+   * <p>The id arrives on the token, so nothing has to be looked up before a query can name the
+   * caller, and the Person is then a consistent key read. (A lookup by {@code sub} would need an
+   * index, which cannot be read consistently, so a Person written moments earlier might not be
+   * visible.)
    *
    * <p>Empty in two legitimate cases, and both must degrade rather than fail. A machine-to-machine
    * {@code client_credentials} token has no user behind it at all, so it can never carry a custom

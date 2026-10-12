@@ -16,10 +16,9 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 /**
  * AppSync direct-Lambda resolver for {@code Query.meeting(id:)}.
  *
- * <p>The one lookup that is not a date range. It used to be served by fetching every meeting ever
- * stored and filtering client-side; it is now two point reads - the {@code PTR#} pointer for the
- * date, then that day - which is the entire reason the pointer is written in the same transaction
- * as the day item.
+ * <p>The one lookup that is not a date range: two point reads - the {@code PTR#} pointer for the
+ * date, then that day - which is why the pointer is written in the same transaction as the day
+ * item.
  *
  * <p><b>Not found and aged-out-of-retention return the same answer.</b> That is deliberate: callers
  * handle one case instead of two, and nothing confirms that a given id was once valid. A shared

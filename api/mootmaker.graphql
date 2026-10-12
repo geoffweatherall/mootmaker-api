@@ -24,13 +24,13 @@ type Query {
     "Finds every room with capacity >= requiredCapacity that has no meeting overlapping [startTime, endTime), ranked smallest surplus capacity first (rooms of equal capacity break ties by name, so the order is predictable). requiredCapacity is the full headcount (organiser + attendees) - the caller computes it, this does not look up organiser/attendee ids. A user action rather than screen state, so it stays a root field: it has its own arguments and is never part of a page's initial load. Best-effort: invalid or missing arguments return an empty list rather than a structured error list, since this only feeds a suggestion button, not the authoritative createMeeting validation. excludingMeetingId is optional and only ever sent while editing an existing meeting: it excludes that one meeting's own current slot from every room's availability check, so a room is never wrongly reported as unavailable purely because of the meeting's own prior time in it - the same self-exclusion updateMeeting itself applies."
     suggestRoom(startTime: String!, endTime: String!, requiredCapacity: Int!, excludingMeetingId: ID): [Room!]!
 
-    "The one lookup that is not a date range, and the reason an id -> date pointer is written alongside every meeting: it resolves in two reads rather than the full-table scan this used to need. Returns null for an id that never existed AND for one whose day has passed out of retention - deliberately the same answer, so callers handle one case, and so nothing confirms that a given id was once valid."
+    "The one lookup that is not a date range, and the reason an id -> date pointer is written alongside every meeting: it resolves in two key reads. Returns null for an id that never existed AND for one whose day has passed out of retention - deliberately the same answer, so callers handle one case, and so nothing confirms that a given id was once valid."
     meeting(id: ID!): Meeting
 }
 
 "Everything one screen needs, behind a single field, so a page load is one request and one resolver invocation."
 type Workspace {
-    "The signed-in caller's own Person, or null if none is linked. Resolved from the caller's `custom:personId` claim, so it costs no lookup to know WHICH person to read - which is what removed the old myPerson -> meetings waterfall. Null for a machine-to-machine token, which has no user behind it at all, and for a confirmed user whose Person creation failed."
+    "The signed-in caller's own Person, or null if none is linked. Resolved from the caller's `custom:personId` claim, so it costs no lookup to know WHICH person to read. Null for a machine-to-machine token, which has no user behind it at all, and for a confirmed user whose Person creation failed."
     me: Person
     "Every person, in no particular order. Small and slow-moving; fetching it once at page load is what lets every later `attendees { id }` resolve from the client's cache with no further round trip."
     people: [Person!]!
@@ -119,7 +119,7 @@ type Room {
    id: ID!
    name: String!
    capacity: Int!
-   "Null means no colour was ever explicitly chosen - clients fall back to their own deterministic assignment (e.g. by sorted position) the same way every room behaved before this field existed. Never assigned automatically server-side; only set by an admin explicitly picking one."
+   "Null means no colour was ever explicitly chosen - clients fall back to their own deterministic assignment (e.g. by sorted position). Never assigned automatically server-side; only set by an admin explicitly picking one."
    color: RoomColor
 }
 
@@ -284,7 +284,7 @@ type DeletePersonResult {
 
 enum PersonError {
     NameRequired
-    "createPerson only: another person already has this name (compared case- and whitespace-insensitively) - almost always the same person being added twice by mistake rather than two people who happen to share a name. See mootmaker-api#70."
+    "createPerson only: another person already has this name (compared case- and whitespace-insensitively) - almost always the same person being added twice by mistake rather than two people who happen to share a name."
     NameAlreadyExists
     "renamePerson/setPersonAdmin/deletePerson only: id did not match any existing person."
     PersonNotFound

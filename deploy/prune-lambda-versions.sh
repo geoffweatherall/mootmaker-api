@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Deletes old published versions of this environment's Lambda functions (mootmaker#77).
+# Deletes old published versions of this environment's Lambda functions.
 #
 # WHY. `publish = true` plus SnapStart publishes a new version on every code change, and each
-# version keeps its own copy of the code. Nothing removed them, so they grew with the number of
-# deploys rather than with use - a direct breach of principles.md's "nothing accumulates without a
-# bound". Run by deploy.sh after every apply, so the count can never drift upward.
+# version keeps its own copy of the code. Unpruned, they would grow with the number of deploys
+# rather than with use - a breach of principles.md's "nothing accumulates without a bound". Run by
+# deploy.sh after every apply, so the count can never drift upward.
 #
 # WHAT IS KEPT, per function:
 #   - the version the `live` alias points at (what Cognito triggers and AppSync invoke);

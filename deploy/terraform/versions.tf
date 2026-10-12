@@ -10,7 +10,7 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
-    # Only for the IAM propagation gate in iam.tf - see mootmaker-api#26.
+    # Only for the IAM propagation gate in iam.tf.
     time = {
       source  = "hashicorp/time"
       version = "~> 0.12"

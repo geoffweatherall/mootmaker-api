@@ -132,9 +132,8 @@ class CreateMeetingHandlerTest {
     final List<String> errors = (List<String>) result.get("errors");
     assertTrue(errors.isEmpty());
 
-    // Replaces the old "one participants row per person" assertion. The join table is gone; what
-    // has to exist now is the pointer that lets meeting(id:) resolve without scanning, and it must
-    // point at the day that actually holds the meeting.
+    // The pointer that lets meeting(id:) resolve without scanning must exist, and point at the day
+    // that actually holds the meeting.
     @SuppressWarnings("unchecked")
     final Map<String, Object> meeting = (Map<String, Object>) result.get("meeting");
     final String meetingId = (String) meeting.get("id");
@@ -422,9 +421,7 @@ class CreateMeetingHandlerTest {
     fakeClient.tables.put("Meetings", new ArrayList<>(DayFixtures.dayItems(existing)));
 
     // A missing organiser is a request-level rule; an unavailable room is a day-state one. They are
-    // checked in different places, and an earlier version of this handler threw on the first set -
-    // so the caller learned about the organiser, fixed it, and only then discovered the room was
-    // gone. Two round trips to be told two things that were both true the first time.
+    // checked in different places, and both must be reported together, not one round trip each.
     final Map<String, Object> event =
         meetingArguments(
             "room-1", "", List.of("attendee-1"), "2026-07-01T14:30:00", "2026-07-01T15:30:00");

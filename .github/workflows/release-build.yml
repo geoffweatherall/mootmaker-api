@@ -1,5 +1,4 @@
-# Reusable release build for mootmaker-api. See mootmaker/designs/archive/ci-cd-pipeline.md Decision 7
-# and Rollout step 6.
+# Reusable release build for mootmaker-api. See mootmaker/designs/archive/ci-cd-pipeline.md Decision 7.
 #
 # Builds the Lambda jar ONCE, proves it against a fresh ephemeral AWS environment, and uploads it
 # as an artifact. release.yml in mootmaker-release then promotes that exact artifact to test and
@@ -68,8 +67,7 @@ jobs:
       # mootmaker-release/release.yml, the github context belongs to the CALLER - GitHub's
       # reusable-workflow reference: "the github context is always associated with the caller
       # workflow" - so a bare checkout would clone mootmaker-release, which has no impl/ at all.
-      # See mootmaker#40. `ref` falls back to github.ref so standalone dispatch at a tag still
-      # works unchanged.
+      # `ref` falls back to github.ref so a standalone dispatch at a tag works too.
       - uses: actions/checkout@v5
         with:
           repository: geoffweatherall/mootmaker-api

@@ -9,8 +9,8 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  *
  * <p>The day is the unit the whole design turns on: one key identifies a DynamoDB item, an AppSync
  * fetch, an Apollo cache entity, and a subscription filter value. Reading a day by primary key is
- * what buys {@code ConsistentRead}, which removes the read-after-write class of bug outright - the
- * old per-meeting items were queried through a GSI, and GSIs reject consistent reads.
+ * what buys {@code ConsistentRead}, which removes the read-after-write class of bug outright (an
+ * index could not be read consistently).
  *
  * <p>{@code version} exists for optimistic locking. Adding one meeting rewrites the whole item, so
  * two concurrent bookings on the same date will collide; the conditional write on this attribute is

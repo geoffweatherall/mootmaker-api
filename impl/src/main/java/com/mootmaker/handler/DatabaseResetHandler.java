@@ -10,16 +10,15 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
 /**
- * Lambda entry point for database reset - formerly {@code Mutation.reset} in this API, then the
- * standalone {@code mootmaker-admin-tools/database-reset} Lambda, now merged back into this repo
- * (see designs/admin-tools-into-api.md). Invoked directly - {@code aws lambda invoke}, the AWS
- * console, or the AWS SDK - never through a wrapper script; the input payload is unused, there is
- * nothing to configure per invocation. Deletes every stored room and meeting, every avatar that
- * does not belong to a person who survives, and - except in {@code production} - wipes the Cognito
- * user pool down to the reserved accounts (the demo user, and the fixture users in ephemeral
- * environments) and every Person still linked to one of them, then ensures and repairs the fixture
- * users (see {@link FixtureUsers}). See {@link DatabaseReset} for what actually gets deleted and
- * why.
+ * Lambda entry point for database reset (see designs/archive/admin-tools-into-api.md). It is
+ * deliberately not part of the GraphQL API: invoking it needs AWS credentials. Invoked directly -
+ * {@code aws lambda invoke}, the AWS console, or the AWS SDK - never through a wrapper script; the
+ * input payload is unused, there is nothing to configure per invocation. Deletes every stored room
+ * and meeting, every avatar that does not belong to a person who survives, and - except in {@code
+ * production} - wipes the Cognito user pool down to the reserved accounts (the demo user, and the
+ * fixture users in ephemeral environments) and every Person still linked to one of them, then
+ * ensures and repairs the fixture users (see {@link FixtureUsers}). See {@link DatabaseReset} for
+ * what actually gets deleted and why.
  *
  * <p>{@code ALLOW_COGNITO_WIPE} is computed by Terraform from the target environment ({@code
  * environment != "production"}), not read from the invoke payload - whether wiping Cognito is
@@ -55,7 +54,7 @@ public final class DatabaseResetHandler
       // The Cognito wipe (if allowed) runs first, synchronously, because the DynamoDB people
       // deletion below needs its result (which Cognito subs survived) to know which Persons
       // to keep. Rooms, meetings, and people are otherwise independent of each other, so once
-      // that's known they run concurrently, same as before this Lambda gained a Cognito step.
+      // that's known they run concurrently.
       final int cognitoUsersDeleted;
       final boolean cognitoWipeSkipped = !allowCognitoWipe;
       final Set<String> survivingSubs;

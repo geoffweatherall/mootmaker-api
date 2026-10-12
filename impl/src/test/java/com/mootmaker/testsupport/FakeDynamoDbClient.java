@@ -71,12 +71,8 @@ public class FakeDynamoDbClient implements DynamoDbClient {
   public void close() {}
 
   /**
-   * Replaces any existing item with the same "id" (matching real DynamoDB PutItem semantics for
-   * every table here, which are all keyed by "id" - meeting-participants is the one exception, but
-   * nothing under test writes to it via a bare putItem rather than transactWriteItems). Previously
-   * this just appended unconditionally, which was fine when only create* handlers existed (never a
-   * pre-existing item to collide with) but silently left a stale duplicate behind once update*
-   * handlers started overwriting an existing item.
+   * Replaces any existing item with the same key, matching real DynamoDB PutItem semantics, so an
+   * update overwriting an existing item does not leave a stale duplicate behind.
    *
    * <p>Now also honours {@code conditionExpression} - {@code RoomRepository}/{@code
    * PersonRepository}'s {@code create} methods rely on {@code attribute_not_exists(id)} failing
@@ -347,7 +343,7 @@ public class FakeDynamoDbClient implements DynamoDbClient {
   /**
    * How many items one {@code scan} call returns before handing back a {@code LastEvaluatedKey}.
    * The real limit is 1MB, far more than a unit test holds, so without lowering this a caller that
-   * reads only the first page would pass every test (mootmaker-api#2).
+   * reads only the first page would pass every test.
    */
   public int scanPageSize = Integer.MAX_VALUE;
 

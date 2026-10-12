@@ -1,9 +1,8 @@
 # Publishes api/mootmaker.graphql as a versioned artifact when it changes on main.
 #
-# Standalone rather than a step inside a deploy pipeline: see
+# Standalone rather than a step inside the release pipeline: see
 # mootmaker/designs/archive/graphql-schema-sharing.md Decision 3. Publishing a static file needs no AWS
-# credentials, no environment targeting and no deployment machinery, so it does not have to wait
-# for designs/archive/ci-cd-pipeline.md - which that design can absorb this workflow into once it lands.
+# credentials, no environment targeting and no deployment machinery.
 #
 # Two registries, deliberately (Decision 1): npmjs.com for the npm artifact because GitHub Packages
 # requires an access token to install even a PUBLIC package, which would make mootmaker-webapp
@@ -61,7 +60,7 @@ jobs:
         id: version
         run: echo "value=$(node -p "require('./api/package.json').version")" >> "$GITHUB_OUTPUT"
 
-      # Implements the three cases in the design's Decision 5:
+      # The three cases (graphql-schema-sharing.md Decision 5):
       #
       #   schema changed, version bumped    -> publish
       #   schema changed, version forgotten -> fail, naming the file to edit
@@ -108,10 +107,9 @@ jobs:
         run: npm publish
 
       # The Maven artifact carries the same schema at the same version, generated from the same
-      # string, so one version means one thing in both registries (Decision 5). It has no consumer
-      # yet - the Java consumers keep hand-written operations until a later piece of work
-      # (Decision 9) - but publishing from the start is what gives mootmaker-android and
-      # mootmaker-demo-data a complete version history rather than one starting mid-stream.
+      # string, so one version means one thing in both registries. It has no consumer yet - the
+      # Java consumers still use hand-written operations - but publishing every version gives a
+      # future consumer a complete history rather than one starting mid-stream.
       - name: Generate the Maven pom from the same version
         if: steps.decide.outputs.publish == 'true'
         run: |

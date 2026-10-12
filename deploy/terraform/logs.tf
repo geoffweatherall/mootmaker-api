@@ -1,14 +1,9 @@
-# Decision 11: bring this component's log groups under Terraform, tagged and retention-capped.
+# This component's log groups, under Terraform so they are tagged and retention-capped.
 #
 # Lambda and AppSync both auto-create their log groups on first invocation if none exists - but
-# with NEVER-EXPIRE retention and no tags. That is the default this file exists to correct: an
-# untagged group that grows forever is both a cost leak and unfindable when troubleshooting.
-#
-# IMPORTANT for test and production: these groups ALREADY EXIST there, auto-created and unmanaged,
-# so the first apply that introduces these resources must be preceded by `terraform import` for
-# each one - CloudWatch rejects creating a log group whose name is taken. A fresh ephemeral
-# environment has no such problem, since nothing exists there yet. See the design's Rollout step 12
-# and deploy/import-log-groups.sh.
+# with NEVER-EXPIRE retention and no tags. An untagged group that grows forever is both a cost leak
+# and unfindable when troubleshooting. If a group ever exists before Terraform creates it,
+# deploy/import-log-groups.sh imports it.
 
 locals {
   # Names are built from resource_prefix rather than read off the function resources, and that is
@@ -18,7 +13,7 @@ locals {
   # Terraform creates the function first. SnapStart then publishes a version, which executes the
   # function's init to take its snapshot - and that invocation makes Lambda auto-create the log
   # group. Terraform's own create then fails with ResourceAlreadyExistsException, on a supposedly
-  # empty environment. That is exactly how the first release carrying this file failed.
+  # empty environment.
   #
   # Deriving the names independently inverts the dependency: the groups are created first, with the
   # retention and tags already set, and the functions below declare depends_on so Lambda finds a

@@ -14,12 +14,10 @@ import com.mootmaker.model.MeetingRecord;
  * itself is identical), and {@code DeleteRoomHandler} (which blocks rather than cascades - see its
  * own doc comment for why room deletion's blast radius is treated differently from a person's).
  *
- * <p>Found by <b>scanning day items</b>, which is what replaced the old {@code
- * meeting-participants} join table. That table existed to answer one question - "every meeting this
- * person/room is in, with no date range" - for exactly these rare operations, at the cost of a row
- * per participant per meeting kept consistent on every write. The booking horizon and retention
- * bound the table at 217 day items, so a scan is both trivial and, unlike a computed range of
- * horizon dates, exact: it cannot miss a day the arithmetic got wrong.
+ * <p>Found by <b>scanning day items</b>: "every meeting this person or room is in, with no date
+ * range" is needed only by these rare operations, so no index or join table is kept for it. The
+ * booking horizon and retention bound the table at 217 day items, so a scan is both trivial and,
+ * unlike a computed range of horizon dates, exact: it cannot miss a day the arithmetic got wrong.
  */
 final class UpcomingMeetings {
 

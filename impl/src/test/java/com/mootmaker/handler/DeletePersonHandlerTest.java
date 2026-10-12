@@ -437,7 +437,7 @@ class DeletePersonHandlerTest {
     invoke(handlerBroadcastingTo(dynamoDbClient, broadcaster), event("person-a", "admin-person"));
 
     // Other clients would otherwise keep showing the cancelled meeting, and the target on the one
-    // they attended, until something else refreshed those days (mootmaker-api#107).
+    // they attended, until something else refreshed those days.
     assertEquals(1, broadcaster.broadcasts.size());
     assertEquals(Set.of("2099-01-01", "2099-01-02"), Set.copyOf(broadcaster.broadcasts.getFirst()));
   }

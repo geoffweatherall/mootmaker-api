@@ -20,7 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Covers designs/attendee-response-status.md's Testing impacts: self-only enforcement,
+ * Covers designs/archive/attendee-response-status.md's Testing impacts: self-only enforcement,
  * valid/invalid callers, meeting-not-found, caller-not-an-attendee, and the two concurrency shapes
  * this design specifically calls out - see {@link RespondToMeetingHandler}'s own class javadoc.
  * Real DynamoDB conditional-write conflicts still need acceptance-layer coverage (this uses {@link

@@ -64,10 +64,8 @@ class PersonRepositoryTest {
   }
 
   /**
-   * Creation never sets an avatar. It used to, via a second argument that mootmaker-demo-data
-   * passed a bundled filename to - which meant an unvalidated, caller-supplied path reached
-   * storage. Avatars now arrive only through the upload mutations, so every one has been decoded
-   * and re-encoded by this API before any client sees it.
+   * Creation never sets an avatar. Avatars arrive only through the upload mutations, so every one
+   * has been decoded and re-encoded by this API before any client sees it.
    */
   @Test
   void createWithNewIdNeverSetsAnAvatar() {

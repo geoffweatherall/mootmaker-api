@@ -35,7 +35,7 @@ import javax.imageio.stream.MemoryCacheImageOutputStream;
  *
  * <p>One canonical derivative: {@value #OUTPUT_SIZE}x{@value #OUTPUT_SIZE} JPEG, comfortably above
  * twice the largest size any client renders. There is no resizing on read and no format
- * negotiation; see the design's explicit non-goals.
+ * negotiation; see designs/archive/person-avatar-upload-refactor.md's non-goals.
  */
 public final class AvatarImage {
 

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Lambda jar and deploys the mootmaker API to AWS via Terraform,
-# into the given environment (e.g. an ephemeral name, "production", or a developer's own
-# name for a personal sandbox - see the mootmaker project README for the
-# full multi-environment how-to).
+# into the given environment (an ephemeral name, or "production"/"test" when run by a release -
+# see mootmaker/docs/overview/delivery.md).
 # NOTE: `terraform apply -auto-approve` creates real AWS resources in whatever
 # account/credentials are active. Run this deliberately, not from automation.
 #
@@ -10,8 +9,7 @@
 # This is what makes Decision 8 of mootmaker/designs/archive/ci-cd-pipeline.md ("build once, promote
 # the same artifact") actually true: the release pipeline builds the jar once, then deploys
 # that identical file to test and then production. Rebuilding per environment would produce
-# two different jars and promote nothing. Not useful interactively - omit it and this script
-# behaves exactly as it always has.
+# two different jars and promote nothing. Not useful interactively.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -82,7 +80,7 @@ fi
 terraform -chdir=deploy/terraform init -backend-config=backend.hcl -backend-config="key=${environment}/mootmaker-api/terraform.tfstate"
 terraform -chdir=deploy/terraform apply -auto-approve -var="environment=${environment}"
 
-# Bound the published versions SnapStart leaves behind on every code change (mootmaker#77). A
+# Bound the published versions SnapStart leaves behind on every code change. A
 # warning, never a failure: the deploy itself has already succeeded by this point.
 ./deploy/prune-lambda-versions.sh "${environment}" \
   || echo "WARNING: pruning old Lambda versions failed; the deploy itself succeeded." >&2

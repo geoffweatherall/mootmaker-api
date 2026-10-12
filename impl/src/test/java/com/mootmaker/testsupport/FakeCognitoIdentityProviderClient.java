@@ -43,8 +43,8 @@ public class FakeCognitoIdentityProviderClient implements CognitoIdentityProvide
   public void close() {}
 
   /**
-   * Fails only the update that carries a given attribute. The trigger now issues two updates -
-   * custom:personId, then custom:class - so "fail the next one" can no longer name which failure is
+   * Fails only the update that carries a given attribute. The trigger issues two updates -
+   * custom:personId, then custom:class - so "fail the next one" could not name which failure is
    * being exercised, and the two have very different consequences.
    */
   public void failUpdateOf(final String attributeName, final RuntimeException exception) {

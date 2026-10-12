@@ -5,7 +5,7 @@ package com.mootmaker.model;
  * value names exactly, since AppSync serializes/validates enum values as these literal strings.
  *
  * <p>Stored as a single-character code ({@link #code()}), not the enum name, per
- * designs/attendee-response-status.md's byte budget - the same field
+ * designs/archive/attendee-response-status.md's byte budget - the same field
  * designs/archive/dynamodb-storage-compaction.md already reserved "1 byte code (+1 overhead = 2)"
  * per attendee for.
  */

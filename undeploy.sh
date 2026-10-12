@@ -7,8 +7,7 @@
 # before deleting anything; this script intentionally does not pass -auto-approve by default.
 #
 # --yes passes -auto-approve, for automation that has no stdin to answer the prompt with (the
-# release pipeline's ephemeral acceptance environments, and the scheduled ephemeral sweep - see
-# mootmaker/designs/archive/ci-cd-pipeline.md Rollout steps 6 and 11).
+# release pipeline's ephemeral acceptance environments, and the scheduled ephemeral sweep).
 #
 # Non-interactive mode is deliberately NARROWER than interactive mode, not just quieter. Run by
 # hand, this script will destroy "production" if you confirm the prompt - the prompt is the

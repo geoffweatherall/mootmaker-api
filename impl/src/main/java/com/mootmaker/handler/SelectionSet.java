@@ -9,8 +9,8 @@ import module java.base;
  *
  * <p><b>This only works because the request template asks for it.</b> {@code $util.toJson($ctx)}
  * does <i>not</i> serialise {@code selectionSetList} - AWS documents that it and {@code
- * selectionSetGraphQL} "are not serialized by default", and it was verified absent from a live
- * response before this was written. See {@code appsync.tf}'s request template.
+ * selectionSetGraphQL} "are not serialized by default", which a live response confirms. See {@code
+ * appsync.tf}'s request template.
  *
  * <p><b>The test must fail toward fetching.</b> Aliased fields appear under the alias <i>only</i>:
  * querying {@code aliasedName: name} yields {@code room/aliasedName} and no entry for {@code

@@ -15,8 +15,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Bulk creation's broadcast behaviour, which is the whole reason Decision 5 made bulk creation
- * day-scoped: many meetings, one day, ONE broadcast.
+ * Bulk creation's broadcast behaviour, the reason bulk creation is day-scoped: many meetings, one
+ * day, ONE broadcast.
  */
 class CreateMeetingsBroadcastTest {
 

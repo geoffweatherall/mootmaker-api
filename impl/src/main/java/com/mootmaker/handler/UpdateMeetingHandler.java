@@ -138,7 +138,7 @@ public class UpdateMeetingHandler implements RequestHandler<Map<String, Object>,
           "Forbidden: can only edit a meeting you organise unless you are admin");
     }
 
-    // Optimistic concurrency (mootmaker-api#96). Checked before validation errors are reported:
+    // Optimistic concurrency (see MeetingVersion). Checked before validation errors are reported:
     // if someone else has changed the meeting, nothing else about this request matters until the
     // caller has seen what they changed. Re-checked inside the write below, for an edit that lands
     // between this read and that write.

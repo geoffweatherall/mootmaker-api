@@ -8,21 +8,15 @@ import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityPr
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
 /**
- * Lambda entry point for database repair - formerly the standalone {@code
- * mootmaker-admin-tools/database-repair} Lambda, now merged back into this repo (see
- * designs/admin-tools-into-api.md). Runs maintenance repairs directly against this environment's
- * Cognito user pool and DynamoDB tables - unlike a GraphQL resolver, this bypasses the API surface
- * entirely, since what it needs to read and fix (the full Cognito user list, the raw anything not
- * exposed through the API.
+ * Lambda entry point for database repair (see designs/archive/admin-tools-into-api.md). Runs
+ * maintenance repairs directly against this environment's Cognito user pool and DynamoDB tables -
+ * unlike a GraphQL resolver, this bypasses the API surface entirely, since what it needs to read
+ * and fix (the full Cognito user list, the raw anything not exposed through the API.
  *
  * <p>Invoked directly - {@code aws lambda invoke}, the AWS console, or the AWS SDK - never through
- * a wrapper script. {@code event}'s {@code "dryRun"} boolean field controls whether either repair
+ * a wrapper script. {@code event}'s {@code "dryRun"} boolean field controls whether the repair
  * actually writes anything, e.g. {@code aws lambda invoke --payload '{"dryRun": true}'
  * --cli-binary-format raw-in-base64-out}.
- *
- * <p>Previously ran two repairs in parallel; the meeting-participants rebuild went with the join
- * table it maintained, since day-keyed storage has nothing derived left to drift. What remains is
- * they run concurrently on their own threads rather than one after the other.
  *
  * <p>Builds its own plain SDK clients rather than using {@code DynamoDbClientProvider}/ {@code
  * CognitoIdentityProviderClientProvider} - those exist to prime a connection ahead of a SnapStart

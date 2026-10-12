@@ -91,8 +91,7 @@ public class PostConfirmationCreatePersonHandler
 
     try {
       // The claim IS the idempotency marker. A retried invocation sees the attribute already set
-      // and stops - which is what let cognitoSub-index be deleted, since checking "does a Person
-      // exist for this sub" was the only thing left querying it.
+      // and stops, with no need to look a Person up by sub.
       final Object existingPersonId = userAttributes.get(Identity.PERSON_ID_CLAIM);
       if (existingPersonId instanceof String value && !value.isBlank()) {
         LOGGER.info("Person already linked for confirmed sign-up '{}', skipping creation", name);
@@ -102,8 +101,8 @@ public class PostConfirmationCreatePersonHandler
       // CLAIM FIRST, then the Person, because the two orders fail differently and only one is
       // recoverable. Writing the Person first and failing here leaves a Person with no claim,
       // which nothing can find any more - CreateMissingPersonsRepair sees a user with no claim,
-      // creates a SECOND Person, and the duplicate is undetectable without the index we just
-      // deleted. This order leaves a claim pointing at a Person that does not exist yet: myPerson
+      // creates a SECOND Person, and the duplicate is undetectable without an index by sub. This
+      // order leaves a claim pointing at a Person that does not exist yet: workspace { me }
       // returns null, and the repair creates it with exactly that id. No duplicate is possible.
       final String personId = IdAllocator.newId();
       cognitoClient.adminUpdateUserAttributes(

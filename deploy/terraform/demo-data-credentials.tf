@@ -1,20 +1,11 @@
-# Credentials for mootmaker-demo-data, the third deployable component (see
-# ../../../mootmaker/designs/archive/demo-data-component.md).
+# Credentials for mootmaker-demo-data (see ../../../mootmaker/designs/archive/demo-data-component.md).
 #
-# demo-data used to authenticate as aws_cognito_user_pool_client.acceptance_tests - the *tests'*
-# client - with its secret read from this project's Terraform outputs at deploy time, passed
-# through TF_VAR_, and written into demo-data's Lambda environment variables in the clear. That
-# conflated two unrelated consumers into one credential (neither rotatable without breaking the
-# other, indistinguishable in CloudTrail), put the secret somewhere any holder of
-# lambda:GetFunctionConfiguration could read it, and forced demo-data's deploy to read this
-# project's Terraform state.
-#
-# Instead: its own app client, with the id and secret published to SSM Parameter Store at
-# deterministic paths that demo-data reads at RUNTIME. The secret then exists in this project's
-# state (unavoidable - Terraform created it) and in Parameter Store, but never in demo-data's own
-# state and never in a Lambda environment variable. The deterministic path is the same
-# loose-coupling pattern used for the database-reset function name and the SES/Route53 data
-# sources: neither project reads the other's state.
+# demo-data has its own app client, not the acceptance tests', so each can be rotated or revoked
+# alone and CloudTrail tells them apart. The id and secret are published to SSM Parameter Store at
+# deterministic paths that demo-data reads at RUNTIME, so the secret is never in demo-data's state or
+# in a Lambda environment variable (where anyone with lambda:GetFunctionConfiguration could read it).
+# The deterministic path is the same loose coupling used for the database-reset function name and
+# the SES/Route53 data sources: neither project reads the other's state.
 
 # Confidential client for mootmaker-demo-data. Same scopes as the acceptance-test client (both
 # create rooms and people, which are admin-only mutations), but a separate identity.
@@ -34,8 +25,7 @@ resource "aws_cognito_user_pool_client" "demo_data" {
 
 # Standard-tier parameters with the AWS-managed alias/aws/ssm key: both free. Deliberately NOT a
 # customer-managed KMS key, which is billed a flat $1/month per key regardless of use - one per
-# environment would break this project's scale-to-zero cost profile, the same reasoning that
-# killed the email-verification-bypass design (see testing-strategy.md).
+# environment would break this project's scale-to-zero cost profile.
 #
 # The paths are computed from the environment name alone, so demo-data can construct them without
 # reading anything from this project.
@@ -83,7 +73,7 @@ resource "aws_ssm_parameter" "demo_data_scope" {
 #
 # Without this the demo user's calendar is populated only by luck: demo-data picks organisers and
 # attendees at random from every Person, so the published account the signed-out home page hands
-# every visitor can show an empty calendar. See mootmaker-demo-data#29.
+# every visitor can show an empty calendar.
 #
 # A LIST, not a "demo user" flag, and this project decides what goes in it. demo-data honours the
 # ids without needing a concept of which account is special - adding the e2e Person later is a

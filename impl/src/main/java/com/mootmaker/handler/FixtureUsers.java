@@ -20,14 +20,13 @@ import software.amazon.awssdk.services.cognitoidentityprovider.model.UserNotFoun
 
 /**
  * The test fixture users every database reset ensures exist and repairs back to a known state: an
- * admin, a standard user, and a standard user with no linked Person (mootmaker-api#95). Ephemeral
- * environments only - Terraform configures none anywhere else, and then this does nothing.
+ * admin, a standard user, and a standard user with no linked Person. Ephemeral environments only -
+ * Terraform configures none anywhere else, and then this does nothing.
  *
  * <p><b>Ensure: missing accounts are created through the real sign-up path.</b> {@code SignUp} with
  * the webapp's own client id, then {@code AdminConfirmSignUp}, which fires PostConfirmation exactly
  * as a real confirmation does - so the Person, its {@code custom:personId} claim and its default
- * class all come from the same code a real user's do. The old fixtures were made by Terraform
- * instead, and drifted from real users because of it (#73).
+ * class all come from the same code a real user's do, rather than drifting from it.
  *
  * <p><b>Repair, never recreate.</b> An account that exists is put back: password, enabled, email
  * verified, name and class in Cognito; name, admin flag, default preferences, no avatar and its

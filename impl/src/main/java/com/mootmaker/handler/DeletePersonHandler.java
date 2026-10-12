@@ -142,7 +142,7 @@ public class DeletePersonHandler implements RequestHandler<Map<String, Object>, 
         UpcomingMeetings.cancelUpcomingMeetingsFor(days, id, UpcomingMeetings.now());
     // Straight after the meeting writes, before the steps that can still fail: those meetings have
     // already changed, and other clients should hear so even if a later step throws. Nothing is
-    // published when no upcoming meeting involved this person (mootmaker-api#107).
+    // published when no upcoming meeting involved this person.
     broadcaster.publish(changedDates);
     avatars.deleteAllAvatars(id);
     people.deleteById(id);

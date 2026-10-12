@@ -18,8 +18,7 @@ import software.amazon.awssdk.services.cognitoidentityprovider.model.AttributeTy
 /**
  * Asserts every reserved account carries the role it is meant to, in both places a role lives: the
  * Cognito {@code custom:class} attribute (what authorization reads) and the Person's {@code
- * isAdmin} (what the app displays). The two are set by different code, and the old fixture users
- * drifted between them (mootmaker-api#40, #73).
+ * isAdmin} (what the app displays). The two are set by different code, so they can drift apart.
  *
  * <ul>
  *   <li>The demo user (Terraform-managed, every environment): admin.

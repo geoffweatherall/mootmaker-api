@@ -67,8 +67,8 @@ class CreatePersonHandlerTest {
     final FakeDynamoDbClient fakeClient = new FakeDynamoDbClient();
     final CreatePersonHandler handler = new CreatePersonHandler(fakeClient, "People");
 
-    // Deliberately still sends an avatarUrl argument. The schema no longer declares one, so AppSync
-    // would reject it before this handler ran - but a handler that quietly honoured an undeclared
+    // Deliberately sends an avatarUrl argument. The schema does not declare one, so AppSync would
+    // reject it before this handler ran - but a handler that quietly honoured an undeclared
     // argument would be a way back to unvalidated, caller-supplied paths reaching storage.
     invoke(handler, personArguments("Ada Lovelace", "v1/person-1/deadbeef"));
 

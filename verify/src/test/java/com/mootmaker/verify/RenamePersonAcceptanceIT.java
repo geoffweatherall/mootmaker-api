@@ -18,10 +18,10 @@ import org.slf4j.LoggerFactory;
  * Acceptance tests for {@code renamePerson} (the admin-invoked half of the old {@code updatePerson}
  * - see {@code RenamePersonHandler}'s own doc comment) and reading the change back via the {@code
  * people} query. The acceptance-test client authenticates as the M2M tooling client, which carries
- * the admin-equivalent OAuth scope (see the API README's "M2M tooling" section), so every person it
- * creates and renames here is a guest with no linked Cognito account - there's no way to exercise a
- * real self-rename (or a non-admin rejection) from this suite, since it has no real signed-in user
- * to authenticate as; those are covered by {@code UpdateMyNameHandlerTest}/{@code
+ * the admin-equivalent OAuth scope (see docs/architecture.md), so every person it creates and
+ * renames here is a guest with no linked Cognito account - there's no way to exercise a real
+ * self-rename (or a non-admin rejection) from this suite, since it has no real signed-in user to
+ * authenticate as; those are covered by {@code UpdateMyNameHandlerTest}/{@code
  * RenamePersonHandlerTest} instead.
  */
 class RenamePersonAcceptanceIT {

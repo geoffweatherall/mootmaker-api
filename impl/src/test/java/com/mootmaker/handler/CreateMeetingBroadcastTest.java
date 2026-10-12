@@ -19,9 +19,9 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Both halves are asserted on purpose. A test that only checks "the broadcast I wanted arrived"
  * passes against an implementation that broadcasts on every call including rejected ones, which is
- * precisely the bug this design exists to avoid: AppSync broadcasts a rejected mutation exactly
- * like a successful one (verified), which is why bookings are published from a separate field
- * rather than by subscribing to createMeeting itself.
+ * precisely the bug to avoid: AppSync broadcasts a rejected mutation exactly like a successful one
+ * (verified), which is why bookings are published from a separate field rather than by subscribing
+ * to createMeeting itself.
  */
 class CreateMeetingBroadcastTest {
 

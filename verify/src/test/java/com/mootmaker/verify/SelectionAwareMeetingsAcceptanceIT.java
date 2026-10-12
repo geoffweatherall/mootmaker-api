@@ -105,8 +105,7 @@ class SelectionAwareMeetingsAcceptanceIT {
 
   /**
    * Reads the one day this test seeded through the composite entry point, and returns its single
-   * meeting. The old {@code meetings(filter:)} field is gone: a date range is a list of day keys
-   * now.
+   * meeting.
    */
   private JsonNode theMeeting(final String meetingSelection) {
     final String query =

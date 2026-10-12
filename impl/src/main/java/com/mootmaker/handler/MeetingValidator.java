@@ -177,7 +177,8 @@ final class MeetingValidator {
 
     final List<String> safeAttendeeIds = attendeeIds == null ? List.of() : attendeeIds;
     // Every attendee starts NoResponse unless the caller explicitly supplied a same-length
-    // attendeeStatuses list - see designs/attendee-response-status.md's "Technical considerations".
+    // attendeeStatuses list - see designs/archive/attendee-response-status.md's "Technical
+    // considerations".
     // There is no webapp UI for this (Add Meeting never sends it); it exists so mootmaker-demo-data
     // can seed a realistic status mix through the ordinary GraphQL API rather than needing
     // DynamoDB access or a self-only respondToMeeting call it has no identity to make (most

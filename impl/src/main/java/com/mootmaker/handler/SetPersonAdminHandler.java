@@ -30,11 +30,11 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
  * invisible privilege escalation.
  *
  * <p><b>{@code cognitoSyncFailed} is surfaced, not swallowed</b> - deliberately unlike {@link
- * RenamePersonHandler}'s name-sync failure, which is "only a display convenience for the brief
- * window before {@code AuthProvider}'s {@code myPerson} lookup resolves." A stuck {@code
- * custom:class} sync is not cosmetic: the person still can't actually do admin things despite what
- * the UI now shows. True only alongside a successful DynamoDB write and an empty {@code errors}
- * list - a partial success, never a rejection.
+ * RenamePersonHandler}'s name-sync failure, which only affects a display name for the brief window
+ * before a client reads the Person. A stuck {@code custom:class} sync is not cosmetic: the person
+ * still can't actually do admin things despite what the UI now shows. True only alongside a
+ * successful DynamoDB write and an empty {@code errors} list - a partial success, never a
+ * rejection.
  *
  * <p>Two guards, both admin-only-relevant and both checked before any write:
  *

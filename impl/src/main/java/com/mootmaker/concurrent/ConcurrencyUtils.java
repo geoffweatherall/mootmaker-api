@@ -3,14 +3,11 @@ package com.mootmaker.concurrent;
 import module java.base;
 
 /**
- * Bounded-concurrency helper shared by {@code DatabaseResetHandler} and {@code
- * DatabaseRepairHandler} (see {@code com.mootmaker.handler}) to speed up their independent per-item
- * AWS calls without throwing an unnecessary burst of requests at DynamoDB/Cognito. Both tools
- * previously carried their own identical copy of this when they were separate Maven projects in
- * mootmaker-admin-tools; merging into this one repo removed the reason to keep two copies.
+ * Bounded-concurrency helper for the reset, repair and fixture-user code to speed up independent
+ * per-item AWS calls without throwing an unnecessary burst of requests at DynamoDB or Cognito.
  *
- * <p>{@code mootmaker-demo-data} keeps its own separate copy - it stays a different repository,
- * with no shared-code mechanism to this one.
+ * <p>{@code mootmaker-demo-data} keeps its own copy: it is a different repository, with no
+ * shared-code mechanism to this one.
  */
 public final class ConcurrencyUtils {
 

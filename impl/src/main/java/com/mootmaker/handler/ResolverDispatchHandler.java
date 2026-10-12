@@ -11,12 +11,12 @@ import com.mootmaker.limits.Limits;
  * Lambda function per GraphQL field with one function shared by all of them - so a user's burst of
  * calls across several fields can land on the same already-warm/restored execution environment
  * instead of each field independently paying its own SnapStart restore. Purely a switchboard: all
- * business logic still lives in the per-field handler classes below, unchanged.
+ * business logic lives in the per-field handler classes below.
  *
  * <p>Routes on AppSync's {@code $context.info} ({@code fieldName}, {@code parentTypeName}), which
- * the shared request template in {@code appsync.tf} serialises explicitly. It used to be a
- * pass-through ({@code $util.toJson($ctx)}) that included those for free; it now names every field
- * it sends, because {@code selectionSetList} is not serialised unless it is asked for by name.
+ * the shared request template in {@code appsync.tf} serialises explicitly. The template names every
+ * field it sends rather than passing {@code $util.toJson($ctx)}, because {@code selectionSetList}
+ * is not serialised unless it is asked for by name.
  *
  * <p>The constructor runs {@link Limits#assertConsistent()} before anything else - a statement
  * before {@code this(...)}, which Java 25's flexible constructor bodies allow. That placement is
@@ -41,9 +41,8 @@ public class ResolverDispatchHandler implements RequestHandler<Map<String, Objec
     // just read it.
     this(
         Map.ofEntries(
-            // One composite entry point replaces Query.rooms, Query.people, Query.myPerson and
-            // Query.meetings: a page load is now one invocation and one SnapStart restore rather
-            // than four of each.
+            // One composite entry point for everything a screen reads: a page load is one
+            // invocation and at most one SnapStart restore.
             Map.entry("Query.workspace", new WorkspaceHandler()),
             Map.entry("Query.meeting", new MeetingByIdHandler()),
             Map.entry("Query.suggestRoom", new SuggestRoomHandler()),

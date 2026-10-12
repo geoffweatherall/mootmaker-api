@@ -9,9 +9,7 @@ import module java.base;
 import org.junit.jupiter.api.Test;
 
 /**
- * Covers {@link ConcurrencyUtils#runInParallel}, shared by {@code DatabaseResetHandler} and {@code
- * DatabaseRepairHandler}. Merged from the two near-identical concurrency tests each had as separate
- * Maven projects in mootmaker-admin-tools.
+ * Covers {@link ConcurrencyUtils#runInParallel}, shared by the reset, repair and fixture-user code.
  */
 class ConcurrencyUtilsTest {
 

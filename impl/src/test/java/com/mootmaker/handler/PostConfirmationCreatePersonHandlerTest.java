@@ -107,8 +107,8 @@ class PostConfirmationCreatePersonHandlerTest {
         new PostConfirmationCreatePersonHandler(
             fakeClient, new FakeCognitoIdentityProviderClient(), "People");
 
-    // The CLAIM is the idempotency marker, not the presence of a Person - which is what let
-    // cognitoSub-index be deleted, since "does a Person exist for this sub" was its last reader.
+    // The CLAIM is the idempotency marker, not the presence of a Person: there is no index to find
+    // a Person by sub.
     handler.handleRequest(confirmSignUpEvent("sub-1", "Ada Lovelace", "person-1"), null);
 
     assertEquals(
@@ -157,7 +157,7 @@ class PostConfirmationCreatePersonHandlerTest {
    * The other failure, and the reason the claim is written BEFORE the Person.
    *
    * <p>If the claim cannot be set, no Person is created either - so nothing is stranded. The
-   * opposite order would leave a Person that nothing can find, now that the index is gone, and
+   * opposite order would leave a Person that nothing can find (there is no index by sub), and
    * CreateMissingPersonsRepair would create a second one it has no way to detect as a duplicate.
    */
   @Test

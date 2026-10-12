@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Builds and runs the /verify acceptance tests (mvn verify) against the deployed mootmaker API.
 # Most tests reset the database immediately before they act, via the database-reset Lambda
-# (invoked directly with AWS credentials, not through GraphQL - see DatabaseReset.java and the
-# README's "Authentication in end-to-end tests" section) - part of this repo's own Terraform, so
+# (invoked directly with AWS credentials, not through GraphQL - see DatabaseReset.java and
+# testing-strategy.md) - part of this repo's own Terraform, so
 # deploying this environment (./deploy.sh <environment>) is all that's needed first.
 #
 # Everything the tests need is looked up in SSM Parameter Store, where deploy.sh publishes it
-# (deploy/terraform/published-config.tf, mootmaker-api#94), and handed to the test JVM as
+# (deploy/terraform/published-config.tf), and handed to the test JVM as
 # environment variables. Nothing is sourced into the calling shell.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"

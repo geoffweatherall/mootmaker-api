@@ -10,10 +10,9 @@ import software.amazon.awssdk.services.lambda.model.InvokeResponse;
 
 /**
  * Invokes the {@code database-reset} Lambda directly (AWS IAM auth, via whatever credentials are
- * running the tests), rather than through GraphQL - {@code Mutation.reset} no longer exists (see
- * the API README's "Reset and real user accounts" section). Most acceptance tests call {@link
- * #reset()} immediately before they act, so they can't be thrown off by data left behind by another
- * test or a previous run.
+ * running the tests): reset is deliberately not part of the GraphQL API (see the hub's data
+ * overview). Most acceptance tests call {@link #reset()} immediately before they act, so they can't
+ * be thrown off by data left behind by another test or a previous run.
  *
  * <p>Reads {@code DATABASE_RESET_FUNCTION_NAME} and picks up its AWS region from {@code
  * AWS_REGION}, both of which {@code verify.sh} looks up in SSM and passes in, the same way the AWS
@@ -23,9 +22,9 @@ final class DatabaseReset {
 
   /**
    * The Lambda's own configured timeout is the AWS maximum, 900 seconds (see
-   * designs/admin-tools-into-api.md) - a run that legitimately takes close to that long must not be
-   * reported as a client-side failure while the Lambda keeps running (or even succeeds) regardless.
-   * The SDK's own default {@code apiCallTimeout} is far shorter than that.
+   * designs/archive/admin-tools-into-api.md) - a run that legitimately takes close to that long
+   * must not be reported as a client-side failure while the Lambda keeps running (or even succeeds)
+   * regardless. The SDK's own default {@code apiCallTimeout} is far shorter than that.
    */
   private static final Duration API_CALL_TIMEOUT = Duration.ofSeconds(910);
 

@@ -66,11 +66,7 @@ class DeleteMyAccountHandlerTest {
     return DayFixtures.meetingsIn(client, MEETINGS_TABLE);
   }
 
-  /**
-   * There is no participants table any more, so "was this person's row removed" is asked of the
-   * meetings themselves. That is a better question than the old one: it checks the fact users care
-   * about - who is on the meeting - rather than the state of a derived index that no longer exists.
-   */
+  /** "Was this person removed" is asked of the meetings themselves: who is on each meeting. */
   private List<String> participantIdsRemaining(final FakeDynamoDbClient client) {
     return meetingsRemaining(client).stream()
         .flatMap(
@@ -448,7 +444,7 @@ class DeleteMyAccountHandlerTest {
     handlerBroadcastingTo(dynamoDbClient, broadcaster)
         .handleRequest(deleteEvent("sub-a", "ada@example.com"), null);
 
-    // See DeletePersonHandlerTest's equivalent, and mootmaker-api#107.
+    // See DeletePersonHandlerTest's equivalent.
     assertEquals(1, broadcaster.broadcasts.size());
     assertEquals(Set.of("2099-01-01", "2099-01-02"), Set.copyOf(broadcaster.broadcasts.getFirst()));
   }

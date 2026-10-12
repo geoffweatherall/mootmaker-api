@@ -26,34 +26,25 @@ data "aws_iam_policy_document" "lambda_dynamodb_access" {
       "dynamodb:PutItem",
       "dynamodb:Scan",
       "dynamodb:Query",
-      # Still required after the day-keyed rewrite, for a different reason than it was first granted.
       # CreateMeetingHandler and CreateMeetingsHandler write the day item and one PTR# id -> date
       # pointer per new meeting in a SINGLE transaction, so a meeting can never exist without the
       # pointer that meeting(id:) resolves it through. That transaction is also why bulk creation
       # caps at 99 meetings: DynamoDB allows 100 items, and the day item itself is one of them.
       # DeleteMyAccountHandler's meeting-cancellation cascade uses the same Delete/Put pattern.
-      #
-      # The original justification here named the meeting-participants join table, which the rewrite
-      # deleted. Left as it was, the comment argued for this permission on grounds that no longer
-      # exist - which is an invitation to remove it and break bulk creation.
       "dynamodb:TransactWriteItems",
-      # DeleteMyAccountHandler deletes the caller's own Person item directly (not via
-      # TransactWriteItems, since it isn't part of any meeting cascade) - re-added after having been
-      # removed when ResetHandler (its only prior user) moved out to mootmaker-admin-tools/database-reset
-      # (its own Lambda, with its own narrowly-scoped role) - see the README's "Reset and real user
-      # accounts" section.
+      # DeleteMyAccountHandler and DeletePersonHandler delete a Person item directly (not via
+      # TransactWriteItems, since it isn't part of any meeting cascade).
       "dynamodb:DeleteItem",
       # Two independent users, either of which alone justifies this - stated so that removing one
       # cannot look like grounds for removing the permission:
       #
       # 1. PersonRepository's updateName/updateIsAdmin/updatePreferences write single attributes
       #    rather than replacing the whole item, so a mutation cannot erase a field it does not
-      #    name. See that class's #update javadoc and mootmaker-api#71.
+      #    name. See that class's #update javadoc.
       # 2. DayRepository.moveMeeting repoints a meeting's PTR# item to its new date via an Update
       #    action inside a TransactWriteItems call, rather than a Delete+Put - IAM authorizes each
       #    item action within a transaction against its own underlying permission, so
-      #    TransactWriteItems alone does not cover this; discovered when O.121's acceptance test hit
-      #    a real AccessDeniedException doing exactly this.
+      #    TransactWriteItems alone does not cover this (an AccessDeniedException otherwise).
       "dynamodb:UpdateItem",
       # Metadata-only, no items read/written - used by DynamoDbClientProvider's SnapStart
       # afterRestore hook purely to re-establish the DynamoDB connection/credentials before the
@@ -64,11 +55,8 @@ data "aws_iam_policy_document" "lambda_dynamodb_access" {
       aws_dynamodb_table.rooms.arn,
       aws_dynamodb_table.people.arn,
       aws_dynamodb_table.meetings.arn,
-      # No "/index/*" grants: this project no longer has a single global secondary index. The
-      # meetings table's two went with day-keyed storage, and the people table's cognitoSub-index
-      # went with the custom:personId claim that replaced it. DynamoDB treats indexes as separate
-      # resources, so leaving the wildcards behind would grant access to indexes that do not exist
-      # - and would silently cover any added later without anyone deciding to.
+      # No "/index/*" grants: there are no secondary indexes. DynamoDB treats indexes as separate
+      # resources, so a wildcard would silently cover any added later without anyone deciding to.
     ]
   }
 }
@@ -200,17 +188,15 @@ resource "aws_iam_role_policy" "appsync_invoke_lambda" {
 #
 #     InvalidParameterValueException: The role defined for the function cannot be assumed by Lambda
 #
-# which is what broke the first real release standing up `test` (mootmaker-api#26). The AWS provider
-# does retry that error, but its window is not always enough against a genuinely fresh account-side
-# role, and a failure here fails the whole release for a reason unrelated to the change being
-# released.
+# The AWS provider does retry that error, but its window is not always enough against a genuinely
+# fresh role, and a failure here fails a whole release for a reason unrelated to the change.
 #
-# This is deliberately NOT a fixed cost on every deploy, which is how the issue originally framed
-# the trade. `time_sleep` is re-created only when its triggers change, and the triggers here are the
+# This is deliberately NOT a fixed cost on every deploy. `time_sleep` is re-created only when its
+# triggers change, and the triggers here are the
 # role ARNs - so applying to an existing environment waits for nothing, and only creating a new one
-# pays the pause. That is exactly the case with the race: every release stands up three fresh
-# ephemeral environments for acceptance, so this runs several times per release and never on an
-# update to `test` or `production`.
+# pays the pause. That is exactly the case with the race: every release stands up fresh ephemeral
+# environments for acceptance, so this runs several times per release and never on an update to
+# `test` or `production`.
 #
 # Triggers rather than a bare depends_on, so that a role which is ever replaced re-arms the wait
 # instead of silently skipping it.

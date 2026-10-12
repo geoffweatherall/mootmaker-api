@@ -9,17 +9,8 @@ resource "aws_dynamodb_table" "rooms" {
   }
 }
 
-# The cognitoSub-index GSI is gone from this configuration - the custom:personId claim replaced the
-# only query that used it, and the cognitoSubs list attribute serves the reverse direction.
-#
-# CAUTION for anyone reading this against a long-lived environment: deleting a global_secondary_index
-# block does NOT delete the index. That argument is Optional+Computed on aws_dynamodb_table, so an
-# absent block means "keep whatever is there" rather than "remove it" - verified here, where state
-# still holds cognitoSub-index, the configuration does not, and `terraform plan` reports no
-# differences at all. A table created from this configuration never gets the index; one that already
-# has it keeps it until the table is replaced. That is acceptable only because this design destroys
-# and rebuilds both long-lived environments anyway, and ephemeral ones are disposable. Nothing reads
-# it, and the IAM policy no longer grants access to it. Tracked as an issue rather than worked around.
+# No index: the caller's Person id travels on the token (custom:personId), and the reverse
+# direction is the cognitoSubs list on each item.
 resource "aws_dynamodb_table" "people" {
   name         = "${local.resource_prefix}-people"
   billing_mode = "PAY_PER_REQUEST"
@@ -32,22 +23,18 @@ resource "aws_dynamodb_table" "people" {
 }
 
 # One item per calendar date, holding that day's meetings as a list. See
-# ../../../mootmaker/designs/archive/graphql-schema-and-caching.md.
+# ../../../mootmaker/designs/archive/graphql-schema-and-caching.md and ../../docs/data-model.md.
 #
 # Reading a day by primary key is what buys ConsistentRead, which removes the read-after-write class
-# of bug outright - the previous per-meeting items were queried through a GSI, and GSIs reject
-# consistent reads.
+# of bug outright (an index cannot be read consistently).
 #
 # Three kinds of item share the table, discriminated by pk prefix:
 #   DAY#2026-09-14     the day's meetings, plus a version attribute for optimistic locking
-#   PTR#<meetingId>    id -> date, the only secondary lookup structure kept; backs meeting(id:)
+#   PTR#<meetingId>    id -> date, backs meeting(id:)
 #   CONFIG#retention   the stored retention boundary (below)
 #
-# Both GSIs are gone, and with them the constant bucket = "ALL" attribute that existed solely to give
-# one of them a partition key. A date range maps straight onto day keys, so neither had anything left
-# to answer. The meeting-participants join table went the same way: it existed to answer "every
-# meeting this person is in" with no date range, for account deletion alone, and that is now a scan
-# of at most 217 day items.
+# No secondary indexes: a date range maps straight onto day keys, and "every meeting this person or
+# room is in", needed only for deletions, is a scan of at most 217 day items.
 resource "aws_dynamodb_table" "meetings" {
   name         = "${local.resource_prefix}-meetings"
   billing_mode = "PAY_PER_REQUEST"

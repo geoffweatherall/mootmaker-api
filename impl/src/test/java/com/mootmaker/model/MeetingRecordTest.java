@@ -13,9 +13,10 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 /**
  * {@code startTime}/{@code endTime} are stored as epoch-minutes ({@code N}), not the 19-byte ISO
- * string every other layer of this system sees - see designs/dynamodb-storage-compaction.md. These
- * tests pin that encoding directly, the way {@link PersonTest} pins {@link Person}'s own storage
- * quirks, rather than only reaching it indirectly through {@code DayRepositoryTest}.
+ * string every other layer of this system sees - see
+ * designs/archive/dynamodb-storage-compaction.md. These tests pin that encoding directly, the way
+ * {@link PersonTest} pins {@link Person}'s own storage quirks, rather than only reaching it
+ * indirectly through {@code DayRepositoryTest}.
  */
 class MeetingRecordTest {
 

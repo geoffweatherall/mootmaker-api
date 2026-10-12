@@ -12,7 +12,7 @@ public enum RespondToMeetingError {
   MeetingNotFound,
   /**
    * The caller's own Person is not among this meeting's attendees - either they are its organiser
-   * (who has no status to set, see designs/attendee-response-status.md) or unrelated to it
+   * (who has no status to set, see designs/archive/attendee-response-status.md) or unrelated to it
    * entirely. Re-checked on every write attempt, same as {@code MeetingError}'s day-state rules,
    * since a concurrent edit could remove the caller as an attendee between read and write.
    */

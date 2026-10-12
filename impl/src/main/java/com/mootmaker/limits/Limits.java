@@ -90,12 +90,12 @@ public final class Limits {
   /**
    * How many meetings one {@code createMeetings} call may carry.
    *
-   * <p>Not in the original design, and it exists for a specific reason: the day item and the {@code
-   * PTR#} pointer for every meeting it gains are written in ONE {@code TransactWriteItems}, and
-   * DynamoDB caps that at 100 items. One day item plus 99 pointers is exactly 100. Without this
-   * limit a bulk create of 320 - which the day cap permits - would fail at the transaction rather
-   * than at validation, and the alternatives (chunking, or writing pointers outside the
-   * transaction) both give up the atomicity that makes a pointer unable to outlive its day.
+   * <p>It exists for a specific reason: the day item and the {@code PTR#} pointer for every meeting
+   * it gains are written in ONE {@code TransactWriteItems}, and DynamoDB caps that at 100 items.
+   * One day item plus 99 pointers is exactly 100. Without this limit a bulk create of 320 - which
+   * the day cap permits - would fail at the transaction rather than at validation, and the
+   * alternatives (chunking, or writing pointers outside the transaction) both give up the atomicity
+   * that makes a pointer unable to outlive its day.
    *
    * <p>Well clear of real use: mootmaker-demo-data creates roughly 20 meetings a day. A client
    * wanting more makes more calls.
@@ -122,14 +122,15 @@ public final class Limits {
   /**
    * Bytes budgeted for a future per-attendee response-status field (coming / not coming / tentative
    * / no response) that is not yet part of the persisted meeting shape - see
-   * designs/dynamodb-storage-compaction.md. Folded into {@link #PER_MEETING_BASE_BYTES} and {@link
-   * #BYTES_PER_ATTENDEE} below now, so a later PR that actually adds the field cannot silently blow
-   * a budget nobody remembered to check: today's real item is smaller than this model by exactly
-   * this much, which is the safe direction (a premature rejection, never an oversized item - see
-   * the class javadoc). Modelled as a parallel {@code attendeeStatuses} list, one single-digit code
-   * per attendee: {@link #RESERVED_ATTENDEE_STATUS_BYTES_PER_ATTENDEE} is that list's per-element
-   * cost (1 overhead byte + 1 value byte); {@link #RESERVED_ATTENDEE_STATUS_OVERHEAD_BYTES} is the
-   * list's own one-time name-plus-container cost within the meeting map.
+   * designs/archive/dynamodb-storage-compaction.md. Folded into {@link #PER_MEETING_BASE_BYTES} and
+   * {@link #BYTES_PER_ATTENDEE} below now, so a later PR that actually adds the field cannot
+   * silently blow a budget nobody remembered to check: today's real item is smaller than this model
+   * by exactly this much, which is the safe direction (a premature rejection, never an oversized
+   * item - see the class javadoc). Modelled as a parallel {@code attendeeStatuses} list, one
+   * single-digit code per attendee: {@link #RESERVED_ATTENDEE_STATUS_BYTES_PER_ATTENDEE} is that
+   * list's per-element cost (1 overhead byte + 1 value byte); {@link
+   * #RESERVED_ATTENDEE_STATUS_OVERHEAD_BYTES} is the list's own one-time name-plus-container cost
+   * within the meeting map.
    */
   static final int RESERVED_ATTENDEE_STATUS_BYTES_PER_ATTENDEE = 2;
 

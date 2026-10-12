@@ -12,8 +12,7 @@ import com.mootmaker.model.AvatarError;
  *
  * <p>These are validation results, not faults. Handlers turn them into the typed {@code errors}
  * array the schema promises - a client renders them, and none of them is ever a 500. That
- * distinction is the whole point of the design's requirement that a rejected upload return a
- * structured error rather than a stack trace.
+ * distinction is why a rejected upload returns a structured error rather than a stack trace.
  *
  * <p>Built with writable stack traces and suppression disabled, like {@code MeetingRejected}: these
  * are thrown on ordinary input and never read as a stack trace.
