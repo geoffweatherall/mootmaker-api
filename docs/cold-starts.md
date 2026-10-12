@@ -11,7 +11,7 @@ signing chain for the first time — simply moves to wherever that first call ac
 that placement wrong and SnapStart can look like it does nothing at all.
 
 This document describes the mitigation implemented in this project (see
-[DynamoDbClientProvider.java](src/main/java/com/mootmaker/dynamo/DynamoDbClientProvider.java) for
+[DynamoDbClientProvider.java](../impl/src/main/java/com/mootmaker/dynamo/DynamoDbClientProvider.java) for
 the concrete code), generalised to any AWS SDK for Java v2 client, along with the measurements
 that motivated each change and a general SnapStart performance-tuning checklist.
 
@@ -390,12 +390,10 @@ customer's first real request still puts a real, synchronous reconnect on that
 request's critical path — just a much cheaper one than before, since it's now "only" a fresh
 TCP + TLS handshake and credential resolution, not also a cold class load.
 
-In this project's own before/after measurements (`test-mootmaker-list-rooms`, forced-cold
-invocations, 3 samples each — see the project's PR history / conversation log for full detail).
-Note: this was measured against the standalone `list-rooms` function that existed before the
-switchboard consolidation (see [switching-to-a-switchboard-lambda.md](switching-to-a-switchboard-lambda.md));
-that function no longer exists on its own, having been folded into `resolvers`, so these numbers
-predate that change and haven't been re-measured against it:
+Measured on a single-purpose function that read the rooms table, forced cold, three samples each.
+The API now serves every field from one `resolvers` function, which primes more clients, so treat these
+as the shape of the effect rather than today's numbers (production's are in the hub's
+[performance overview](https://github.com/geoffweatherall/mootmaker/blob/main/docs/overview/performance.md)):
 
 | Configuration | Init/Restore Duration | Handler `Duration` (first real DynamoDB call) | Total wall clock | Billed |
 |---|---|---|---|---|
@@ -409,8 +407,9 @@ billed compute by roughly 70% compared to no SnapStart at all — and meaningful
 moved from the customer-visible `Duration` into `Restore Duration` (which still blocks the response
 for an isolated cold request — see the next section).
 
-One open question from this project's own measurements: the third configuration's `Duration`
-(~1.1s) was *higher* than the second's (~0.40s), despite classes being at least as warm. The
+One open question: the third configuration's `Duration` (~1.1s) was *higher* than the second's
+(~0.40s), despite classes being at least as warm. Production's first request after a restore now takes
+about 1.9s, tracked in [mootmaker-api#114](https://github.com/geoffweatherall/mootmaker-api/issues/114). The
 working hypothesis, not yet confirmed, is that the JDK's own HTTP keep-alive connection cache
 (relevant if using `url-connection-client`, which is built on `java.net.HttpURLConnection`) may
 retain a reference to the connection opened during the pre-checkpoint priming call, get that

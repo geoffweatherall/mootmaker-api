@@ -1,68 +1,50 @@
 # Testing strategy
 
-The overall cross-repo strategy (environments, the approach to reading Cognito's emails in tests,
-and how "vibe coding" shapes all of this) is recorded in
-[mootmaker/docs/reference/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md).
-This document covers what's specific to this repo.
+How mootmaker-api is tested. The layers across the whole system, and why they are shaped as they are,
+are in the hub's [testing overview](https://github.com/geoffweatherall/mootmaker/blob/main/docs/overview/testing.md).
 
-## Layers
+| Layer | Where | Runs against | When |
+|---|---|---|---|
+| Unit | `impl/src/test/` | Nothing: handlers with fake DynamoDB, Cognito and S3 clients | Every pull request (`unit-tests`), every build |
+| Acceptance | `verify/src/test/`, `*IT.java` | A deployed environment over real HTTPS, AppSync, Cognito and DynamoDB | Every release, in a fresh `rel-api-*` environment; by hand with `./verify.sh <env>` |
+| Static | `code-style` PR check | google-java-format, Checkstyle (Google rules), ecj diagnostics | Every pull request |
+| Schema | `schema-parses`, `schema-compatible` PR checks | The schema with standard GraphQL tooling, and diffed against the base branch | Every pull request |
 
-- **Unit tests** (`impl/src/test/`, run via `mvn -f impl/pom.xml clean package` — see
-  [README.md](README.md#build-test-deploy)): fast, no AWS involved, covers the validation rules,
-  DynamoDB query/index selection logic, and the other Java-level behaviour in the Lambda handlers.
-- **Acceptance tests** (`verify/`, JUnit `*IT.java`, run via `./verify.sh <environment>` — see
-  [README.md](README.md#directory-structure)): exercise the **deployed** API over real
-  HTTP/AppSync, with real Cognito M2M (`client_credentials`) auth and real DynamoDB, resetting
-  state via `database-reset` (see [README.md](README.md#reset-and-real-user-accounts))
-  before each test class. This is the layer that catches Terraform misconfiguration, IAM gaps,
-  AppSync↔Lambda wiring problems, and anything else that only exists once the pieces are actually
-  deployed together.
+## Unit tests
 
-## What's changing
+Fast and deterministic; run them constantly. They cover the validation rules, the size limits and their
+consistency proof, the day-item read-modify-write loop (with a fake client that can lose a race on
+purpose), meeting versions, avatar decoding, the selection-set logic, the reset and repair
+rules, and each handler's authorization checks.
 
-- `verify.sh` already takes an arbitrary environment name, so pointing it at a throwaway
-  environment instead of the shared `test` one is a change in *usage*, not code. Going forward,
-  **`test` is reserved for human manual testing**; any automated acceptance-test run (Claude's or
-  future CI's) targets a fresh ephemeral environment instead
-  (`claude-<timestamp>-<rand>` for Claude's own dev sessions, or `<frontend>-<tier>-<timestamp>-<rand>`
-  for an automated suite's own run, e.g. `web-e2e-<timestamp>-<rand>` — see the [naming
-  convention](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md#environments)
-  in the overall doc), then tears it down.
-- **Email verification code bypass (Option 1) — dropped 2026-08-15.** A `CustomEmailSender`
-  Lambda trigger + KMS decrypt + a DynamoDB bypass table was built, unit-tested, and confirmed
-  `terraform validate`-clean, but never applied (blocked on the account's SCP allowing `kms`).
-  Removed rather than left unapplied once the cost/complexity became clear: a customer-managed KMS
-  key is billed a flat $1/month *per key* regardless of use (unlike everything else in this
-  project, which is pure pay-per-request) — and as originally designed, one key would have been
-  created per ephemeral environment, not shared, so it wouldn't have stayed near-zero-cost the way
-  the rest of this project does. The AWS Encryption SDK dependency it needed was also heavy enough
-  to take the shared Lambda jar from ~7.2 MB to ~24 MB (every function in this project ships from
-  one jar — see `lambda.tf`'s "one shaded jar" comment), a real cold-start cost paid by every
-  function, not just this one. mootmaker/docs/reference/testing-strategy.md's "Reading Cognito's emails in tests"
-  now covers Option 2 only; use the Cognito Admin API (`AdminConfirmSignUp`/`AdminSetUserPassword`)
-  directly from test code for anything that needs a working account but doesn't care about
-  exercising the real code-entry UI step — no new infrastructure needed for that, `cognito-idp:*`
-  is already SCP-allowed.
-- The GraphQL schema ([api/mootmaker.graphql](api/mootmaker.graphql)) is the contract
-  mootmaker-webapp's hand-maintained types currently mirror by hand. Codegen to remove that drift
-  risk is tracked as a to-do in [mootmaker's
-  README](https://github.com/geoffweatherall/mootmaker/blob/main/README.md#to-do), deferred until
-  CI/CD pipelines exist — see
-  [mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md)
-  for the webapp side of that gap.
+## Acceptance tests
 
-## Full-stack e2e
+What only a real deployment can show: a missing IAM permission, a Terraform mistake, AppSync wiring, a
+Cognito trigger that does not fire, a subscription that never delivers.
 
-Deployed-webapp-against-deployed-API end-to-end testing (including real email delivery via
-SES→SNS→SQS) lives with each frontend now, not here — this repo's own acceptance tests stay
-API-only, machine-to-machine, and never touch a browser or real email. **Changed 2026-08-19**:
-previously lived in a shared `mootmaker-e2e` repo; that repo kept only the genuinely
-cross-frontend pieces (as `mootmaker-test-infra`, then split 2026-09-03 into
-[mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs) for
-ephemeral-environment lifecycle and
-[mootmaker-email-testing](https://github.com/geoffweatherall/mootmaker-email-testing) for the SES
-email pipeline), and each frontend owns its own full-stack suite in its own repo instead - see
-[mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md)
-for that repo's `e2e/`/`acceptance/` suites, and
-[mootmaker/docs/reference/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md)
-for the overall cross-repo picture.
+- **They authenticate as a machine client** (OAuth2 client credentials, the `mootmaker-acceptance-tests`
+  app client), reading its secret from SSM. One token per run. The token passes the same AppSync check
+  as a user's.
+- **Most reset the environment first** by invoking `database-reset` directly with the caller's AWS
+  credentials, so a test never depends on data another left behind. **Never point `verify.sh` at an
+  environment whose data you want to keep.**
+- **Some act as real users**, the fixture users, where a Cognito user is the point (roles, the
+  no-Person path).
+- **The subscription tests use a real WebSocket** (`AppSyncSubscription`), because AppSync speaks its own
+  protocol and silent delivery failures are the main risk.
+
+The suites, by area:
+
+| Area | Suites |
+|---|---|
+| Authentication and roles | `AuthenticationAcceptanceIT`, `ReservedAccountRolesAcceptanceIT`, `ResolverErrorAcceptanceIT` |
+| Meetings | `CreateMeetingAcceptanceIT`, `CreateMeetingValidationAcceptanceIT`, `UpdateMeetingVersionAcceptanceIT`, `SelectionAwareMeetingsAcceptanceIT`, `SuggestRoomAcceptanceIT` |
+| Rooms and people | `CreateRoomAcceptanceIT`, `UpdateRoomAcceptanceIT`, `DeleteRoomAcceptanceIT`, `CreatePersonAcceptanceIT`, `RenamePersonAcceptanceIT`, `SetPersonAdminAcceptanceIT`, `DeletePersonAcceptanceIT` |
+| Avatars | `AvatarUploadAcceptanceIT`, which also fetches the image through the avatars CDN |
+| Live updates | `DaysInvalidatedAcceptanceIT` |
+| Retention and reset | `HistoryRetentionAcceptanceIT`, `DatabaseResetCognitoWipeAcceptanceIT` |
+
+## Not tested here
+
+Real email (sign-up and password-reset codes) and anything in a browser or on a phone: the web app and
+the Android app test those through their own acceptance suites, against this API.
